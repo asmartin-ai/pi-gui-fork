@@ -1,5 +1,5 @@
-import type { SessionConfig } from "@pi-app/session-driver";
-import type { RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { SessionConfig } from "@pi-gui/session-driver";
+import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";

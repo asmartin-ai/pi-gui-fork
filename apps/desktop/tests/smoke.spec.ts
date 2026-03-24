@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 import { addWorkspace, createSession, getDesktopState, launchDesktop, makeWorkspace } from "./harness";
 
 test("boots the Codex-style shell with an empty workspace catalog", async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const harness = await launchDesktop(userDataDir);
 
   try {
@@ -28,7 +28,7 @@ test("boots the Codex-style shell with an empty workspace catalog", async () => 
 });
 
 test("persists workspace, session selection, and draft across app restart", async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeWorkspace("codex-style-folder");
   const sessionTitle = "New thread";
   const draft = "Now summarize the project title in one sentence.";
@@ -76,7 +76,7 @@ test("persists workspace, session selection, and draft across app restart", asyn
 });
 
 test("navigates across folders and sessions through the sidebar", async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const alphaPath = await makeWorkspace("alpha-workspace");
   const betaPath = await makeWorkspace("beta-workspace");
 

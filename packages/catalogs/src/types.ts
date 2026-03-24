@@ -1,4 +1,4 @@
-import type { SessionRef, WorkspaceId } from "@pi-app/session-driver";
+import type { SessionRef, WorkspaceId } from "@pi-gui/session-driver";
 
 export type { SessionRef, WorkspaceId };
 

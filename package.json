@@ -1,13 +1,13 @@
 {
-  "name": "pi-app",
+  "name": "pi-gui",
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
   "packageManager": "pnpm@10.25.0",
   "scripts": {
-    "dev": "pnpm --filter @pi-app/desktop dev",
+    "dev": "pnpm --filter @pi-gui/desktop dev",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm --filter @pi-app/session-driver build && pnpm --filter @pi-app/catalogs build && pnpm --filter @pi-app/pi-sdk-driver build && pnpm -r --if-present typecheck",
+    "typecheck": "pnpm --filter @pi-gui/session-driver build && pnpm --filter @pi-gui/catalogs build && pnpm --filter @pi-gui/pi-sdk-driver build && pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test",
     "e2e": "playwright test"

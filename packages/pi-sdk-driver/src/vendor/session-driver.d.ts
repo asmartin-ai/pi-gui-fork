@@ -1,4 +1,4 @@
-declare module "@pi-app/session-driver" {
+declare module "@pi-gui/session-driver" {
   export type WorkspaceId = string;
   export type SessionId = string;
   export type RunId = string;

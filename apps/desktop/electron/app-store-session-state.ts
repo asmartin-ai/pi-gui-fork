@@ -1,4 +1,4 @@
-import type { SessionDriverEvent } from "@pi-app/session-driver";
+import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
 import { cloneTranscriptMessage } from "./app-store-utils";
 import { previewFromTranscript, sessionKey } from "./app-store-utils";

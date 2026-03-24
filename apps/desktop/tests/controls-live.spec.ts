@@ -9,7 +9,7 @@ const TINY_PNG_BASE64 =
 
 test("supports slash commands plus image draft preview and removal", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeWorkspace("controls-workspace");
   const harness = await launchDesktop(userDataDir, [workspacePath]);
 

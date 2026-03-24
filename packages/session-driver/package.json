@@ -1,10 +1,10 @@
 {
-  "name": "@pi-app/session-driver",
+  "name": "@pi-gui/session-driver",
   "private": true,
   "type": "module",
   "version": "0.0.0",
   "license": "MIT",
-  "description": "Durable session driver contract for pi-app.",
+  "description": "Durable session driver contract for pi-gui.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

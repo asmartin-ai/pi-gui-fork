@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
-import type { RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
   getSelectedWorkspace,
@@ -458,7 +458,7 @@ export default function App() {
     return (
       <div className="shell shell--loading">
         <main className="loading-card">
-          <div className="loading-card__eyebrow">pi-app</div>
+          <div className="loading-card__eyebrow">pi-gui</div>
           <h1>Loading sessions</h1>
           <p>The desktop shell is restoring folder and thread state from the main process.</p>
         </main>
@@ -631,7 +631,7 @@ export default function App() {
   };
 
   const handleWorkspaceRemove = (workspace: WorkspaceRecord) => {
-    const confirmed = window.confirm(`Remove ${workspace.name} from pi-app? This will not delete any files.`);
+    const confirmed = window.confirm(`Remove ${workspace.name} from pi-gui? This will not delete any files.`);
     setWorkspaceMenuId(null);
     setWorkspaceRenameId(null);
     if (!confirmed) {

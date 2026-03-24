@@ -1,12 +1,12 @@
 {
-  "name": "@pi-app/desktop",
+  "name": "@pi-gui/desktop",
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
   "description": "Codex-style desktop shell for pi",
   "main": "dist-electron/main.js",
   "scripts": {
-    "build:deps": "pnpm --filter @pi-app/session-driver build && pnpm --filter @pi-app/catalogs build && pnpm --filter @pi-app/pi-sdk-driver build",
+    "build:deps": "pnpm --filter @pi-gui/session-driver build && pnpm --filter @pi-gui/catalogs build && pnpm --filter @pi-gui/pi-sdk-driver build",
     "dev": "pnpm run build:deps && concurrently -k -r \"pnpm:dev:renderer\" \"pnpm:dev:electron:watch\" \"pnpm:dev:electron:start\"",
     "dev:renderer": "vite",
     "dev:electron:watch": "tsup electron/main.ts electron/preload.ts --format cjs --platform node --target node22 --out-dir dist-electron --external electron --watch",
@@ -27,8 +27,8 @@
     "test:live:notifications": "pnpm build && pnpm exec playwright test tests/notifications-live.spec.ts"
   },
   "dependencies": {
-    "@pi-app/pi-sdk-driver": "workspace:*",
-    "@pi-app/session-driver": "workspace:*",
+    "@pi-gui/pi-sdk-driver": "workspace:*",
+    "@pi-gui/session-driver": "workspace:*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

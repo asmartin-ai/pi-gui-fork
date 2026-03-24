@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { SessionInfo } from "@mariozechner/pi-coding-agent";
-import type { SessionConfig, SessionErrorInfo, SessionRef, SessionSnapshot, SessionStatus, WorkspaceRef } from "@pi-app/session-driver";
+import type { SessionConfig, SessionErrorInfo, SessionRef, SessionSnapshot, SessionStatus, WorkspaceRef } from "@pi-gui/session-driver";
 import type { SessionTranscriptMessage } from "./transcript.js";
 
 export interface SnapshotSource {

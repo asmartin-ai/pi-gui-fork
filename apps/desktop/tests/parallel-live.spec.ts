@@ -6,7 +6,7 @@ import { getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from 
 
 test("runs two sessions in parallel without sidebar status bleed", async () => {
   test.setTimeout(180_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeWorkspace("parallel-workspace");
   const harness = await launchDesktop(userDataDir, [workspacePath]);
 

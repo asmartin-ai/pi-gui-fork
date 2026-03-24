@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import type { RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
 import { ModelIcon, PlusIcon, ReasoningIcon } from "./icons";
 

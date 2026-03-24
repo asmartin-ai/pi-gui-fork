@@ -6,7 +6,7 @@ import { launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
 
 test("shows skills and settings surfaces from runtime data", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeWorkspace("skills-settings-workspace");
   await mkdir(join(workspacePath, ".agents", "skills", "demo-skill"), { recursive: true });
   await writeFile(

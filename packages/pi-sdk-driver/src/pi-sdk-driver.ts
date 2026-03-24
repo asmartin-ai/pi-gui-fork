@@ -1,4 +1,4 @@
-import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } from "@pi-app/catalogs";
+import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } from "@pi-gui/catalogs";
 import type {
   CreateSessionOptions,
   SessionDriver,
@@ -9,8 +9,8 @@ import type {
   SessionMessageInput,
   Unsubscribe,
   WorkspaceRef,
-} from "@pi-app/session-driver";
-import type { RuntimeLoginCallbacks, RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
+} from "@pi-gui/session-driver";
+import type { RuntimeLoginCallbacks, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   SessionSupervisor,
   type PiSdkDriverOptions,

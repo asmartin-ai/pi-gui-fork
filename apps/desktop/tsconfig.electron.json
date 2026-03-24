@@ -15,10 +15,10 @@
     "types": ["node", "electron"],
     "baseUrl": ".",
     "paths": {
-      "@pi-app/pi-sdk-driver": ["../../packages/pi-sdk-driver/src/index.ts"],
-      "@pi-app/catalogs": ["../../packages/catalogs/src/index.ts"],
-      "@pi-app/session-driver": ["../../packages/session-driver/src/index.ts"],
-      "@pi-app/session-driver/runtime-types": ["../../packages/session-driver/src/runtime-types.ts"]
+      "@pi-gui/pi-sdk-driver": ["../../packages/pi-sdk-driver/src/index.ts"],
+      "@pi-gui/catalogs": ["../../packages/catalogs/src/index.ts"],
+      "@pi-gui/session-driver": ["../../packages/session-driver/src/index.ts"],
+      "@pi-gui/session-driver/runtime-types": ["../../packages/session-driver/src/runtime-types.ts"]
     }
   },
   "include": ["electron/**/*.ts", "src/**/*.ts"],

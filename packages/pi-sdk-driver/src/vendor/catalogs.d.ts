@@ -1,5 +1,5 @@
-declare module "@pi-app/catalogs" {
-  import type { SessionRef, WorkspaceId } from "@pi-app/session-driver";
+declare module "@pi-gui/catalogs" {
+  import type { SessionRef, WorkspaceId } from "@pi-gui/session-driver";
 
   export type { SessionRef, WorkspaceId };
 

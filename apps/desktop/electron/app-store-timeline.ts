@@ -1,4 +1,4 @@
-import type { SessionDriverEvent, SessionRef } from "@pi-app/session-driver";
+import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
 import {
   formatElapsedDuration,

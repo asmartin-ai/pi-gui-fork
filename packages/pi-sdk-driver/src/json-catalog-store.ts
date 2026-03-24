@@ -12,7 +12,7 @@ import type {
   WorktreeCatalogEntry,
   WorktreeCatalogSnapshot,
   WorktreeId,
-} from "@pi-app/catalogs";
+} from "@pi-gui/catalogs";
 import { sessionKey } from "./session-supervisor-utils.js";
 
 type CatalogFileState = {
@@ -278,7 +278,7 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
 }
 
 function defaultCatalogFilePath(): string {
-  return join(homedir(), ".pi-app", "catalogs.json");
+  return join(homedir(), ".pi-gui", "catalogs.json");
 }
 
 function createEmptyState(): CatalogFileState {

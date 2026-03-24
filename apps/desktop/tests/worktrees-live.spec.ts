@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 
 test("creates and selects a worktree-backed workspace from the desktop UI", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeGitWorkspace("worktree-live-workspace");
   const harness = await launchDesktop(userDataDir, [workspacePath]);
 
@@ -55,7 +55,7 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
 
 test("shows a worktree icon in the sidebar without a local text badge", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeGitWorkspace("worktree-sidebar-indicator");
   const harness = await launchDesktop(userDataDir, [workspacePath]);
 
@@ -104,7 +104,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
 
 test("keeps orphaned worktree workspaces visible after removing the root workspace", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeGitWorkspace("worktree-orphan-visibility");
   const harness = await launchDesktop(userDataDir, [workspacePath]);
 
@@ -149,13 +149,13 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
 });
 
 async function makeGitWorkspace(name: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "pi-app-git-workspace-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-gui-git-workspace-"));
   const workspacePath = join(root, name);
   await mkdir(workspacePath, { recursive: true });
   await writeFile(join(workspacePath, "README.md"), `# ${name}\n`, "utf8");
   await execFileAsync("git", ["init", "-b", "main"], { cwd: workspacePath });
   await execFileAsync("git", ["config", "user.name", "Pi App Tests"], { cwd: workspacePath });
-  await execFileAsync("git", ["config", "user.email", "pi-app-tests@example.com"], { cwd: workspacePath });
+  await execFileAsync("git", ["config", "user.email", "pi-gui-tests@example.com"], { cwd: workspacePath });
   await execFileAsync("git", ["add", "README.md"], { cwd: workspacePath });
   await execFileAsync("git", ["commit", "-m", "init"], { cwd: workspacePath });
   return realpath(workspacePath);

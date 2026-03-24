@@ -1,10 +1,10 @@
 {
-  "name": "@pi-app/pi-sdk-driver",
+  "name": "@pi-gui/pi-sdk-driver",
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "SDK-first session driver spike for pi-app.",
+  "description": "SDK-first session driver spike for pi-gui.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.60.0",
-    "@pi-app/catalogs": "workspace:*",
-    "@pi-app/session-driver": "workspace:*"
+    "@pi-gui/catalogs": "workspace:*",
+    "@pi-gui/session-driver": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

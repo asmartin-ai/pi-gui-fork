@@ -6,7 +6,7 @@ import { addWorkspace, getDesktopState, launchDesktop, makeWorkspace } from "./h
 
 test("supports workspace rename and remove from the sidebar menu", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspaceA = await makeWorkspace("workspace-menu-a");
   const workspaceB = await makeWorkspace("workspace-menu-b");
   const harness = await launchDesktop(userDataDir);

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-app/session-driver/runtime-types";
+import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import { ModelIcon, ReasoningIcon, RefreshIcon, SettingsIcon, SkillIcon, StatusIcon } from "./icons";
 

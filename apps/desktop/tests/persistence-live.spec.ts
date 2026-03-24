@@ -9,7 +9,7 @@ const TINY_PNG_BASE64 =
 
 test("persists lightweight ui state separately from transcript and draft attachments", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const workspacePath = await makeWorkspace("persistence-workspace");
 
   const firstRun = await launchDesktop(userDataDir, [workspacePath]);

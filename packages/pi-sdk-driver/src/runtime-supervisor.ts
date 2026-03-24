@@ -18,8 +18,8 @@ import type {
   RuntimeSettingsSnapshot,
   RuntimeSkillRecord,
   RuntimeSnapshot,
-} from "@pi-app/session-driver/runtime-types";
-import type { WorkspaceRef } from "@pi-app/session-driver";
+} from "@pi-gui/session-driver/runtime-types";
+import type { WorkspaceRef } from "@pi-gui/session-driver";
 import { createRuntimeDependencies } from "./runtime-deps.js";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 

@@ -27,4 +27,4 @@ jobs:
         run: pnpm typecheck
 
       - name: Desktop Smoke Tests
-        run: xvfb-run -a pnpm --filter @pi-app/desktop test
+        run: xvfb-run -a pnpm --filter @pi-gui/desktop test

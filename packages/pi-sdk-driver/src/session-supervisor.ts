@@ -9,7 +9,7 @@ import {
   type CreateAgentSessionOptions,
   type SessionInfo,
 } from "@mariozechner/pi-coding-agent";
-import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-app/catalogs";
+import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/catalogs";
 import type {
   CreateSessionOptions,
   SessionConfig,
@@ -23,7 +23,7 @@ import type {
   Unsubscribe,
   WorkspaceId,
   WorkspaceRef,
-} from "@pi-app/session-driver";
+} from "@pi-gui/session-driver";
 import { JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
 import {
   buildSnapshot,

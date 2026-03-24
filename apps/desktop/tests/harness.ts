@@ -68,7 +68,7 @@ export async function launchDesktop(
 }
 
 export async function makeWorkspace(name: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "pi-app-workspace-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-gui-workspace-"));
   const workspacePath = join(root, name);
   await mkdir(workspacePath, { recursive: true });
   await writeFile(join(workspacePath, "README.md"), `# ${name}\n`, "utf8");

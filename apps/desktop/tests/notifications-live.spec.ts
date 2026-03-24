@@ -6,7 +6,7 @@ import { getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from 
 
 test("logs a background completion notification for an unfocused session", async () => {
   test.setTimeout(180_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
   const notificationLogPath = join(userDataDir, "notifications.jsonl");
   const workspacePath = await makeWorkspace("notifications-workspace");
   const harness = await launchDesktop(userDataDir, {
