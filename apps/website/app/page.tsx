@@ -1,4 +1,10 @@
-import { SITE_URL } from "./site";
+import {
+  HERO_BETA_NOTE,
+  OG_IMAGE_PATH,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_URL,
+} from "./site";
 
 const GITHUB_URL = "https://github.com/minghinmatthewlam/pi-gui";
 const PI_MONO_URL = "https://github.com/mariozechner/pi";
@@ -6,14 +12,13 @@ const PI_MONO_URL = "https://github.com/mariozechner/pi";
 const softwareApplicationJsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "pi-gui",
+  name: SITE_NAME,
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS",
-  description:
-    "pi-gui is a Codex-style macOS desktop app for the pi coding agent. Manage workspaces, run sessions, and review agent work from a native interface.",
+  description: SITE_DESCRIPTION,
   url: SITE_URL,
-  codeRepository: GITHUB_URL,
-  image: `${SITE_URL}/og.png`,
+  sameAs: [GITHUB_URL],
+  image: `${SITE_URL}${OG_IMAGE_PATH}`,
   isAccessibleForFree: true,
 };
 
@@ -87,7 +92,7 @@ export default function Page() {
               Features
             </a>
             <a href="#get-started" className="nav-link">
-              Install
+              Setup
             </a>
             <a href="#architecture" className="nav-link">
               Architecture
@@ -137,8 +142,7 @@ export default function Page() {
               from a native interface.
             </p>
             <p className="hero-note">
-              Beta for macOS. Open source, source-install today, and best
-              suited for developers comfortable running from source.
+              {HERO_BETA_NOTE}
             </p>
             <div className="hero-ctas">
               <a
@@ -300,7 +304,7 @@ export default function Page() {
         <section id="get-started" className="get-started">
           <div className="container">
             <p className="section-eyebrow">Get started</p>
-            <h2 className="section-heading">Up and running in minutes</h2>
+            <h2 className="section-heading">Run the beta from source</h2>
             <div className="code-block">
               <code>
                 <span className="code-comment"># Clone the repo</span>
