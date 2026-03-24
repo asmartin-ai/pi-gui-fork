@@ -1,5 +1,21 @@
+import { SITE_URL } from "./site";
+
 const GITHUB_URL = "https://github.com/minghinmatthewlam/pi-gui";
 const PI_MONO_URL = "https://github.com/mariozechner/pi";
+
+const softwareApplicationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "pi-gui",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS",
+  description:
+    "pi-gui is a Codex-style macOS desktop app for the pi coding agent. Manage workspaces, run sessions, and review agent work from a native interface.",
+  url: SITE_URL,
+  codeRepository: GITHUB_URL,
+  image: `${SITE_URL}/og.png`,
+  isAccessibleForFree: true,
+};
 
 function GitHubIcon() {
   return (
@@ -70,6 +86,9 @@ export default function Page() {
             <a href="#features" className="nav-link">
               Features
             </a>
+            <a href="#get-started" className="nav-link">
+              Install
+            </a>
             <a href="#architecture" className="nav-link">
               Architecture
             </a>
@@ -87,6 +106,12 @@ export default function Page() {
       </nav>
 
       <main>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(softwareApplicationJsonLd),
+          }}
+        />
         {/* ===== Hero ===== */}
         <section className="hero">
           <div className="container">
@@ -111,6 +136,10 @@ export default function Page() {
               . Manage workspaces, run sessions, and review agent work — all
               from a native interface.
             </p>
+            <p className="hero-note">
+              Beta for macOS. Open source, source-install today, and best
+              suited for developers comfortable running from source.
+            </p>
             <div className="hero-ctas">
               <a
                 href={GITHUB_URL}
@@ -122,7 +151,7 @@ export default function Page() {
                 View on GitHub
               </a>
               <a href="#get-started" className="btn btn-secondary">
-                Get started
+                Install from Source
               </a>
             </div>
           </div>
