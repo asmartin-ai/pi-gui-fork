@@ -80,18 +80,30 @@ test("supports slash commands plus image draft preview and removal", async () =>
     await expect(window.locator(".composer__hint")).toContainText("high");
     await expect(composer).toHaveValue("");
 
+    const getSelectedModel = async () => {
+      const state = await getDesktopState(window);
+      const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+      const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+      const selectedConfig = selectedSession?.config;
+      return selectedConfig?.provider && selectedConfig?.modelId
+        ? `${selectedConfig.provider}:${selectedConfig.modelId}`
+        : null;
+    };
+
     await composer.fill("/model");
     await expect(optionsMenu).toBeVisible();
     await optionsMenu.getByRole("button").first().click();
     await expect(optionsMenu).toHaveCount(0);
-    const stateAfterModel = await getDesktopState(window);
-    const selectedWorkspace = stateAfterModel.workspaces.find((workspace) => workspace.id === stateAfterModel.selectedWorkspaceId);
-    const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === stateAfterModel.selectedSessionId);
-    const selectedConfig = selectedSession?.config;
-    expect(selectedConfig?.provider).toBeTruthy();
-    expect(selectedConfig?.modelId).toBeTruthy();
-    await expect(window.locator(".timeline")).toContainText(`Model set to ${selectedConfig?.provider}:${selectedConfig?.modelId}`);
-    await expect(window.locator(".composer__hint")).toContainText(`${selectedConfig?.provider}:${selectedConfig?.modelId}`);
+    const selectedModelText = async () => {
+      const selectedModel = await getSelectedModel();
+      const timelineText = await window.locator(".timeline").textContent();
+      return selectedModel && timelineText?.includes(`Model set to ${selectedModel}`) ? selectedModel : null;
+    };
+    await expect.poll(selectedModelText).not.toBeNull();
+    const selectedModel = await selectedModelText();
+    expect(selectedModel).toBeTruthy();
+    await expect(window.locator(".timeline")).toContainText(`Model set to ${selectedModel}`);
+    await expect(window.locator(".composer__hint")).toContainText(selectedModel ?? "");
     await expect(composer).toHaveValue("");
 
     await window.evaluate(async (data) => {
