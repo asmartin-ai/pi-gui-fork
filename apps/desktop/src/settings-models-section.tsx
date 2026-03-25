@@ -32,7 +32,7 @@ export function SettingsModelsSection({
 
   const activeScopedPatterns =
     runtime && runtime.settings.enabledModelPatterns.length > 0
-      ? runtime.settings.enabledModelPatterns.map((entry) => entry.pattern)
+      ? runtime.settings.enabledModelPatterns
       : availableModels.map((model) => `${model.providerId}/${model.modelId}`);
 
   const featuredProviderIds = new Set(

@@ -181,7 +181,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       ...(defaultModelId ? { defaultModelId } : {}),
       ...(defaultThinkingLevel ? { defaultThinkingLevel } : {}),
       enableSkillCommands: context.settingsManager.getEnableSkillCommands(),
-      enabledModelPatterns: (context.settingsManager.getEnabledModels() ?? []).map((pattern) => ({ pattern })),
+      enabledModelPatterns: context.settingsManager.getEnabledModels() ?? [],
     };
 
     return {

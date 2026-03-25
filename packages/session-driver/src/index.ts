@@ -37,7 +37,6 @@ export type {
   RuntimeModelRecord,
   RuntimeProviderRecord,
   RuntimeResourceDriver,
-  RuntimeScopedModelPatternRecord,
   RuntimeSettingsSnapshot,
   RuntimeSkillRecord,
   RuntimeSnapshot,
