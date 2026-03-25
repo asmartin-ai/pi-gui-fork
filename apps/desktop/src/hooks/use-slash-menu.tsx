@@ -4,7 +4,7 @@ import type { DesktopAppState, SessionRecord, WorkspaceRecord } from "../desktop
 import {
   buildModelOptions,
   findExactSlashCommand,
-  findSlashSuggestions,
+  buildSlashCommandSections,
   flattenSlashSections,
   slashOptionsForCommand,
   type ComposerSlashCommand,
@@ -87,7 +87,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const slashQuery = composerDraft.trimStart();
   const slashSections =
     slashQuery.startsWith("/")
-      ? findSlashSuggestions(slashQuery, selectedRuntime)
+      ? buildSlashCommandSections(slashQuery, selectedRuntime)
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
   const exactSlashCommand = findExactSlashCommand(slashQuery, selectedRuntime);
