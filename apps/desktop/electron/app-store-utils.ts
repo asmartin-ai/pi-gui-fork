@@ -163,8 +163,6 @@ export function toSessionRef(target: WorkspaceSessionTarget): SessionRef {
   };
 }
 
-export { sessionKey };
-
 export function makeTranscriptMessage(role: "user" | "assistant", text: string): TranscriptMessage {
   return {
     kind: "message",

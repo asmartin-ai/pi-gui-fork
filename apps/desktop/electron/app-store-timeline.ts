@@ -1,3 +1,4 @@
+import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
 import {
@@ -7,7 +8,6 @@ import {
   makeToolItem,
   makeTranscriptMessage,
   makeTranscriptMessageWithAttachments,
-  sessionKey,
   TRANSCRIPT_HISTORY_LIMIT,
 } from "./app-store-utils";
 

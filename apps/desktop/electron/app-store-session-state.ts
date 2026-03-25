@@ -1,7 +1,7 @@
+import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
-import { cloneTranscriptMessage } from "./app-store-utils";
-import { previewFromTranscript, sessionKey } from "./app-store-utils";
+import { cloneTranscriptMessage, previewFromTranscript } from "./app-store-utils";
 
 export function applySessionEventState(
   state: DesktopAppState,

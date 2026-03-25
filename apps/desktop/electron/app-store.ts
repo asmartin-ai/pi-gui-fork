@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { JsonCatalogStore, PiSdkDriver, type PiSdkDriverConfig } from "@pi-gui/pi-sdk-driver";
+import { JsonCatalogStore, PiSdkDriver, type PiSdkDriverConfig, sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry, WorktreeCatalogEntry } from "@pi-gui/catalogs";
 import type { SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
 import type { RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
@@ -48,7 +48,6 @@ import {
   previewFromTranscript,
   resolveSelectedSessionId,
   resolveSelectedWorkspaceId,
-  sessionKey,
   toSessionAttachments,
   toTranscriptAttachments,
   toSessionRef,
