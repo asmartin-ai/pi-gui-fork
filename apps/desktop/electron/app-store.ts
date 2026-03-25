@@ -45,6 +45,7 @@ import {
   cloneComposerImageAttachments,
   cloneTranscriptMessage,
   makeActivityItem,
+  mapToRecord,
   previewFromTranscript,
   resolveSelectedSessionId,
   resolveSelectedWorkspaceId,
@@ -892,7 +893,7 @@ export class DesktopAppStore {
       selectedSessionId,
       activeView,
       runtimeByWorkspace: this.serializeRuntimeState(),
-      lastViewedAtBySession: Object.fromEntries(this.lastViewedAtBySession.entries()),
+      lastViewedAtBySession: mapToRecord(this.lastViewedAtBySession),
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
@@ -1085,7 +1086,7 @@ export class DesktopAppStore {
     this.markSessionViewedIfVisible(event.sessionRef);
     this.state = {
       ...this.state,
-      lastViewedAtBySession: Object.fromEntries(this.lastViewedAtBySession.entries()),
+      lastViewedAtBySession: mapToRecord(this.lastViewedAtBySession),
       lastError: this.resolveSelectedSessionError(this.state.selectedWorkspaceId, this.state.selectedSessionId, false),
     };
     this.persistTranscriptCacheForSession(event.sessionRef);
@@ -1211,7 +1212,7 @@ export class DesktopAppStore {
   }
 
   private serializeRuntimeState(): Record<string, RuntimeSnapshot> {
-    return Object.fromEntries(this.runtimeByWorkspace.entries());
+    return mapToRecord(this.runtimeByWorkspace);
   }
 
   private selectedSessionRef(): SessionRef | undefined {
@@ -1303,9 +1304,9 @@ export class DesktopAppStore {
       selectedSessionId: this.state.selectedSessionId || undefined,
       activeView: this.state.activeView,
       composerDraft: this.state.composerDraft || undefined,
-      composerDraftsBySession: Object.fromEntries(this.composerDraftsBySession.entries()),
+      composerDraftsBySession: mapToRecord(this.composerDraftsBySession),
       notificationPreferences: this.state.notificationPreferences,
-      lastViewedAtBySession: Object.fromEntries(this.lastViewedAtBySession.entries()),
+      lastViewedAtBySession: mapToRecord(this.lastViewedAtBySession),
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -1425,7 +1426,7 @@ export class DesktopAppStore {
             }
           : workspace,
       ),
-      lastViewedAtBySession: Object.fromEntries(this.lastViewedAtBySession.entries()),
+      lastViewedAtBySession: mapToRecord(this.lastViewedAtBySession),
     };
   }
 

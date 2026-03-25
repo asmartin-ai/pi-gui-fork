@@ -13,6 +13,10 @@ import type {
 
 export const TRANSCRIPT_HISTORY_LIMIT = 180;
 
+export function mapToRecord<V>(map: Map<string, V>): Record<string, V> {
+  return Object.fromEntries(map.entries());
+}
+
 export function buildWorkspaceRecords(
   workspaces: readonly WorkspaceCatalogEntry[],
   worktrees: readonly WorktreeCatalogEntry[],
@@ -102,7 +106,7 @@ export function buildWorktreeRecords(
     });
   }
 
-  return Object.fromEntries(groups.entries());
+  return mapToRecord(groups);
 }
 
 function buildSessionRecord(
