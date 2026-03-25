@@ -1,21 +1,16 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
     "types": ["node"],
-    "strict": true,
+    "composite": false,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
-    "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true,
-    "declaration": true,
     "emitDeclarationOnly": false,
     "outDir": "dist",
     "rootDir": "src",
-    "baseUrl": ".",
     "paths": {}
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"]
