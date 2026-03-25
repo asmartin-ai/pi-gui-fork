@@ -126,7 +126,7 @@ export function applyTimelineEvent(
         metrics.fileCount += 1;
       }
       state.runMetricsBySession.set(key, metrics);
-      upsertToolRow(transcript, event.callId, event.toolName, "running", toolLabel(event.toolName, event.input), undefined);
+      upsertToolRow(transcript, event.callId, event.toolName, "running", toolLabel(event.toolName, event.input), undefined, event.input);
       break;
     }
     case "toolUpdated":
@@ -140,6 +140,8 @@ export function applyTimelineEvent(
         event.success ? "success" : "error",
         undefined,
         detailFromOutput(event.output),
+        undefined,
+        event.output,
       );
       break;
     case "runCompleted": {
@@ -192,17 +194,22 @@ function upsertToolRow(
   status?: "running" | "success" | "error",
   label?: string,
   detail?: string,
+  input?: unknown,
+  output?: unknown,
 ) {
   const index = transcript.findIndex((item) => item.kind === "tool" && item.callId === callId);
   const existing = index >= 0 ? transcript[index] : undefined;
+  const existingTool = existing?.kind === "tool" ? existing : undefined;
   const next = makeToolItem(
     callId,
-    toolName ?? (existing?.kind === "tool" ? existing.toolName : "tool"),
-    status ?? (existing?.kind === "tool" ? existing.status : "running"),
-    label ?? (existing?.kind === "tool" ? existing.label : "Working"),
+    toolName ?? (existingTool?.toolName ?? "tool"),
+    status ?? (existingTool?.status ?? "running"),
+    label ?? (existingTool?.label ?? "Working"),
     {
-      detail: detail ?? (existing?.kind === "tool" ? existing.detail : undefined),
-      metadata: existing?.kind === "tool" ? existing.metadata : undefined,
+      detail: detail ?? existingTool?.detail,
+      metadata: existingTool?.metadata,
+      input: input ?? existingTool?.input,
+      output: output ?? existingTool?.output,
     },
   );
 

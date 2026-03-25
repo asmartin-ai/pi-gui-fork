@@ -83,6 +83,23 @@ export function ChevronDownIcon() {
   );
 }
 
+export function ChevronRightIcon() {
+  return (
+    <Icon>
+      <path d="m8.1 5.7 4.1 4.3-4.1 4.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+    </Icon>
+  );
+}
+
+export function CopyIcon() {
+  return (
+    <Icon>
+      <rect x="6.5" y="6.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <path d="M4.5 13.5V5a1.5 1.5 0 0 1 1.5-1.5h8.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+    </Icon>
+  );
+}
+
 export function SparkIcon() {
   return (
     <Icon>

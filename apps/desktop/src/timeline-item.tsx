@@ -1,6 +1,9 @@
+import { useState } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
+import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
+import { ChevronRightIcon, CopyIcon } from "./icons";
 
 export function TimelineItem({
   item,
@@ -62,16 +65,63 @@ function TimelineActivityItem({ item }: { readonly item: TimelineActivity }) {
 }
 
 function TimelineToolCallItem({ item }: { readonly item: TimelineToolCall }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasContent = item.input !== undefined || item.output !== undefined;
+  const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
+
+  const handleCopy = () => {
+    const text = diffText ?? formatToolContent(item.input, item.output);
+    void navigator.clipboard.writeText(text);
+  };
+
   return (
     <article className={`timeline-tool timeline-tool--${item.status}`}>
-      <div className="timeline-tool__label">{item.label}</div>
-      {item.detail ? <div className="timeline-tool__detail">{item.detail}</div> : null}
-      <div className="timeline-tool__meta">
-        <span>{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
-        {item.metadata ? <span>{item.metadata}</span> : null}
-      </div>
+      <button
+        className="timeline-tool__header"
+        type="button"
+        disabled={!hasContent}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        {hasContent ? (
+          <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
+            <ChevronRightIcon />
+          </span>
+        ) : null}
+        <span className="timeline-tool__label">{item.label}</span>
+        <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
+      </button>
+      {expanded && hasContent ? (
+        <div className="timeline-tool__body">
+          <div className="timeline-tool__body-actions">
+            <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
+              <CopyIcon />
+            </button>
+          </div>
+          {diffText ? (
+            <InlineDiff diff={diffText} />
+          ) : (
+            <pre className="timeline-tool__pre">{formatToolContent(item.input, item.output)}</pre>
+          )}
+        </div>
+      ) : null}
+      {!expanded && item.detail ? <div className="timeline-tool__detail">{item.detail}</div> : null}
     </article>
   );
+}
+
+function isWriteTool(toolName: string): boolean {
+  return /write|edit|patch|apply/i.test(toolName);
+}
+
+function formatToolContent(input: unknown, output: unknown): string {
+  const parts: string[] = [];
+  if (input !== undefined) {
+    parts.push(`--- Input ---\n${typeof input === "string" ? input : JSON.stringify(input, null, 2)}`);
+  }
+  if (output !== undefined) {
+    parts.push(`--- Output ---\n${typeof output === "string" ? output : JSON.stringify(output, null, 2)}`);
+  }
+  return parts.join("\n\n");
 }
 
 function statusLabel(status: "running" | "success" | "error") {
