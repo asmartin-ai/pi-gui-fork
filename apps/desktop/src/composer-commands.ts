@@ -241,13 +241,6 @@ export function buildSlashCommandSections(
   return sections.filter((section) => section.items.length > 0);
 }
 
-export function findSlashSuggestions(
-  query: string,
-  runtime?: RuntimeSnapshot,
-): readonly ComposerSlashCommandSection[] {
-  return buildSlashCommandSections(query, runtime);
-}
-
 export function flattenSlashSections(
   sections: readonly ComposerSlashCommandSection[],
 ): readonly ComposerSlashCommand[] {

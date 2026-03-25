@@ -7,7 +7,6 @@ import type { SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from
 import type { RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   type AppView,
-  cloneDesktopAppState,
   createEmptyDesktopAppState,
   type ComposerImageAttachment,
   type CreateSessionInput,
@@ -137,7 +136,7 @@ export class DesktopAppStore {
 
   async getState(): Promise<DesktopAppState> {
     await this.initialize();
-    return cloneDesktopAppState(this.state);
+    return structuredClone(this.state);
   }
 
   subscribe(listener: StateListener): () => void {
@@ -1356,7 +1355,7 @@ export class DesktopAppStore {
   }
 
   private emit(): DesktopAppState {
-    const snapshot = cloneDesktopAppState(this.state);
+    const snapshot = structuredClone(this.state);
     for (const listener of this.listeners) {
       listener(snapshot);
     }
@@ -1656,14 +1655,6 @@ function clampSlug(value: string, limit = 28): string {
   }
   const trimmed = value.slice(0, limit).replace(/-+$/g, "");
   return trimmed || "worktree";
-}
-
-function titleizeSlug(value: string): string {
-  return value
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function shortUniqueSuffix(): string {

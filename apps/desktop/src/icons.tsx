@@ -83,15 +83,6 @@ export function ChevronDownIcon() {
   );
 }
 
-export function ClockIcon() {
-  return (
-    <Icon>
-      <circle cx="10" cy="10" r="6.75" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10 6.8v3.55l2.3 1.35" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
-    </Icon>
-  );
-}
-
 export function SparkIcon() {
   return (
     <Icon>

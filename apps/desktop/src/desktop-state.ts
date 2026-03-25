@@ -120,10 +120,6 @@ export function createEmptyDesktopAppState(): DesktopAppState {
   };
 }
 
-export function cloneDesktopAppState(state: DesktopAppState): DesktopAppState {
-  return structuredClone(state);
-}
-
 export function getSelectedWorkspace(state: DesktopAppState): WorkspaceRecord | undefined {
   return state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
 }

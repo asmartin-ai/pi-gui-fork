@@ -12,8 +12,8 @@ import { ArchiveIcon, ChevronDownIcon, FolderIcon, PlusIcon, RestoreIcon, Settin
 import { ComposerPanel } from "./composer-panel";
 import {
   buildModelOptions,
+  buildSlashCommandSections,
   findExactSlashCommand,
-  findSlashSuggestions,
   flattenSlashSections,
   slashOptionsForCommand,
   type ComposerSlashCommand,
@@ -234,7 +234,7 @@ export default function App() {
   const slashQuery = composerDraft.trimStart();
   const slashSections =
     slashQuery.startsWith("/")
-      ? findSlashSuggestions(slashQuery, selectedRuntime)
+      ? buildSlashCommandSections(slashQuery, selectedRuntime)
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
   const exactSlashCommand = findExactSlashCommand(slashQuery, selectedRuntime);
