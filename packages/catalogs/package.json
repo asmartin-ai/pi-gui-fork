@@ -18,8 +18,5 @@
   },
   "dependencies": {
     "@pi-gui/session-driver": "workspace:*"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3"
   }
 }
