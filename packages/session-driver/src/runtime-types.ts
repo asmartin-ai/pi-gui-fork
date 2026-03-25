@@ -21,10 +21,6 @@ export interface RuntimeModelRecord {
   readonly supportsImages: boolean;
 }
 
-export interface RuntimeScopedModelPatternRecord {
-  readonly pattern: string;
-}
-
 export interface RuntimeSkillRecord {
   readonly name: string;
   readonly description: string;
@@ -41,7 +37,7 @@ export interface RuntimeSettingsSnapshot {
   readonly defaultModelId?: string;
   readonly defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   readonly enableSkillCommands: boolean;
-  readonly enabledModelPatterns: readonly RuntimeScopedModelPatternRecord[];
+  readonly enabledModelPatterns: readonly string[];
 }
 
 export interface RuntimeSnapshot {
