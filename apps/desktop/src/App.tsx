@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -8,7 +8,6 @@ import {
   type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
-import { FolderIcon } from "./icons";
 import { ComposerPanel } from "./composer-panel";
 import type { ComposerSlashCommand } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
@@ -19,6 +18,7 @@ import { SecondarySurface } from "./secondary-surface";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
+import { Topbar } from "./topbar";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 
@@ -593,19 +593,6 @@ export default function App() {
     submitComposerDraft();
   };
 
-  const handleTopbarDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    if (target.closest(".topbar__actions")) {
-      return;
-    }
-
-    void api.toggleWindowMaximize();
-  };
-
   const settingsNav = [
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
@@ -722,86 +709,19 @@ export default function App() {
       />
 
       <main className="main">
-        <header className="topbar" data-testid="topbar" onDoubleClick={handleTopbarDoubleClick}>
-          <div className="topbar__title">
-            <span className="topbar__workspace">
-              {rootWorkspace ? rootWorkspace.name : "Open a folder to begin"}
-            </span>
-            {selectedWorkspace && snapshot.activeView === "threads" ? (
-              <>
-                <span className="topbar__separator">/</span>
-                <div className="environment-picker" ref={wsMenu.environmentMenuRef}>
-                  <button
-                    aria-expanded={wsMenu.environmentMenuOpen}
-                    aria-haspopup="menu"
-                    className="environment-picker__button"
-                    type="button"
-                    onClick={() => wsMenu.setEnvironmentMenuOpen((current) => !current)}
-                  >
-                    {selectedWorkspace.kind === "worktree" ? selectedWorktree?.name ?? selectedWorkspace.name : "Local"}
-                  </button>
-                  {wsMenu.environmentMenuOpen && rootWorkspace ? (
-                    <div className="workspace-menu environment-picker__menu">
-                      <button
-                        className="workspace-menu__item"
-                        type="button"
-                        onClick={() => wsMenu.selectWorkspace(rootWorkspace.id)}
-                      >
-                        Local
-                      </button>
-                      {activeWorktrees.map((worktree) => {
-                        const linkedWorkspace = snapshot.workspaces.find(
-                          (workspace) => workspace.id === worktree.linkedWorkspaceId,
-                        );
-                        const worktreeSelectable = Boolean(linkedWorkspace) && worktree.status === "ready";
-                        return (
-                          <button
-                            className="workspace-menu__item"
-                            key={worktree.id}
-                            type="button"
-                            disabled={!worktreeSelectable}
-                            onClick={() => {
-                              if (worktreeSelectable && linkedWorkspace) {
-                                wsMenu.selectWorkspace(linkedWorkspace.id);
-                              }
-                            }}
-                          >
-                            {worktree.name}
-                            {!worktreeSelectable ? ` (${worktree.status !== "ready" ? worktree.status : "unavailable"})` : ""}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-            {selectedWorkspace && snapshot.activeView === "threads" && selectedSession ? (
-              <>
-                <span className="topbar__separator">/</span>
-                <span className="topbar__session">{selectedSession.title}</span>
-              </>
-            ) : snapshot.activeView === "new-thread" && rootWorkspace ? (
-              <>
-                <span className="topbar__separator">/</span>
-                <span className="topbar__session">New thread</span>
-              </>
-            ) : null}
-          </div>
-
-          <div className="topbar__actions">
-            <button
-              aria-label="Add folder"
-              className="icon-button topbar__icon"
-              type="button"
-              onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
-              }}
-            >
-              <FolderIcon />
-            </button>
-          </div>
-        </header>
+        <Topbar
+          activeView={snapshot.activeView}
+          rootWorkspace={rootWorkspace}
+          selectedWorkspace={selectedWorkspace}
+          selectedSession={selectedSession}
+          selectedWorktree={selectedWorktree}
+          activeWorktrees={activeWorktrees}
+          workspaces={snapshot.workspaces}
+          wsMenu={wsMenu}
+          api={api}
+          setSnapshot={setSnapshot}
+          updateSnapshot={updateSnapshot}
+        />
 
         {snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
