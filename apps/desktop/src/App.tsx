@@ -8,7 +8,7 @@ import {
   type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
-import { ArchiveIcon, ChevronDownIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
+import { FolderIcon } from "./icons";
 import { ComposerPanel } from "./composer-panel";
 import type { ComposerSlashCommand } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
@@ -17,7 +17,8 @@ import { SettingsView, type SettingsSection } from "./settings-view";
 import { TimelineItem } from "./timeline-item";
 import { SecondarySurface } from "./secondary-surface";
 import { NewThreadView } from "./new-thread-view";
-import { buildThreadGroups, type ThreadListEntry } from "./thread-groups";
+import { buildThreadGroups } from "./thread-groups";
+import { Sidebar } from "./sidebar";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 
@@ -700,273 +701,25 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__top">
-          <button
-            className="sidebar__new"
-            type="button"
-            disabled={!selectedWorkspace}
-            onClick={() => openNewThreadSurface()}
-          >
-            <PlusIcon />
-            <span>New thread</span>
-          </button>
-
-          <div className="sidebar__nav">
-            <button
-              className={`sidebar__nav-item ${snapshot.activeView === "threads" ? "sidebar__nav-item--active" : ""}`}
-              type="button"
-              onClick={() => setActiveView("threads")}
-            >
-              <FolderIcon />
-              <span>Threads</span>
-            </button>
-          <button
-            className="sidebar__nav-item"
-            type="button"
-            onClick={() => openSkills(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
-          >
-              <SkillIcon />
-              <span>Skills</span>
-            </button>
-          <button
-            className="sidebar__nav-item"
-            type="button"
-            onClick={() => openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
-          >
-              <SettingsIcon />
-              <span>Settings</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="sidebar__section">
-          <div className="section__head">
-            <span>Threads</span>
-            <div className="section__tools">
-              <button
-                aria-label="Open folder"
-                className="icon-button"
-                type="button"
-                onClick={() => {
-                  void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
-                }}
-              >
-                <FolderIcon />
-              </button>
-            </div>
-          </div>
-
-          {visibleWorkspaces.length === 0 ? (
-            <div className="empty-state" data-testid="empty-state">
-              <h2>No folders yet</h2>
-              <p>Open a project folder to start building a workspace and session list.</p>
-              <button
-                className="button button--primary"
-                type="button"
-                onClick={() => {
-                  void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
-                }}
-              >
-                Open first folder
-              </button>
-            </div>
-          ) : (
-            <div className="workspace-list" data-testid="workspace-list">
-              {threadGroups.map(({ rootWorkspace, threads, archivedThreads }) => {
-                const workspaceActive =
-                  rootWorkspace.id === selectedWorkspace?.id ||
-                  rootWorkspace.id === selectedWorkspace?.rootWorkspaceId;
-                const linkedWorktree = linkedWorktreeByWorkspaceId.get(rootWorkspace.id);
-                const archivedSectionOpen = wsMenu.expandedArchivedByWorkspace[rootWorkspace.id] ?? false;
-                return (
-                  <section key={rootWorkspace.id} className="workspace-group">
-                    <div className={`workspace-row ${workspaceActive ? "workspace-row--active" : ""}`}>
-                      <button
-                        className="workspace-row__select"
-                        onClick={() => wsMenu.selectWorkspace(rootWorkspace.id)}
-                        type="button"
-                      >
-                        <span className="workspace-row__icon" aria-hidden="true">
-                          <FolderIcon />
-                        </span>
-                        <span className="workspace-row__name">{rootWorkspace.name}</span>
-                        <span className="workspace-row__time">{formatRelativeTime(rootWorkspace.lastOpenedAt)}</span>
-                      </button>
-                      <span
-                        className="workspace-row__menu-wrap"
-                        ref={wsMenu.workspaceMenuId === rootWorkspace.id ? wsMenu.workspaceMenuWrapRef : undefined}
-                      >
-                        <button
-                          aria-label={`Workspace actions for ${rootWorkspace.name}`}
-                          aria-haspopup="menu"
-                          className="icon-button workspace-row__menu-button"
-                          aria-expanded={wsMenu.workspaceMenuId === rootWorkspace.id}
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            wsMenu.openWorkspaceMenu(rootWorkspace.id);
-                          }}
-                        >
-                          …
-                        </button>
-                        {wsMenu.workspaceMenuId === rootWorkspace.id ? (
-                          <div className="workspace-menu">
-                            <button
-                              className="workspace-menu__item"
-                              type="button"
-                              onClick={(event) =>
-                                wsMenu.runWorkspaceMenuAction(event, () => {
-                                  void api.openWorkspaceInFinder(rootWorkspace.id);
-                                })
-                              }
-                            >
-                              Open in Finder
-                            </button>
-                            {linkedWorktree ? (
-                              <button
-                                className="workspace-menu__item workspace-menu__item--danger"
-                                type="button"
-                                onClick={(event) =>
-                                  wsMenu.runWorkspaceMenuAction(event, () =>
-                                    wsMenu.removeWorktree(linkedWorktree.rootWorkspaceId || rootWorkspace.id, linkedWorktree),
-                                  )
-                                }
-                              >
-                                Remove worktree
-                              </button>
-                            ) : (
-                              <button
-                                className="workspace-menu__item"
-                                type="button"
-                                onClick={(event) =>
-                                  wsMenu.runWorkspaceMenuAction(event, () => wsMenu.createWorktree(rootWorkspace.id))
-                                }
-                              >
-                                Create permanent worktree
-                              </button>
-                            )}
-                            <button
-                              className="workspace-menu__item"
-                              type="button"
-                              onClick={(event) => wsMenu.runWorkspaceMenuAction(event, () => wsMenu.startRename(rootWorkspace))}
-                            >
-                              Edit name
-                            </button>
-                            <button
-                              className="workspace-menu__item workspace-menu__item--danger"
-                              type="button"
-                              onClick={(event) => wsMenu.runWorkspaceMenuAction(event, () => wsMenu.removeWorkspace(rootWorkspace))}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : null}
-                      </span>
-                    </div>
-                    {wsMenu.workspaceRenameId === rootWorkspace.id ? (
-                      <form
-                        className="workspace-rename"
-                        ref={wsMenu.workspaceRenamePanelRef}
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          wsMenu.submitRename(rootWorkspace);
-                        }}
-                      >
-                        <input
-                          aria-label={`Rename ${rootWorkspace.name}`}
-                          className="workspace-rename__input"
-                          ref={wsMenu.workspaceRenameInputRef}
-                          value={wsMenu.workspaceRenameDraft}
-                          onChange={(event) => {
-                            wsMenu.setWorkspaceRenameDraft(event.target.value);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              wsMenu.cancelRename();
-                            }
-                          }}
-                        />
-                        <div className="workspace-rename__actions">
-                          <button className="workspace-rename__button" type="button" onClick={wsMenu.cancelRename}>
-                            Cancel
-                          </button>
-                          <button className="workspace-rename__button workspace-rename__button--primary" type="submit">
-                            Save
-                          </button>
-                        </div>
-                      </form>
-                    ) : null}
-                    <div className="session-list">
-                      {threads.map((thread) => {
-                        const active = thread.workspaceId === selectedWorkspace?.id && thread.session.id === selectedSession?.id;
-                        return (
-                          <ThreadSessionRow
-                            key={`${thread.workspaceId}:${thread.session.id}`}
-                            active={active}
-                            thread={thread}
-                            onAction={() =>
-                              handleArchiveSession(rootWorkspace.id, {
-                                workspaceId: thread.workspaceId,
-                                sessionId: thread.session.id,
-                              })
-                            }
-                            onSelect={() => handleSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
-                          />
-                        );
-                      })}
-                    </div>
-                    {archivedThreads.length > 0 ? (
-                      <div className="archived-thread-group">
-                        <button
-                          aria-expanded={archivedSectionOpen}
-                          className="archived-thread-group__toggle"
-                          type="button"
-                          onClick={() => wsMenu.toggleArchived(rootWorkspace.id, !archivedSectionOpen)}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`archived-thread-group__chevron ${archivedSectionOpen ? "archived-thread-group__chevron--open" : ""}`}
-                          >
-                            <ChevronDownIcon />
-                          </span>
-                          <span>Archived</span>
-                          <span className="archived-thread-group__count">{archivedThreads.length}</span>
-                        </button>
-                        {archivedSectionOpen ? (
-                          <div className="session-list session-list--archived">
-                            {archivedThreads.map((thread) => {
-                              const active =
-                                thread.workspaceId === selectedWorkspace?.id && thread.session.id === selectedSession?.id;
-                              return (
-                                <ThreadSessionRow
-                                  key={`${thread.workspaceId}:${thread.session.id}`}
-                                  active={active}
-                                  archived
-                                  thread={thread}
-                                  onAction={() =>
-                                    handleUnarchiveSession({
-                                      workspaceId: thread.workspaceId,
-                                      sessionId: thread.session.id,
-                                    })
-                                  }
-                                  onSelect={() => handleSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
-                                />
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </section>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </aside>
+      <Sidebar
+        activeView={snapshot.activeView}
+        selectedWorkspace={selectedWorkspace}
+        selectedSession={selectedSession}
+        visibleWorkspaces={visibleWorkspaces}
+        threadGroups={threadGroups}
+        linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
+        wsMenu={wsMenu}
+        api={api}
+        setSnapshot={setSnapshot}
+        updateSnapshot={updateSnapshot}
+        onNewThread={() => openNewThreadSurface()}
+        onSetActiveView={setActiveView}
+        onOpenSkills={openSkills}
+        onOpenSettings={openSettings}
+        onArchiveSession={handleArchiveSession}
+        onSelectSession={handleSelectSession}
+        onUnarchiveSession={handleUnarchiveSession}
+      />
 
       <main className="main">
         <header className="topbar" data-testid="topbar" onDoubleClick={handleTopbarDoubleClick}>
@@ -1191,64 +944,3 @@ function describeActiveSlashFlow(
   return command.description;
 }
 
-function sessionIndicatorVariant(thread: ThreadListEntry): "running" | "unseen" | "none" {
-  if (thread.session.status === "running") {
-    return "running";
-  }
-  if (thread.session.hasUnseenUpdate) {
-    return "unseen";
-  }
-  return "none";
-}
-
-function ThreadSessionRow({
-  active,
-  archived = false,
-  thread,
-  onAction,
-  onSelect,
-}: {
-  readonly active: boolean;
-  readonly archived?: boolean;
-  readonly thread: ThreadListEntry;
-  readonly onAction: () => void;
-  readonly onSelect: () => void;
-}) {
-  const indicatorVariant = sessionIndicatorVariant(thread);
-  return (
-    <div
-      className={`session-row ${active ? "session-row--active" : ""}`}
-      data-sidebar-indicator={indicatorVariant}
-      data-session-id={thread.session.id}
-    >
-      <button className="session-row__select" onClick={onSelect} type="button">
-        <span className="session-row__leading" aria-hidden="true">
-          {indicatorVariant === "running" ? <span className="session-row__status session-row__status--running" /> : null}
-          {indicatorVariant === "unseen" ? <span className="session-row__status session-row__status--unseen" /> : null}
-        </span>
-        <span className="session-row__body">
-          <span className="session-row__title-line">
-            <span className="session-row__title">{thread.session.title}</span>
-          </span>
-          {thread.session.preview ? <span className="session-row__preview">{thread.session.preview}</span> : null}
-        </span>
-      </button>
-      <span className="session-row__trailing">
-        {thread.environment.kind === "worktree" ? (
-          <span className="session-row__workspace-icon" aria-hidden="true" title="Worktree">
-            <WorktreeIcon />
-          </span>
-        ) : null}
-        <span className="session-row__time">{formatRelativeTime(thread.session.updatedAt)}</span>
-        <button
-          aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}`}
-          className="icon-button session-row__action"
-          type="button"
-          onClick={onAction}
-        >
-          {archived ? <RestoreIcon /> : <ArchiveIcon />}
-        </button>
-      </span>
-    </div>
-  );
-}
