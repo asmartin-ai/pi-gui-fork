@@ -7,11 +7,6 @@ export function MessageMarkdown({ text }: { readonly text: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <p>{children}</p>,
-          ul: ({ children }) => <ul>{children}</ul>,
-          ol: ({ children }) => <ol>{children}</ol>,
-          li: ({ children }) => <li>{children}</li>,
-          blockquote: ({ children }) => <blockquote>{children}</blockquote>,
           code: ({ className, children }) => {
             const language = className?.replace(/^language-/, "");
             const code = String(children).replace(/\n$/, "");

@@ -22,7 +22,7 @@ export interface CreateWorktreeOptions {
   readonly displayName?: string;
 }
 
-export interface RemoveWorktreeOptions {
+interface RemoveWorktreeOptions {
   readonly force?: boolean;
 }
 
