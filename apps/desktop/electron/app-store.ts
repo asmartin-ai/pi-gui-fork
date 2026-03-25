@@ -418,7 +418,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.refreshRuntime(workspace);
+      const snapshot = await this.driver.runtimeSupervisor.refreshRuntime(workspace);
       this.runtimeByWorkspace.set(workspace.workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -447,7 +447,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.setDefaultModel(workspace, { provider, modelId });
+      const snapshot = await this.driver.runtimeSupervisor.setDefaultModel(workspace, { provider, modelId });
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -466,7 +466,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.setDefaultThinkingLevel(workspace, thinkingLevel);
+      const snapshot = await this.driver.runtimeSupervisor.setDefaultThinkingLevel(workspace, thinkingLevel);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -500,7 +500,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.login(workspace, providerId, callbacks);
+      const snapshot = await this.driver.runtimeSupervisor.login(workspace, providerId, callbacks);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -516,7 +516,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.logout(workspace, providerId);
+      const snapshot = await this.driver.runtimeSupervisor.logout(workspace, providerId);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -532,7 +532,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.setEnableSkillCommands(workspace, enabled);
+      const snapshot = await this.driver.runtimeSupervisor.setEnableSkillCommands(workspace, enabled);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -548,7 +548,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.setScopedModelPatterns(workspace, patterns);
+      const snapshot = await this.driver.runtimeSupervisor.setScopedModelPatterns(workspace, patterns);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -564,7 +564,7 @@ export class DesktopAppStore {
     }
 
     try {
-      const snapshot = await this.driver.setSkillEnabled(workspace, filePath, enabled);
+      const snapshot = await this.driver.runtimeSupervisor.setSkillEnabled(workspace, filePath, enabled);
       this.runtimeByWorkspace.set(workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     } catch (error) {
@@ -1015,7 +1015,7 @@ export class DesktopAppStore {
       return;
     }
 
-    const snapshot = await this.driver.getRuntimeSnapshot(workspace);
+    const snapshot = await this.driver.runtimeSupervisor.getRuntimeSnapshot(workspace);
     this.runtimeByWorkspace.set(workspaceId, snapshot);
   }
 
