@@ -981,14 +981,14 @@ export class DesktopAppStore {
     const cachedTranscript = await this.transcriptStore.read(key);
     const transcript = cachedTranscript ?? (await this.driver.getTranscript(sessionRef));
     this.loadedTranscriptKeys.add(key);
-    this.transcriptCache.set(key, transcript.map(cloneTranscriptMessage));
+    this.transcriptCache.set(key, transcript);
   }
 
   private async reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
     const transcript = await this.driver.getTranscript(sessionRef);
     this.loadedTranscriptKeys.add(key);
-    this.transcriptCache.set(key, transcript.map(cloneTranscriptMessage));
+    this.transcriptCache.set(key, transcript);
     this.persistTranscriptCacheForSession(sessionRef);
   }
 
