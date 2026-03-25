@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -423,6 +423,54 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerImage(attachmentId));
   };
 
+  const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items) {
+      return;
+    }
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    void addImagesFromFiles(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+  };
+
+  const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
+      return;
+    }
+    void addImagesFromFiles(files);
+  };
+
+  async function addImagesFromFiles(files: File[]) {
+    if (!api) {
+      return;
+    }
+    const attachments = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<{ id: string; name: string; mimeType: string; data: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              const commaIndex = dataUrl.indexOf(",");
+              resolve({
+                id: crypto.randomUUID(),
+                name: file.name || "pasted-image.png",
+                mimeType: file.type || "image/png",
+                data: dataUrl.slice(commaIndex + 1),
+              });
+            };
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    void updateSnapshot(api, setSnapshot, () => api.addComposerImages(attachments));
+  }
+
   const handleRefreshRuntime = () => {
     if (!settingsWorkspace) {
       return;
@@ -778,6 +826,8 @@ export default function App() {
               composerRef={composerRef}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
+              onComposerPaste={handleComposerPaste}
+              onComposerDrop={handleComposerDrop}
               onPickImages={handlePickImages}
               onRemoveImage={handleRemoveImage}
               onSelectSlashCommand={(command) => {

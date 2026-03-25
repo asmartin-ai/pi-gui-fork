@@ -1,4 +1,4 @@
-import { type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
+import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
 import type { ComposerImageAttachment, SessionRecord } from "./desktop-state";
 import { ArrowUpIcon, ModelIcon, PlusIcon, ReasoningIcon, SkillIcon, SparkIcon, StatusIcon, StopSquareIcon } from "./icons";
 import type { ComposerSlashCommand, ComposerSlashCommandSection, ComposerSlashOption } from "./composer-commands";
@@ -20,6 +20,8 @@ interface ComposerPanelProps {
   readonly showSlashOptionMenu: boolean;
   readonly onClearSlashCommand: () => void;
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  readonly onComposerDrop: (event: DragEvent<HTMLDivElement>) => void;
   readonly onPickImages: () => void;
   readonly onRemoveImage: (attachmentId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
@@ -44,6 +46,8 @@ export function ComposerPanel({
   showSlashOptionMenu,
   onClearSlashCommand,
   onComposerKeyDown,
+  onComposerPaste,
+  onComposerDrop,
   onPickImages,
   onRemoveImage,
   onSelectSlashCommand,
@@ -121,7 +125,12 @@ export function ComposerPanel({
             ) : null}
           </div>
         ) : null}
-        <div className="composer__surface">
+        <div
+          className="composer__surface"
+          onPaste={onComposerPaste}
+          onDrop={onComposerDrop}
+          onDragOver={(event) => event.preventDefault()}
+        >
           {activeSlashCommand ? (
             <div className="composer__slash-intent">
               <span className="composer__slash-intent-icon" aria-hidden="true">
