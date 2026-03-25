@@ -841,7 +841,28 @@ export class DesktopAppStore {
     await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
     await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
 
-    let workspaces = buildWorkspaceRecords(
+    // Resolve selected IDs from raw catalog data so we can populate caches
+    // before building workspace records (avoiding a redundant second build).
+    const selectedWorkspaceId = resolveSelectedWorkspaceIdFromCatalog(
+      options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
+      workspacesSnapshot.workspaces,
+    );
+    const selectedSessionId = resolveSelectedSessionIdFromCatalog(
+      selectedWorkspaceId,
+      options.selectedSessionId ?? this.state.selectedSessionId,
+      sessionsSnapshot.sessions,
+    );
+
+    if (selectedWorkspaceId && selectedSessionId) {
+      const sessionRef = {
+        workspaceId: selectedWorkspaceId,
+        sessionId: selectedSessionId,
+      };
+      await this.ensureSessionReady(sessionRef);
+      await this.ensureComposerAttachmentsLoaded(sessionRef);
+    }
+
+    const workspaces = buildWorkspaceRecords(
       workspacesSnapshot.workspaces,
       worktreeEntries,
       sessionsSnapshot.sessions,
@@ -856,33 +877,6 @@ export class DesktopAppStore {
       if (!liveWorkspaceIds.has(workspaceId)) {
         this.runtimeByWorkspace.delete(workspaceId);
       }
-    }
-    const selectedWorkspaceId = resolveSelectedWorkspaceId(
-      options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
-      workspaces,
-    );
-    const selectedSessionId = resolveSelectedSessionId(
-      selectedWorkspaceId,
-      options.selectedSessionId ?? this.state.selectedSessionId,
-      workspaces,
-    );
-
-    if (selectedWorkspaceId && selectedSessionId) {
-      const sessionRef = {
-        workspaceId: selectedWorkspaceId,
-        sessionId: selectedSessionId,
-      };
-      await this.ensureSessionReady(sessionRef);
-      await this.ensureComposerAttachmentsLoaded(sessionRef);
-      workspaces = buildWorkspaceRecords(
-        workspacesSnapshot.workspaces,
-        worktreeEntries,
-        sessionsSnapshot.sessions,
-        this.transcriptCache,
-        this.runningSinceBySession,
-        this.sessionConfigBySession,
-        this.lastViewedAtBySession,
-      );
     }
 
     if (selectedWorkspaceId) {
@@ -1676,4 +1670,32 @@ function initialThreadTitle(prompt: string): string {
     return "New thread";
   }
   return firstLine.length > 72 ? `${firstLine.slice(0, 69).trimEnd()}...` : firstLine;
+}
+
+function resolveSelectedWorkspaceIdFromCatalog(
+  preferredWorkspaceId: string,
+  workspaces: readonly { workspaceId: string }[],
+): string {
+  if (preferredWorkspaceId && workspaces.some((workspace) => workspace.workspaceId === preferredWorkspaceId)) {
+    return preferredWorkspaceId;
+  }
+  return workspaces[0]?.workspaceId ?? "";
+}
+
+function resolveSelectedSessionIdFromCatalog(
+  workspaceId: string,
+  preferredSessionId: string,
+  sessions: readonly SessionCatalogEntry[],
+): string {
+  const workspaceSessions = sessions.filter((session) => session.workspaceId === workspaceId);
+  if (!workspaceSessions.length) {
+    return "";
+  }
+  if (
+    preferredSessionId &&
+    workspaceSessions.some((session) => session.sessionRef.sessionId === preferredSessionId)
+  ) {
+    return preferredSessionId;
+  }
+  return workspaceSessions[0]?.sessionRef.sessionId ?? "";
 }
