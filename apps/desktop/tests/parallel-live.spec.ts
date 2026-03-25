@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
+import { assertExists, getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
 
 test("runs two sessions in parallel without sidebar status bleed", async () => {
   test.setTimeout(180_000);
@@ -54,9 +54,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
       }, { timeout: 10_000 })
       .toBe(true);
 
-    if (!sessions) {
-      throw new Error("Expected both sessions");
-    }
+    assertExists(sessions, "Expected both sessions");
 
     const promptA =
       "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"A start\")\ntime.sleep(6)\nprint(\"A done\")\nPY` then reply with exactly `A complete`.";

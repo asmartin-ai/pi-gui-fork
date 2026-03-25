@@ -94,6 +94,12 @@ export async function getDesktopState(window: Page) {
   return state;
 }
 
+export function assertExists<T>(value: T | undefined | null, message: string): asserts value is T {
+  if (value == null) {
+    throw new Error(message);
+  }
+}
+
 export async function addWorkspace(window: Page, workspacePath: string): Promise<void> {
   await window.evaluate(async (pathValue) => {
     const app = (window as PiAppWindow).piApp;

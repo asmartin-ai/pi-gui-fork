@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { addWorkspace, getDesktopState, launchDesktop, makeWorkspace } from "./harness";
+import { addWorkspace, assertExists, getDesktopState, launchDesktop, makeWorkspace } from "./harness";
 
 test("supports workspace rename and remove from the sidebar menu", async () => {
   test.setTimeout(60_000);
@@ -18,9 +18,7 @@ test("supports workspace rename and remove from the sidebar menu", async () => {
 
     const state = await getDesktopState(window);
     const workspace = state.workspaces.find((entry) => entry.path === workspaceA);
-    if (!workspace) {
-      throw new Error("Expected first workspace");
-    }
+    assertExists(workspace, "Expected first workspace");
 
     await window.getByRole("button", { name: `Workspace actions for ${workspace.name}` }).click();
     await expect(window.getByRole("button", { name: "Open in Finder" })).toBeVisible();

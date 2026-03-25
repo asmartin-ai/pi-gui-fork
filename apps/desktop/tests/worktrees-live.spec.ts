@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
-import { createSession, getDesktopState, launchDesktop } from "./harness";
+import { assertExists, createSession, getDesktopState, launchDesktop } from "./harness";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,9 +17,7 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
   try {
     const window = await harness.firstWindow();
     const rootWorkspace = await waitForRootWorkspace(window);
-    if (!rootWorkspace) {
-      throw new Error("Expected an initial workspace");
-    }
+    assertExists(rootWorkspace, "Expected an initial workspace");
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
     await window.getByRole("button", { name: "Create permanent worktree" }).click();
@@ -36,7 +34,8 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
     const worktreeWorkspace = stateAfterCreate.workspaces.find(
       (workspace) => workspace.id === stateAfterCreate.selectedWorkspaceId,
     );
-    if (!worktreeWorkspace || worktreeWorkspace.kind !== "worktree") {
+    assertExists(worktreeWorkspace, "Expected the selected workspace to be the newly created worktree");
+    if (worktreeWorkspace.kind !== "worktree") {
       throw new Error("Expected the selected workspace to be the newly created worktree");
     }
 
@@ -62,9 +61,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
   try {
     const window = await harness.firstWindow();
     const rootWorkspace = await waitForRootWorkspace(window);
-    if (!rootWorkspace) {
-      throw new Error("Expected an initial workspace");
-    }
+    assertExists(rootWorkspace, "Expected an initial workspace");
 
     await createSession(window, rootWorkspace.id, "Local thread");
     const localRow = window.locator(".session-row", { hasText: "Local thread" });
@@ -87,9 +84,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
     const firstWorktree = stateAfterCreate.workspaces.find(
       (workspace) => workspace.id === stateAfterCreate.selectedWorkspaceId,
     );
-    if (!firstWorktree) {
-      throw new Error("Expected selected worktree workspace");
-    }
+    assertExists(firstWorktree, "Expected selected worktree workspace");
 
     await createSession(window, firstWorktree.id, "Worktree thread");
     const worktreeRow = window.locator(".session-row", { hasText: "Worktree thread" });
@@ -111,9 +106,7 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
   try {
     const window = await harness.firstWindow();
     const rootWorkspace = await waitForRootWorkspace(window);
-    if (!rootWorkspace) {
-      throw new Error("Expected an initial workspace");
-    }
+    assertExists(rootWorkspace, "Expected an initial workspace");
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
     await window.getByRole("button", { name: "Create permanent worktree" }).click();
@@ -128,9 +121,7 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
 
     const createdState = await getDesktopState(window);
     const createdWorkspace = createdState.workspaces.find((workspace) => workspace.id === createdState.selectedWorkspaceId);
-    if (!createdWorkspace) {
-      throw new Error("Expected created worktree workspace");
-    }
+    assertExists(createdWorkspace, "Expected created worktree workspace");
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
     window.once("dialog", (dialog) => dialog.accept());
