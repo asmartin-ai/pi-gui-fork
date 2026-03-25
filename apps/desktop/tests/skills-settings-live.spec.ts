@@ -1,3 +1,4 @@
+// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -29,7 +30,7 @@ Use this skill when the user wants a short demo workflow.
     const window = await harness.firstWindow();
     const workspaceId = await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces[0];
       if (!workspace) throw new Error("Expected workspace");

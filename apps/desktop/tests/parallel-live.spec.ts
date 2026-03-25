@@ -1,3 +1,4 @@
+// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
     const window = await harness.firstWindow();
     const workspaceId = await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces[0];
       if (!workspace) throw new Error("Expected workspace");
@@ -36,7 +37,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
         sessions = await window.evaluate(async (id) => {
           const app = (window as PiAppWindow).piApp;
           if (!app) {
-            throw new Error("piApp unavailable");
+            throw new Error("piApp IPC bridge is unavailable");
           }
           const state = await app.getState();
           const workspace = state.workspaces.find((entry) => entry.id === id);
@@ -63,7 +64,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
 
     await window.evaluate(({ workspaceId, sessionId, prompt }) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       void app.selectSession({ workspaceId, sessionId }).then(() => app.submitComposer(prompt));
     }, { workspaceId: sessions.workspaceId, sessionId: sessions.sessionAId, prompt: promptA });
 
@@ -77,7 +78,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
 
     await window.evaluate(({ workspaceId, sessionId, prompt }) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       void app.selectSession({ workspaceId, sessionId }).then(() => app.submitComposer(prompt));
     }, { workspaceId: sessions.workspaceId, sessionId: sessions.sessionBId, prompt: promptB });
 
@@ -156,7 +157,7 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
 
     const result = await window.evaluate(async ({ workspaceId, sessionAId, sessionBId }) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
       const sessionA = workspace?.sessions.find((session) => session.id === sessionAId);

@@ -1,3 +1,4 @@
+// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,7 +19,7 @@ test("logs a background completion notification for an unfocused session", async
     const window = await harness.firstWindow();
     const sessions = await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces[0];
       if (!workspace) throw new Error("Expected workspace");
@@ -38,7 +39,7 @@ test("logs a background completion notification for an unfocused session", async
 
     await window.evaluate(({ workspaceId, sessionId, prompt }) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       void app.selectSession({ workspaceId, sessionId }).then(() => app.submitComposer(prompt));
     }, { workspaceId: sessions.workspaceId, sessionId: sessions.sessionAId, prompt: promptA });
 
@@ -52,7 +53,7 @@ test("logs a background completion notification for an unfocused session", async
 
     await window.evaluate(async ({ workspaceId, sessionId }) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       await app.selectSession({ workspaceId, sessionId });
     }, { workspaceId: sessions.workspaceId, sessionId: sessions.sessionBId });
 

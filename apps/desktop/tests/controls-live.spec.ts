@@ -1,3 +1,4 @@
+// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ test("supports slash commands plus image draft preview and removal", async () =>
     const window = await harness.firstWindow();
     const workspaceId = await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces[0];
       if (!workspace) throw new Error("Expected workspace");
@@ -41,7 +42,7 @@ test("supports slash commands plus image draft preview and removal", async () =>
 
     await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       await app.setActiveView("threads");
     });
     await expect(window.locator(".topbar__session")).toHaveText("Controls session");
@@ -105,7 +106,7 @@ test("supports slash commands plus image draft preview and removal", async () =>
 
     await window.evaluate(async (data) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       await app.addComposerImages([
         {
           id: "img-test-1",
@@ -122,7 +123,7 @@ test("supports slash commands plus image draft preview and removal", async () =>
 
     await window.evaluate(async (data) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       await app.addComposerImages([
         {
           id: "img-test-2",

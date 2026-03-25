@@ -1,3 +1,4 @@
+// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ test("persists lightweight ui state separately from transcript and draft attachm
     const window = await firstRun.firstWindow();
     const workspaceId = await window.evaluate(async () => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       const state = await app.getState();
       const workspace = state.workspaces[0];
       if (!workspace) throw new Error("Expected workspace");
@@ -24,7 +25,7 @@ test("persists lightweight ui state separately from transcript and draft attachm
 
     await window.evaluate(async (data) => {
       const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp unavailable");
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
       await app.addComposerImages([
         {
           id: "img-persist-1",
