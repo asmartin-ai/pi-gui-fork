@@ -2,10 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
-
-const TINY_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
+import { TINY_PNG_BASE64, getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
 
 test("persists lightweight ui state separately from transcript and draft attachments", async () => {
   test.setTimeout(90_000);

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
-import { createSession, launchDesktop, type PiAppWindow } from "./harness";
+import { createSession, getDesktopState, launchDesktop } from "./harness";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,13 +26,13 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
 
     await expect
       .poll(async () => {
-        const state = await getState(window);
+        const state = await getDesktopState(window);
         const selected = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
         return selected?.kind === "worktree" && (state.worktreesByWorkspace[rootWorkspace.id]?.length ?? 0) > 0;
       })
       .toBe(true);
 
-    const stateAfterCreate = await getState(window);
+    const stateAfterCreate = await getDesktopState(window);
     const worktreeWorkspace = stateAfterCreate.workspaces.find(
       (workspace) => workspace.id === stateAfterCreate.selectedWorkspaceId,
     );
@@ -77,13 +77,13 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
 
     await expect
       .poll(async () => {
-        const state = await getState(window);
+        const state = await getDesktopState(window);
         const selected = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
         return selected?.kind === "worktree";
       })
       .toBe(true);
 
-    const stateAfterCreate = await getState(window);
+    const stateAfterCreate = await getDesktopState(window);
     const firstWorktree = stateAfterCreate.workspaces.find(
       (workspace) => workspace.id === stateAfterCreate.selectedWorkspaceId,
     );
@@ -120,13 +120,13 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
 
     await expect
       .poll(async () => {
-        const state = await getState(window);
+        const state = await getDesktopState(window);
         const selected = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
         return selected?.kind === "worktree";
       })
       .toBe(true);
 
-    const createdState = await getState(window);
+    const createdState = await getDesktopState(window);
     const createdWorkspace = createdState.workspaces.find((workspace) => workspace.id === createdState.selectedWorkspaceId);
     if (!createdWorkspace) {
       throw new Error("Expected created worktree workspace");
@@ -139,7 +139,7 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
     await expect(window.getByTestId("empty-state")).toHaveCount(0);
     await expect
       .poll(async () => {
-        const state = await getState(window);
+        const state = await getDesktopState(window);
         return state.workspaces.some((workspace) => workspace.id === createdWorkspace.id);
       })
       .toBe(true);
@@ -161,24 +161,14 @@ async function makeGitWorkspace(name: string): Promise<string> {
   return realpath(workspacePath);
 }
 
-async function getState(window: import("@playwright/test").Page) {
-  return window.evaluate(async () => {
-    const app = (window as PiAppWindow).piApp;
-    if (!app) {
-      throw new Error("piApp unavailable");
-    }
-    return app.getState();
-  });
-}
-
 async function waitForRootWorkspace(window: import("@playwright/test").Page) {
   await expect
     .poll(async () => {
-      const state = await getState(window);
+      const state = await getDesktopState(window);
       return state.workspaces[0] ?? null;
     }, { timeout: 20_000 })
     .not.toBeNull();
 
-  const state = await getState(window);
+  const state = await getDesktopState(window);
   return state.workspaces[0];
 }

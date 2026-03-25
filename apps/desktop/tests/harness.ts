@@ -10,6 +10,9 @@ const desktopDir = process.cwd();
 
 export type PiAppWindow = Window & { piApp?: PiDesktopApi };
 
+export const TINY_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
+
 export interface DesktopHarness {
   firstWindow(): Promise<Page>;
   close(): Promise<void>;
