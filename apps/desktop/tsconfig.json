@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": ["../../tsconfig.base.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -15,14 +15,7 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vite/client"],
-    "baseUrl": ".",
-    "paths": {
-      "@pi-gui/pi-sdk-driver": ["../../packages/pi-sdk-driver/src/index.ts"],
-      "@pi-gui/catalogs": ["../../packages/catalogs/src/index.ts"],
-      "@pi-gui/session-driver": ["../../packages/session-driver/src/index.ts"],
-      "@pi-gui/session-driver/runtime-types": ["../../packages/session-driver/src/runtime-types.ts"]
-    }
+    "types": ["node", "vite/client"]
   },
   "include": ["src", "vite.config.ts"],
   "exclude": ["electron", "dist", "dist-electron", "node_modules"]
