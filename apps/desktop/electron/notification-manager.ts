@@ -3,6 +3,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DesktopAppStore } from "./app-store";
 import type { DesktopAppState } from "../src/desktop-state";
+import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import { getSelectedSession } from "../src/desktop-state";
 
@@ -164,10 +165,6 @@ export class NotificationManager {
     const session = workspace?.sessions.find((entry) => entry.id === sessionRef.sessionId);
     return session?.title ?? "pi session";
   }
-}
-
-function sessionKey(sessionRef: SessionRef): string {
-  return `${sessionRef.workspaceId}:${sessionRef.sessionId}`;
 }
 
 function requiresAttention(event: Extract<SessionDriverEvent, { type: "hostUiRequest" }>): boolean {

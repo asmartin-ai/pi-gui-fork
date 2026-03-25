@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SessionCatalogEntry, WorkspaceCatalogEntry, WorktreeCatalogEntry } from "@pi-gui/catalogs";
+import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionAttachment, SessionConfig, SessionRef } from "@pi-gui/session-driver";
 import type {
   ComposerImageAttachment,
@@ -162,9 +163,7 @@ export function toSessionRef(target: WorkspaceSessionTarget): SessionRef {
   };
 }
 
-export function sessionKey(sessionRef: SessionRef): string {
-  return `${sessionRef.workspaceId}:${sessionRef.sessionId}`;
-}
+export { sessionKey };
 
 export function makeTranscriptMessage(role: "user" | "assistant", text: string): TranscriptMessage {
   return {

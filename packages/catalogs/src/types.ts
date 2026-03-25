@@ -1,6 +1,6 @@
-import type { SessionRef, WorkspaceId } from "@pi-gui/session-driver";
+import type { SessionRef, SessionStatus, WorkspaceId } from "@pi-gui/session-driver";
 
-export type { SessionRef, WorkspaceId };
+export type { SessionRef, SessionStatus, WorkspaceId };
 
 export interface WorkspaceCatalogEntry {
   workspaceId: WorkspaceId;
@@ -32,8 +32,6 @@ export interface WorktreeCatalogEntry {
 export interface WorktreeCatalogSnapshot {
   worktrees: WorktreeCatalogEntry[];
 }
-
-export type SessionStatus = "idle" | "running" | "failed";
 
 export interface SessionCatalogEntry {
   sessionRef: SessionRef;
