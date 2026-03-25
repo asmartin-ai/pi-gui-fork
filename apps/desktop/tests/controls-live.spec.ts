@@ -1,4 +1,5 @@
 // IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
+// TODO: add error cases — invalid slash command input, dismissing slash menu with Escape
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

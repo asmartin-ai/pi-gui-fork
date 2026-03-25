@@ -100,6 +100,15 @@ export function assertExists<T>(value: T | undefined | null, message: string): a
   }
 }
 
+export async function getFirstSessionIds(window: Page): Promise<{ workspaceId: string; sessionId: string }> {
+  const state = await getDesktopState(window);
+  const workspace = state.workspaces[0];
+  assertExists(workspace, "no workspace found");
+  const session = workspace.sessions[0];
+  assertExists(session, "no session found");
+  return { workspaceId: workspace.id, sessionId: session.id };
+}
+
 export async function addWorkspace(window: Page, workspacePath: string): Promise<void> {
   await window.evaluate(async (pathValue) => {
     const app = (window as PiAppWindow).piApp;

@@ -1,3 +1,4 @@
+// TODO: test creating multiple worktrees from same root and direct worktree workspace deletion
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";

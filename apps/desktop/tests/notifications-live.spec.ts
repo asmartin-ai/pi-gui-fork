@@ -1,4 +1,5 @@
 // IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
+// TODO: test notification content format and error-session notification behavior
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

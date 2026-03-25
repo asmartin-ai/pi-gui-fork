@@ -1,4 +1,5 @@
 // IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
+// TODO: test workspace with no skills directory and toggling skill slash commands setting
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

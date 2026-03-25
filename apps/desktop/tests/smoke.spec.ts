@@ -1,3 +1,4 @@
+// TODO: add error-state tests — corrupted ui-state.json recovery, launching with missing workspace path
 import { mkdtemp } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";

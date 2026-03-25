@@ -1,3 +1,4 @@
+// TODO: test archiving the last remaining thread and archive persistence across restarts
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

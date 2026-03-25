@@ -1,4 +1,5 @@
 // IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
+// TODO: test behavior when one parallel session errors while another runs
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
