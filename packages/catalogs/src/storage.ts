@@ -10,30 +10,24 @@ import type {
   WorktreeId,
 } from "./types.js";
 
-export interface WorkspaceCatalogStorage {
-  listWorkspaces(): Promise<WorkspaceCatalogSnapshot>;
-  getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceCatalogEntry | undefined>;
-  upsertWorkspace(entry: WorkspaceCatalogEntry): Promise<void>;
-  deleteWorkspace(workspaceId: WorkspaceId): Promise<void>;
-}
-
-export interface SessionCatalogStorage {
-  listSessions(workspaceId?: WorkspaceId): Promise<SessionCatalogSnapshot>;
-  getSession(sessionRef: SessionRef): Promise<SessionCatalogEntry | undefined>;
-  upsertSession(entry: SessionCatalogEntry): Promise<void>;
-  deleteSession(sessionRef: SessionRef): Promise<void>;
-}
-
-export interface WorktreeCatalogStorage {
-  listWorktrees(workspaceId?: WorkspaceId): Promise<WorktreeCatalogSnapshot>;
-  getWorktree(worktreeId: WorktreeId): Promise<WorktreeCatalogEntry | undefined>;
-  upsertWorktree(entry: WorktreeCatalogEntry): Promise<void>;
-  deleteWorktree(worktreeId: WorktreeId): Promise<void>;
-  replaceWorkspaceWorktrees(workspaceId: WorkspaceId, entries: readonly WorktreeCatalogEntry[]): Promise<void>;
-}
-
 export interface CatalogStorage {
-  workspaces: WorkspaceCatalogStorage;
-  sessions: SessionCatalogStorage;
-  worktrees: WorktreeCatalogStorage;
+  workspaces: {
+    listWorkspaces(): Promise<WorkspaceCatalogSnapshot>;
+    getWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceCatalogEntry | undefined>;
+    upsertWorkspace(entry: WorkspaceCatalogEntry): Promise<void>;
+    deleteWorkspace(workspaceId: WorkspaceId): Promise<void>;
+  };
+  sessions: {
+    listSessions(workspaceId?: WorkspaceId): Promise<SessionCatalogSnapshot>;
+    getSession(sessionRef: SessionRef): Promise<SessionCatalogEntry | undefined>;
+    upsertSession(entry: SessionCatalogEntry): Promise<void>;
+    deleteSession(sessionRef: SessionRef): Promise<void>;
+  };
+  worktrees: {
+    listWorktrees(workspaceId?: WorkspaceId): Promise<WorktreeCatalogSnapshot>;
+    getWorktree(worktreeId: WorktreeId): Promise<WorktreeCatalogEntry | undefined>;
+    upsertWorktree(entry: WorktreeCatalogEntry): Promise<void>;
+    deleteWorktree(worktreeId: WorktreeId): Promise<void>;
+    replaceWorkspaceWorktrees(workspaceId: WorkspaceId, entries: readonly WorktreeCatalogEntry[]): Promise<void>;
+  };
 }
