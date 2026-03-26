@@ -68,6 +68,8 @@ function TimelineToolCallItem({ item }: { readonly item: TimelineToolCall }) {
   const [expanded, setExpanded] = useState(false);
   const hasContent = item.input !== undefined || item.output !== undefined;
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
+  const diffStats = diffText ? countDiffStats(diffText) : undefined;
+  const compactLabel = buildCompactLabel(item, diffStats);
 
   const handleCopy = () => {
     const text = diffText ?? formatToolContent(item.input, item.output);
@@ -87,24 +89,48 @@ function TimelineToolCallItem({ item }: { readonly item: TimelineToolCall }) {
             <ChevronRightIcon />
           </span>
         ) : null}
-        <span className="timeline-tool__label">{item.label}</span>
+        <span className="timeline-tool__label">{compactLabel}</span>
+        {diffStats ? (
+          <span className="timeline-tool__diff-stats">
+            <span className="timeline-tool__stat-add">+{diffStats.added}</span>
+            {" "}
+            <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+          </span>
+        ) : null}
         <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
       </button>
       {expanded && hasContent ? (
         <div className="timeline-tool__body">
-          <div className="timeline-tool__body-actions">
-            <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
-              <CopyIcon />
-            </button>
-          </div>
           {diffText ? (
-            <InlineDiff diff={diffText} />
+            <>
+              <div className="timeline-tool__diff-header">
+                <span className="timeline-tool__diff-filename">
+                  {extractFilename(item.input)}
+                  {diffStats ? (
+                    <span className="timeline-tool__diff-stats">
+                      {" "}<span className="timeline-tool__stat-add">+{diffStats.added}</span>
+                      {" "}<span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+                    </span>
+                  ) : null}
+                </span>
+                <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
+                  <CopyIcon />
+                </button>
+              </div>
+              <InlineDiff diff={diffText} />
+            </>
           ) : (
-            <pre className="timeline-tool__pre">{formatToolContent(item.input, item.output)}</pre>
+            <>
+              <div className="timeline-tool__body-actions">
+                <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
+                  <CopyIcon />
+                </button>
+              </div>
+              <pre className="timeline-tool__pre">{formatToolContent(item.input, item.output)}</pre>
+            </>
           )}
         </div>
       ) : null}
-      {!expanded && item.detail ? <div className="timeline-tool__detail">{item.detail}</div> : null}
     </article>
   );
 }
@@ -113,13 +139,56 @@ function isWriteTool(toolName: string): boolean {
   return /write|edit|patch|apply/i.test(toolName);
 }
 
+function buildCompactLabel(item: TimelineToolCall, diffStats: { added: number; removed: number } | undefined): string {
+  if (isWriteTool(item.toolName)) {
+    const filename = extractFilename(item.input);
+    if (filename) {
+      return `Edited ${shortenPath(filename)}`;
+    }
+  }
+  return item.label;
+}
+
+function extractFilename(input: unknown): string {
+  if (typeof input === "object" && input !== null) {
+    const record = input as Record<string, unknown>;
+    const path = record.file_path ?? record.filePath ?? record.path ?? record.filename;
+    if (typeof path === "string") {
+      return path;
+    }
+  }
+  return "";
+}
+
+function shortenPath(filePath: string): string {
+  // Show last 2-3 path segments for readability
+  const parts = filePath.split("/");
+  if (parts.length <= 3) {
+    return filePath;
+  }
+  return parts.slice(-3).join("/");
+}
+
+function countDiffStats(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      added += 1;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      removed += 1;
+    }
+  }
+  return { added, removed };
+}
+
 function formatToolContent(input: unknown, output: unknown): string {
   const parts: string[] = [];
   if (input !== undefined) {
-    parts.push(`--- Input ---\n${typeof input === "string" ? input : JSON.stringify(input, null, 2)}`);
+    parts.push(typeof input === "string" ? input : JSON.stringify(input, null, 2));
   }
   if (output !== undefined) {
-    parts.push(`--- Output ---\n${typeof output === "string" ? output : JSON.stringify(output, null, 2)}`);
+    parts.push(typeof output === "string" ? output : JSON.stringify(output, null, 2));
   }
   return parts.join("\n\n");
 }
