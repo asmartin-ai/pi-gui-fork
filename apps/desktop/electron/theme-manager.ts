@@ -1,6 +1,6 @@
 import { nativeTheme, type BrowserWindow } from "electron";
-
-export type ThemeMode = "system" | "light" | "dark";
+import { desktopIpc } from "../src/ipc";
+import type { ThemeMode } from "../src/desktop-state";
 
 export class ThemeManager {
   private mode: ThemeMode = "system";
@@ -38,6 +38,6 @@ export class ThemeManager {
   }
 
   private broadcast() {
-    this.window?.webContents.send("pi-gui:theme-changed", this.getResolvedTheme());
+    this.window?.webContents.send(desktopIpc.themeChanged, this.getResolvedTheme());
   }
 }

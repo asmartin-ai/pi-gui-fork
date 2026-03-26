@@ -8,6 +8,7 @@ export type AppView = "threads" | "new-thread" | "skills" | "settings";
 export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
 export type NewThreadEnvironment = "local" | "new-worktree";
+export type ThemeMode = "system" | "light" | "dark";
 
 export interface NotificationPreferences {
   readonly backgroundCompletion: boolean;

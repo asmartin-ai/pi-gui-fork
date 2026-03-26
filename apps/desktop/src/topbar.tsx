@@ -37,6 +37,8 @@ export function Topbar(props: TopbarProps) {
     api,
     setSnapshot,
     updateSnapshot,
+    showDiffPanel,
+    onToggleDiffPanel,
   } = props;
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
@@ -123,9 +125,9 @@ export function Topbar(props: TopbarProps) {
       <div className="topbar__actions">
         <button
           aria-label="Toggle diff panel"
-          className={`icon-button topbar__icon ${props.showDiffPanel ? "icon-button--active" : ""}`}
+          className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
           type="button"
-          onClick={props.onToggleDiffPanel}
+          onClick={onToggleDiffPanel}
         >
           <DiffIcon />
         </button>

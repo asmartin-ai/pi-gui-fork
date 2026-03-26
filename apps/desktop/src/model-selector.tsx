@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { SessionRecord } from "./desktop-state";
 import { buildModelOptions, THINKING_OPTIONS, type ComposerModelOption } from "./composer-commands";
@@ -48,8 +48,7 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
     return null;
   }
 
-  const modelOptions = buildModelOptions(runtime);
-  const groupedModels = groupByProvider(modelOptions);
+  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
 
   return (
     <span className="model-selector" ref={containerRef}>

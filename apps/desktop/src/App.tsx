@@ -210,7 +210,7 @@ export default function App() {
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
-    [snapshot],
+    [snapshot?.workspaces, snapshot?.worktreesByWorkspace],
   );
 
   const focusComposer = () => {
@@ -923,7 +923,7 @@ export default function App() {
 
             <ComposerPanel
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
-              activeSlashCommandMeta={describeActiveSlashFlow(slashMenu.activeSlashFlow?.command)}
+              activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
@@ -1002,13 +1002,4 @@ function isNearBottom(element: HTMLDivElement): boolean {
   return remaining < 32;
 }
 
-function describeActiveSlashFlow(
-  command: ComposerSlashCommand | undefined,
-): string | undefined {
-  if (!command) {
-    return undefined;
-  }
-
-  return command.description;
-}
 

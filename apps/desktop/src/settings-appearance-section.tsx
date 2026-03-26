@@ -1,12 +1,13 @@
+import type { ThemeMode } from "./desktop-state";
 import { SettingsIcon } from "./icons";
 import { SettingsCard } from "./settings-utils";
 
 interface SettingsAppearanceSectionProps {
-  readonly themeMode: "system" | "light" | "dark";
-  readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
+  readonly themeMode: ThemeMode;
+  readonly onSetThemeMode: (mode: ThemeMode) => void;
 }
 
-const THEME_OPTIONS: { mode: "system" | "light" | "dark"; label: string; description: string }[] = [
+const THEME_OPTIONS: { mode: ThemeMode; label: string; description: string }[] = [
   { mode: "system", label: "System", description: "Follow your OS appearance setting" },
   { mode: "light", label: "Light", description: "Always use the light theme" },
   { mode: "dark", label: "Dark", description: "Always use the dark theme" },

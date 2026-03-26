@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { PiDesktopApi } from "../ipc";
+import { nextMenuIndex } from "./use-slash-menu";
 
 interface UseMentionMenuParams {
   readonly composerDraft: string;
@@ -109,12 +110,12 @@ export function useMentionMenu({
 
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedIndex((prev) => (prev + 1) % mentionOptions.length);
+        setSelectedIndex((prev) => nextMenuIndex(prev, 1, mentionOptions.length));
         return true;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedIndex((prev) => (prev - 1 + mentionOptions.length) % mentionOptions.length);
+        setSelectedIndex((prev) => nextMenuIndex(prev, -1, mentionOptions.length));
         return true;
       }
       if (event.key === "Tab" || event.key === "Enter") {

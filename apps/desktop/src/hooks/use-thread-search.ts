@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement | null>) {
   const [isOpen, setIsOpen] = useState(false);
@@ -7,6 +7,7 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
   const [activeIndex, setActiveIndex] = useState(-1);
   const matchElements = useRef<HTMLElement[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearMarks = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -25,8 +26,17 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
   }, [timelinePaneRef]);
 
   const search = useCallback((q: string) => {
-    clearMarks();
     setQuery(q);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!q.trim()) {
+      clearMarks();
+      return;
+    }
+    debounceRef.current = setTimeout(() => searchImmediate(q), 150);
+  }, []);
+
+  const searchImmediate = useCallback((q: string) => {
+    clearMarks();
     if (!q.trim()) return;
 
     const pane = timelinePaneRef.current;
@@ -116,5 +126,8 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
     clearMarks();
   }, [clearMarks]);
 
-  return { isOpen, query, matchCount, activeIndex, inputRef, open, close, search, goToMatch };
+  return useMemo(
+    () => ({ isOpen, query, matchCount, activeIndex, inputRef, open, close, search, goToMatch }),
+    [isOpen, query, matchCount, activeIndex, open, close, search, goToMatch],
+  );
 }

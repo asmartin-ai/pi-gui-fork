@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PiDesktopApi } from "./ipc";
 import { InlineDiff } from "./diff-inline";
 import { RefreshIcon } from "./icons";
@@ -24,14 +24,30 @@ export function DiffPanel({ workspaceId, api, sessionStatus }: DiffPanelProps) {
     setLoading(true);
     void api.getChangedFiles(workspaceId).then((result) => {
       setFiles(result);
+      setSelectedFile((current) => {
+        if (current && !result.some((f) => f.path === current)) {
+          return null;
+        }
+        return current;
+      });
       setLoading(false);
     });
   }, [api, workspaceId]);
 
-  // Auto-refresh when session stops running
+  // Auto-refresh on mount and when session transitions from running to idle/failed
+  const prevStatusRef = useRef(sessionStatus);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = sessionStatus;
+    if (prev === "running" && sessionStatus !== "running") {
+      refresh();
+    }
+  }, [sessionStatus, refresh]);
+
+  // Initial load
   useEffect(() => {
     refresh();
-  }, [refresh, sessionStatus]);
+  }, [workspaceId]);
 
   // Fetch diff when file selected
   useEffect(() => {

@@ -8,7 +8,7 @@ import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { NotificationManager } from "./notification-manager";
 import { ThemeManager } from "./theme-manager";
-import type { ThemeMode } from "./theme-manager";
+import type { ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import type {
   ComposerImageAttachment,
@@ -111,9 +111,9 @@ app.whenReady().then(async () => {
   stopNotifications = new NotificationManager(store, () => mainWindow).start();
 
   ipcMain.handle(desktopIpc.ping, () => "pi desktop ready");
-  ipcMain.handle("pi-gui:get-theme-mode", () => themeManager.getMode());
-  ipcMain.handle("pi-gui:get-resolved-theme", () => themeManager.getResolvedTheme());
-  ipcMain.handle("pi-gui:set-theme-mode", (_event, mode: ThemeMode) => {
+  ipcMain.handle(desktopIpc.getThemeMode, () => themeManager.getMode());
+  ipcMain.handle(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
+  ipcMain.handle(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
     themeManager.setMode(mode);
     return mode;
   });

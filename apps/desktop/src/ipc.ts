@@ -53,6 +53,10 @@ export const desktopIpc = {
   getChangedFiles: "pi-gui:get-changed-files",
   getFileDiff: "pi-gui:get-file-diff",
   stageFile: "pi-gui:stage-file",
+  getThemeMode: "pi-gui:get-theme-mode",
+  getResolvedTheme: "pi-gui:get-resolved-theme",
+  setThemeMode: "pi-gui:set-theme-mode",
+  themeChanged: "pi-gui:theme-changed",
   ping: "app:ping",
   openExternal: "app:open-external",
 } as const;
