@@ -369,7 +369,7 @@
   display: flex;
   justify-content: flex-end;
   padding: 4px 6px;
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
   border-bottom: 1px solid var(--border);
   z-index: 1;
 }
@@ -497,7 +497,7 @@
 }
 
 .diff-panel__file--selected {
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
 }
 
 .diff-panel__file-name {
@@ -516,7 +516,7 @@
 }
 
 .diff-panel__file-name:hover {
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
 }
 
 .diff-panel__status-dot {
@@ -555,7 +555,7 @@
 }
 
 .diff-panel__stage-btn:hover {
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
 }
 
 .diff-panel__viewer {
@@ -568,7 +568,7 @@
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
   border-bottom: 1px solid var(--border);
   color: var(--ink);
 }
@@ -1122,7 +1122,11 @@
 
 .mention-menu__item--active,
 .mention-menu__item:hover {
-  background: var(--surface-subtle);
+  background: var(--surface-muted);
+}
+
+.mention-menu__item--active {
+  background: #e8eaf0;
 }
 
 .mention-menu__dirname {

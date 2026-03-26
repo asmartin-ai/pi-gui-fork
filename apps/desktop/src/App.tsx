@@ -180,7 +180,8 @@ export default function App() {
     : undefined;
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
-  const composerAttachments = snapshot?.composerAttachments ?? [];
+  const [attachmentsClearedOnSubmit, setAttachmentsClearedOnSubmit] = useState(false);
+  const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
@@ -424,13 +425,14 @@ export default function App() {
 
     const previousDraft = composerDraft;
     setComposerDraft("");
-    // Optimistically clear attachments so they disappear immediately on Enter
-    setSnapshot((prev) => prev ? { ...prev, composerAttachments: [] } : prev);
+    setAttachmentsClearedOnSubmit(true);
     void (async () => {
       const nextState = await updateSnapshot(api, setSnapshot, () => api.submitComposer(previousDraft));
       setComposerDraft(nextState.composerDraft);
+      setAttachmentsClearedOnSubmit(false);
     })().catch(() => {
       setComposerDraft(previousDraft);
+      setAttachmentsClearedOnSubmit(false);
     });
   };
 
