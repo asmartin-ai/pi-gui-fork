@@ -173,15 +173,9 @@ export default function Page() {
                 playsInline
                 className="screenshot-img"
                 width={1480}
-                height={980}
+                height={924}
               >
                 <source src="/demo.mp4" type="video/mp4" />
-                <img
-                  src="/demo.gif"
-                  alt="pi-gui desktop app showing a coding session with sidebar navigation and agent conversation"
-                  width={1480}
-                  height={980}
-                />
               </video>
             </div>
           </div>
