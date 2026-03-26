@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement | null>) {
   const [isOpen, setIsOpen] = useState(false);
@@ -24,16 +24,6 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
     setMatchCount(0);
     setActiveIndex(-1);
   }, [timelinePaneRef]);
-
-  const search = useCallback((q: string) => {
-    setQuery(q);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!q.trim()) {
-      clearMarks();
-      return;
-    }
-    debounceRef.current = setTimeout(() => searchImmediate(q), 150);
-  }, []);
 
   const searchImmediate = useCallback((q: string) => {
     clearMarks();
@@ -96,6 +86,16 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
     }
   }, [clearMarks, timelinePaneRef]);
 
+  const search = useCallback((q: string) => {
+    setQuery(q);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!q.trim()) {
+      clearMarks();
+      return;
+    }
+    debounceRef.current = setTimeout(() => searchImmediate(q), 150);
+  }, [clearMarks, searchImmediate]);
+
   const goToMatch = useCallback((direction: 1 | -1) => {
     const elements = matchElements.current;
     if (elements.length === 0) return;
@@ -123,8 +123,14 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
   const close = useCallback(() => {
     setIsOpen(false);
     setQuery("");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     clearMarks();
   }, [clearMarks]);
+
+  // Clean up debounce timer on unmount
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   return useMemo(
     () => ({ isOpen, query, matchCount, activeIndex, inputRef, open, close, search, goToMatch }),

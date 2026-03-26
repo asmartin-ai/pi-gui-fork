@@ -506,7 +506,7 @@ export default function App() {
     const attachments = await Promise.all(
       files.map(
         (file) =>
-          new Promise<{ id: string; name: string; mimeType: string; data: string }>((resolve) => {
+          new Promise<{ id: string; name: string; mimeType: string; data: string } | null>((resolve) => {
             const reader = new FileReader();
             reader.onload = () => {
               const dataUrl = reader.result as string;
@@ -518,11 +518,14 @@ export default function App() {
                 data: dataUrl.slice(commaIndex + 1),
               });
             };
+            reader.onerror = () => resolve(null);
             reader.readAsDataURL(file);
           }),
       ),
     );
-    void updateSnapshot(api, setSnapshot, () => api.addComposerImages(attachments));
+    const valid = attachments.filter(Boolean) as { id: string; name: string; mimeType: string; data: string }[];
+    if (valid.length === 0) return;
+    void updateSnapshot(api, setSnapshot, () => api.addComposerImages(valid));
   }
 
   const handleSetSessionModel = (provider: string, modelId: string) => {
@@ -681,17 +684,17 @@ export default function App() {
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
-      event.preventDefault();
-      submitComposerDraft();
-      return;
-    }
-
     if (mentionMenu.handleMentionKeyDown(event)) {
       return;
     }
 
     if (slashMenu.handleSlashKeyDown(event)) {
+      return;
+    }
+
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
+      event.preventDefault();
+      submitComposerDraft();
       return;
     }
 
