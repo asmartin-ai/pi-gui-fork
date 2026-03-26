@@ -229,7 +229,7 @@ app.whenReady().then(async () => {
     return store.addComposerImages(attachments);
   });
   ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) => {
-    const allowedMimeTypes = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));
+    const allowedMimeTypes: Set<string> = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));
     const validated = attachments.filter((a) => typeof a.mimeType === "string" && allowedMimeTypes.has(a.mimeType));
     return store.addComposerImages(validated);
   });
