@@ -10,7 +10,7 @@
     "dev": "pnpm run build:deps && concurrently -k -r \"pnpm:dev:renderer\" \"pnpm:dev:electron:watch\" \"pnpm:dev:electron:start\"",
     "dev:renderer": "vite",
     "dev:electron:watch": "tsup electron/main.ts electron/preload.ts --format cjs --platform node --target node22 --out-dir dist-electron --external electron --watch",
-    "dev:electron:start": "wait-on dist-electron/main.js dist-electron/preload.js tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "dev:electron:start": "wait-on dist-electron/main.js dist-electron/preload.js http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "build": "pnpm run build:deps && pnpm run build:renderer && pnpm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsup electron/main.ts electron/preload.ts --format cjs --platform node --target node22 --out-dir dist-electron --external electron",
