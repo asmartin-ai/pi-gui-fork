@@ -21,8 +21,10 @@ import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { ThreadSearchBar } from "./thread-search";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
+import { useThreadSearch } from "./hooks/use-thread-search";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 
 function useDesktopAppState() {
@@ -120,6 +122,7 @@ export default function App() {
   const previousActiveViewRef = useRef<AppView | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
@@ -278,6 +281,16 @@ export default function App() {
 
     const removeCommandListener = window.piApp?.onCommand?.(handleCommand);
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      // Cmd+F toggles thread search
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !event.shiftKey) {
+        event.preventDefault();
+        if (threadSearch.isOpen) {
+          threadSearch.close();
+        } else {
+          threadSearch.open();
+        }
+        return;
+      }
       // Cmd+D toggles diff panel
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d" && !event.shiftKey) {
         event.preventDefault();
@@ -300,7 +313,7 @@ export default function App() {
       removeCommandListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId]);
+  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId, threadSearch]);
 
   useEffect(() => {
     setShowJumpToLatest(false);
@@ -827,6 +840,18 @@ export default function App() {
                 {snapshot.lastError ? <div className="error-banner">{snapshot.lastError}</div> : null}
 
                 <div className="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
+                  {threadSearch.isOpen ? (
+                    <ThreadSearchBar
+                      query={threadSearch.query}
+                      matchCount={threadSearch.matchCount}
+                      activeIndex={threadSearch.activeIndex}
+                      inputRef={threadSearch.inputRef}
+                      onSearch={threadSearch.search}
+                      onNext={() => threadSearch.goToMatch(1)}
+                      onPrev={() => threadSearch.goToMatch(-1)}
+                      onClose={threadSearch.close}
+                    />
+                  ) : null}
                   <div className="timeline" data-testid="transcript">
                     {selectedSession.transcript.length === 0 ? (
                       <div className="timeline-empty">Send a prompt to start the session.</div>
