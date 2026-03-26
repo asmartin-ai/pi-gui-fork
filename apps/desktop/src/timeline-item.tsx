@@ -81,6 +81,7 @@ function TimelineToolCallItem({ item }: { readonly item: TimelineToolCall }) {
       <button
         className="timeline-tool__header"
         type="button"
+        aria-expanded={expanded}
         disabled={!hasContent}
         onClick={() => setExpanded((prev) => !prev)}
       >

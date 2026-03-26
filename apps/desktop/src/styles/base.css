@@ -26,6 +26,15 @@
     "SF Pro Text",
     "Segoe UI",
     sans-serif;
+  --font-mono:
+    ui-monospace,
+    "SF Mono",
+    "Cascadia Code",
+    "Consolas",
+    monospace;
+  --border: var(--line);
+  --ink: var(--text);
+  --ink-strong: var(--text-strong);
 }
 
 :root.dark {
@@ -49,6 +58,9 @@
   --accent: #7c6bf5;
   --error: #e05467;
   --error-ink: #f87171;
+  --border: var(--line);
+  --ink: var(--text);
+  --ink-strong: var(--text-strong);
 }
 
 * {
