@@ -21,6 +21,8 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
   const currentModelId = session.config?.modelId;
   const currentThinking = session.config?.thinkingLevel;
 
+  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
+
   useEffect(() => {
     if (open === "none") return undefined;
 
@@ -47,8 +49,6 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
   if (!currentProvider && !currentModelId && !currentThinking) {
     return null;
   }
-
-  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
 
   return (
     <span className="model-selector" ref={containerRef}>

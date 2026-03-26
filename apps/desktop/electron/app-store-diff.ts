@@ -22,7 +22,12 @@ export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry
             continue;
           }
           const xy = line.slice(0, 2);
-          const filePath = line.slice(3).trim();
+          let filePath = line.slice(3).trim();
+          // Renames show as "old -> new"; use the new path
+          const renameArrow = filePath.indexOf(" -> ");
+          if (renameArrow >= 0) {
+            filePath = filePath.slice(renameArrow + 4);
+          }
           entries.push({
             path: filePath,
             status: parseStatus(xy),
@@ -42,13 +47,26 @@ export function getFileDiff(workspacePath: string, filePath: string): Promise<st
       { cwd: workspacePath, maxBuffer: 5 * 1024 * 1024 },
       (error, stdout) => {
         if (error || !stdout.trim()) {
-          // Try diff for untracked/staged files
+          // Try staged diff
           execFile(
             "git",
             ["diff", "--cached", "--", filePath],
             { cwd: workspacePath, maxBuffer: 5 * 1024 * 1024 },
             (error2, stdout2) => {
-              resolve(error2 ? "" : stdout2);
+              if (!error2 && stdout2.trim()) {
+                resolve(stdout2);
+                return;
+              }
+              // Untracked file — show content as all-additions diff
+              execFile(
+                "git",
+                ["diff", "--no-index", "--", "/dev/null", filePath],
+                { cwd: workspacePath, maxBuffer: 5 * 1024 * 1024 },
+                (_error3, stdout3) => {
+                  // git diff --no-index exits 1 when files differ, which is expected
+                  resolve(stdout3 || "");
+                },
+              );
             },
           );
           return;
