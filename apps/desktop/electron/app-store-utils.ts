@@ -236,7 +236,7 @@ export function makeToolItem(
   toolName: string,
   status: "running" | "success" | "error",
   label: string,
-  options: Pick<Extract<TranscriptMessage, { kind: "tool" }>, "detail" | "metadata"> = {},
+  options: Pick<Extract<TranscriptMessage, { kind: "tool" }>, "detail" | "metadata" | "input" | "output"> = {},
 ): TranscriptMessage {
   return {
     kind: "tool",

@@ -83,6 +83,23 @@ export function ChevronDownIcon() {
   );
 }
 
+export function ChevronRightIcon() {
+  return (
+    <Icon>
+      <path d="m8.1 5.7 4.1 4.3-4.1 4.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+    </Icon>
+  );
+}
+
+export function CopyIcon() {
+  return (
+    <Icon>
+      <rect x="6.5" y="6.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <path d="M4.5 13.5V5a1.5 1.5 0 0 1 1.5-1.5h8.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+    </Icon>
+  );
+}
+
 export function SparkIcon() {
   return (
     <Icon>
@@ -181,6 +198,15 @@ export function WorktreeIcon() {
       <path d="M6 5.3h8.1v8.1" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
       <path d="M13.9 5.45 5.9 13.45" stroke="currentColor" strokeLinecap="round" strokeWidth="1.45" />
       <path d="M5.85 9.75v3.95h3.95" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
+    </Icon>
+  );
+}
+
+export function DiffIcon() {
+  return (
+    <Icon>
+      <path d="M7 7h6M7 10h4M7 13h5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
+      <rect x="4" y="4" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.3" fill="none" />
     </Icon>
   );
 }

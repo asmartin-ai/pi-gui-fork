@@ -4,7 +4,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
+import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
+import { listWorkspaceFiles } from "./app-store-files";
 import { NotificationManager } from "./notification-manager";
+import { ThemeManager } from "./theme-manager";
+import type { ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import type {
   ComposerImageAttachment,
@@ -17,6 +21,7 @@ import type {
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 let store: DesktopAppStore;
+const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let stopPublishingState: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
@@ -106,6 +111,12 @@ app.whenReady().then(async () => {
   stopNotifications = new NotificationManager(store, () => mainWindow).start();
 
   ipcMain.handle(desktopIpc.ping, () => "pi desktop ready");
+  ipcMain.handle(desktopIpc.getThemeMode, () => themeManager.getMode());
+  ipcMain.handle(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
+  ipcMain.handle(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
+    themeManager.setMode(mode);
+    return mode;
+  });
   ipcMain.handle(desktopIpc.openExternal, (_event, url: string) => {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -217,9 +228,11 @@ app.whenReady().then(async () => {
     const attachments = await Promise.all(result.filePaths.map(readComposerImage));
     return store.addComposerImages(attachments);
   });
-  ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) =>
-    store.addComposerImages(attachments),
-  );
+  ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) => {
+    const allowedMimeTypes = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));
+    const validated = attachments.filter((a) => typeof a.mimeType === "string" && allowedMimeTypes.has(a.mimeType));
+    return store.addComposerImages(validated);
+  });
   ipcMain.handle(desktopIpc.removeComposerImage, (_event, attachmentId: string) =>
     store.removeComposerImage(attachmentId),
   );
@@ -227,6 +240,34 @@ app.whenReady().then(async () => {
     store.updateComposerDraft(composerDraft),
   );
   ipcMain.handle(desktopIpc.submitComposer, (_event, text: string) => store.submitComposer(text));
+  ipcMain.handle(desktopIpc.listWorkspaceFiles, async (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      return [];
+    }
+    return listWorkspaceFiles(workspacePath);
+  });
+  ipcMain.handle(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      return [];
+    }
+    return getChangedFiles(workspacePath);
+  });
+  ipcMain.handle(desktopIpc.getFileDiff, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      return "";
+    }
+    return getFileDiff(workspacePath, filePath);
+  });
+  ipcMain.handle(desktopIpc.stageFile, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    await stageFile(workspacePath, filePath);
+  });
   ipcMain.handle(desktopIpc.toggleWindowMaximize, (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) {
@@ -242,11 +283,13 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+  themeManager.setWindow(mainWindow);
   attachStatePublisher(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
+      themeManager.setWindow(mainWindow);
       attachStatePublisher(mainWindow);
     }
   });

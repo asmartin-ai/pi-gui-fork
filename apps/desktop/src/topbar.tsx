@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { FolderIcon } from "./icons";
+import { DiffIcon, FolderIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
@@ -20,6 +20,8 @@ interface TopbarProps {
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
+  readonly showDiffPanel: boolean;
+  readonly onToggleDiffPanel: () => void;
 }
 
 export function Topbar(props: TopbarProps) {
@@ -35,6 +37,8 @@ export function Topbar(props: TopbarProps) {
     api,
     setSnapshot,
     updateSnapshot,
+    showDiffPanel,
+    onToggleDiffPanel,
   } = props;
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
@@ -119,6 +123,14 @@ export function Topbar(props: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
+        <button
+          aria-label="Toggle diff panel"
+          className={`icon-button topbar__icon ${showDiffPanel ? "icon-button--active" : ""}`}
+          type="button"
+          onClick={onToggleDiffPanel}
+        >
+          <DiffIcon />
+        </button>
         <button
           aria-label="Add folder"
           className="icon-button topbar__icon"

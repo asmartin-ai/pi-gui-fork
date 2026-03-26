@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -10,6 +10,7 @@ import {
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
+import { DiffPanel } from "./diff-panel";
 import type { ComposerSlashCommand } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
 import { SkillsView } from "./skills-view";
@@ -20,7 +21,10 @@ import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { ThreadSearchBar } from "./thread-search";
 import { useSlashMenu } from "./hooks/use-slash-menu";
+import { useMentionMenu } from "./hooks/use-mention-menu";
+import { useThreadSearch } from "./hooks/use-thread-search";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 
 function useDesktopAppState() {
@@ -111,13 +115,35 @@ export default function App() {
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<"local" | "new-worktree">("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
+  const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
   const previousActiveViewRef = useRef<AppView | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
+
+  useEffect(() => {
+    const piApi = window.piApp;
+    if (!piApi) return;
+
+    void piApi.getResolvedTheme().then((theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    });
+
+    void piApi.getThemeMode().then((mode) => {
+      setThemeMode(mode);
+    });
+
+    const unsub = piApi.onThemeChanged((theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    });
+
+    return unsub;
+  }, []);
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
@@ -177,13 +203,14 @@ export default function App() {
     : undefined;
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
-  const composerAttachments = snapshot?.composerAttachments ?? [];
+  const [attachmentsClearedOnSubmit, setAttachmentsClearedOnSubmit] = useState(false);
+  const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
-    [snapshot],
+    [snapshot?.workspaces, snapshot?.worktreesByWorkspace],
   );
 
   const focusComposer = () => {
@@ -222,6 +249,14 @@ export default function App() {
     focusComposer,
     openSettings,
     updateSnapshot,
+  });
+
+  const mentionMenu = useMentionMenu({
+    composerDraft,
+    setComposerDraft,
+    composerRef,
+    workspaceId: selectedWorkspace?.id,
+    api,
   });
 
   const wsMenu = useWorkspaceMenu({
@@ -266,6 +301,22 @@ export default function App() {
 
     const removeCommandListener = window.piApp?.onCommand?.(handleCommand);
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      // Cmd+F toggles thread search
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !event.shiftKey) {
+        event.preventDefault();
+        if (threadSearch.isOpen) {
+          threadSearch.close();
+        } else {
+          threadSearch.open();
+        }
+        return;
+      }
+      // Cmd+D toggles diff panel
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d" && !event.shiftKey) {
+        event.preventDefault();
+        setShowDiffPanel((prev) => !prev);
+        return;
+      }
       const command = getDesktopCommandFromShortcut({
         modifier: event.metaKey || event.ctrlKey,
         shift: event.shiftKey,
@@ -282,7 +333,7 @@ export default function App() {
       removeCommandListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId]);
+  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId, threadSearch]);
 
   useEffect(() => {
     setShowJumpToLatest(false);
@@ -407,11 +458,14 @@ export default function App() {
 
     const previousDraft = composerDraft;
     setComposerDraft("");
+    setAttachmentsClearedOnSubmit(true);
     void (async () => {
       const nextState = await updateSnapshot(api, setSnapshot, () => api.submitComposer(previousDraft));
       setComposerDraft(nextState.composerDraft);
+      setAttachmentsClearedOnSubmit(false);
     })().catch(() => {
       setComposerDraft(previousDraft);
+      setAttachmentsClearedOnSubmit(false);
     });
   };
 
@@ -421,6 +475,79 @@ export default function App() {
 
   const handleRemoveImage = (attachmentId: string) => {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerImage(attachmentId));
+  };
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items) {
+      return;
+    }
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    void addImagesFromFiles(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+  };
+
+  const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
+      return;
+    }
+    void addImagesFromFiles(files);
+  };
+
+  async function addImagesFromFiles(files: File[]) {
+    if (!api) {
+      return;
+    }
+    const attachments = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<{ id: string; name: string; mimeType: string; data: string } | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              const commaIndex = dataUrl.indexOf(",");
+              resolve({
+                id: crypto.randomUUID(),
+                name: file.name || "pasted-image.png",
+                mimeType: file.type || "image/png",
+                data: dataUrl.slice(commaIndex + 1),
+              });
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    const valid = attachments.filter(Boolean) as { id: string; name: string; mimeType: string; data: string }[];
+    if (valid.length === 0) return;
+    void updateSnapshot(api, setSnapshot, () => api.addComposerImages(valid));
+  }
+
+  const handleSetSessionModel = (provider: string, modelId: string) => {
+    if (!selectedWorkspace || !selectedSession) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setSessionModel(selectedWorkspace.id, selectedSession.id, provider, modelId),
+    );
+  };
+
+  const handleSetSessionThinking = (level: string) => {
+    if (!selectedWorkspace || !selectedSession) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setSessionThinkingLevel(
+        selectedWorkspace.id,
+        selectedSession.id,
+        level as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>,
+      ),
+    );
   };
 
   const handleRefreshRuntime = () => {
@@ -491,6 +618,12 @@ export default function App() {
     slashMenu.fillComposerFromSlash(command);
   };
 
+  const handleSetThemeMode = (mode: "system" | "light" | "dark") => {
+    if (!api) return;
+    setThemeMode(mode);
+    void api.setThemeMode(mode);
+  };
+
   const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
@@ -551,13 +684,17 @@ export default function App() {
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
-      event.preventDefault();
-      submitComposerDraft();
+    if (mentionMenu.handleMentionKeyDown(event)) {
       return;
     }
 
     if (slashMenu.handleSlashKeyDown(event)) {
+      return;
+    }
+
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
+      event.preventDefault();
+      submitComposerDraft();
       return;
     }
 
@@ -574,6 +711,7 @@ export default function App() {
   };
 
   const settingsNav = [
+    { id: "appearance", label: "Appearance" },
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
     { id: "models", label: "Models" },
@@ -612,12 +750,14 @@ export default function App() {
           runtime={settingsRuntime}
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
+          themeMode={themeMode}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onRefresh={handleRefreshRuntime}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
+          onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
         />
@@ -688,7 +828,7 @@ export default function App() {
         onUnarchiveSession={handleUnarchiveSession}
       />
 
-      <main className="main">
+      <main className={`main ${showDiffPanel ? "main--with-diff" : ""}`}>
         <Topbar
           activeView={snapshot.activeView}
           rootWorkspace={rootWorkspace}
@@ -701,6 +841,8 @@ export default function App() {
           api={api}
           setSnapshot={setSnapshot}
           updateSnapshot={updateSnapshot}
+          showDiffPanel={showDiffPanel}
+          onToggleDiffPanel={() => setShowDiffPanel((prev) => !prev)}
         />
 
         {snapshot.activeView === "new-thread" ? (
@@ -752,6 +894,18 @@ export default function App() {
                 {snapshot.lastError ? <div className="error-banner">{snapshot.lastError}</div> : null}
 
                 <div className="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
+                  {threadSearch.isOpen ? (
+                    <ThreadSearchBar
+                      query={threadSearch.query}
+                      matchCount={threadSearch.matchCount}
+                      activeIndex={threadSearch.activeIndex}
+                      inputRef={threadSearch.inputRef}
+                      onSearch={threadSearch.search}
+                      onNext={() => threadSearch.goToMatch(1)}
+                      onPrev={() => threadSearch.goToMatch(-1)}
+                      onClose={threadSearch.close}
+                    />
+                  ) : null}
                   <div className="timeline" data-testid="transcript">
                     {selectedSession.transcript.length === 0 ? (
                       <div className="timeline-empty">Send a prompt to start the session.</div>
@@ -772,12 +926,15 @@ export default function App() {
 
             <ComposerPanel
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
-              activeSlashCommandMeta={describeActiveSlashFlow(slashMenu.activeSlashFlow?.command)}
+              activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
+              runtime={selectedRuntime}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
+              onComposerPaste={handleComposerPaste}
+              onComposerDrop={handleComposerDrop}
               onPickImages={handlePickImages}
               onRemoveImage={handleRemoveImage}
               onSelectSlashCommand={(command) => {
@@ -786,6 +943,8 @@ export default function App() {
               onSelectSlashOption={(option) => {
                 slashMenu.applySlashOptionSelection(option);
               }}
+              onSetModel={handleSetSessionModel}
+              onSetThinking={handleSetSessionThinking}
               onSubmit={submitComposerDraft}
               runningLabel={runningLabel}
               selectedSession={selectedSession}
@@ -796,6 +955,10 @@ export default function App() {
               showSlashMenu={slashMenu.showSlashMenu}
               slashOptions={slashMenu.slashOptions}
               slashSections={slashMenu.slashSections}
+              showMentionMenu={mentionMenu.showMentionMenu}
+              mentionOptions={mentionMenu.mentionOptions}
+              selectedMentionIndex={mentionMenu.selectedIndex}
+              onSelectMention={mentionMenu.insertMention}
             />
           </>
         ) : selectedWorkspace ? (
@@ -824,6 +987,14 @@ export default function App() {
             </div>
           </section>
         )}
+
+        {showDiffPanel && selectedWorkspace ? (
+          <DiffPanel
+            workspaceId={selectedWorkspace.id}
+            api={api}
+            sessionStatus={selectedSession?.status}
+          />
+        ) : null}
       </main>
     </div>
   );
@@ -834,13 +1005,4 @@ function isNearBottom(element: HTMLDivElement): boolean {
   return remaining < 32;
 }
 
-function describeActiveSlashFlow(
-  command: ComposerSlashCommand | undefined,
-): string | undefined {
-  if (!command) {
-    return undefined;
-  }
-
-  return command.description;
-}
 

@@ -19,7 +19,7 @@ interface ActiveSlashFlow {
   readonly command: ComposerSlashCommand;
 }
 
-function nextMenuIndex(current: number, delta: number, total: number): number {
+export function nextMenuIndex(current: number, delta: number, total: number): number {
   if (!total) {
     return 0;
   }

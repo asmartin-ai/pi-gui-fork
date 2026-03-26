@@ -25,6 +25,8 @@ export interface TimelineToolCall {
   readonly detail?: string;
   readonly metadata?: string;
   readonly createdAt: string;
+  readonly input?: unknown;
+  readonly output?: unknown;
 }
 
 export interface TimelineSummary {

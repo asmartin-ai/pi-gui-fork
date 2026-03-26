@@ -99,6 +99,25 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<DesktopAppState>,
   submitComposer: (text: string) =>
     ipcRenderer.invoke(desktopIpc.submitComposer, text) as Promise<DesktopAppState>,
+  listWorkspaceFiles: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId) as Promise<string[]>,
+  getChangedFiles: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.getChangedFiles, workspaceId) as Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>,
+  getFileDiff: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.getFileDiff, workspaceId, filePath) as Promise<string>,
+  stageFile: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.stageFile, workspaceId, filePath) as Promise<void>,
   toggleWindowMaximize: () => ipcRenderer.invoke(desktopIpc.toggleWindowMaximize) as Promise<void>,
   openExternal: (url: string) => ipcRenderer.invoke(desktopIpc.openExternal, url) as Promise<void>,
+  getThemeMode: () => ipcRenderer.invoke(desktopIpc.getThemeMode) as Promise<"system" | "light" | "dark">,
+  getResolvedTheme: () => ipcRenderer.invoke(desktopIpc.getResolvedTheme) as Promise<"light" | "dark">,
+  setThemeMode: (mode: "system" | "light" | "dark") =>
+    ipcRenderer.invoke(desktopIpc.setThemeMode, mode) as Promise<string>,
+  onThemeChanged: (callback: (theme: "light" | "dark") => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, theme: "light" | "dark") => callback(theme);
+    ipcRenderer.on(desktopIpc.themeChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(desktopIpc.themeChanged, handler);
+    };
+  },
 });

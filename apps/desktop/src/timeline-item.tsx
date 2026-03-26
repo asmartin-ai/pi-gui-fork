@@ -1,6 +1,9 @@
+import { useState } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
+import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
+import { ChevronRightIcon, CopyIcon } from "./icons";
 
 export function TimelineItem({
   item,
@@ -62,16 +65,133 @@ function TimelineActivityItem({ item }: { readonly item: TimelineActivity }) {
 }
 
 function TimelineToolCallItem({ item }: { readonly item: TimelineToolCall }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasContent = item.input !== undefined || item.output !== undefined;
+  const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
+  const diffStats = diffText ? countDiffStats(diffText) : undefined;
+  const compactLabel = buildCompactLabel(item, diffStats);
+
+  const handleCopy = () => {
+    const text = diffText ?? formatToolContent(item.input, item.output);
+    void navigator.clipboard.writeText(text);
+  };
+
   return (
     <article className={`timeline-tool timeline-tool--${item.status}`}>
-      <div className="timeline-tool__label">{item.label}</div>
-      {item.detail ? <div className="timeline-tool__detail">{item.detail}</div> : null}
-      <div className="timeline-tool__meta">
-        <span>{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
-        {item.metadata ? <span>{item.metadata}</span> : null}
-      </div>
+      <button
+        className="timeline-tool__header"
+        type="button"
+        aria-expanded={expanded}
+        disabled={!hasContent}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        {hasContent ? (
+          <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
+            <ChevronRightIcon />
+          </span>
+        ) : null}
+        <span className="timeline-tool__label">{compactLabel}</span>
+        {diffStats ? (
+          <span className="timeline-tool__diff-stats">
+            <span className="timeline-tool__stat-add">+{diffStats.added}</span>
+            {" "}
+            <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+          </span>
+        ) : null}
+        <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
+      </button>
+      {expanded && hasContent ? (
+        <div className="timeline-tool__body">
+          {diffText ? (
+            <>
+              <div className="timeline-tool__diff-header">
+                <span className="timeline-tool__diff-filename">
+                  {extractFilename(item.input)}
+                  {diffStats ? (
+                    <span className="timeline-tool__diff-stats">
+                      {" "}<span className="timeline-tool__stat-add">+{diffStats.added}</span>
+                      {" "}<span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+                    </span>
+                  ) : null}
+                </span>
+                <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
+                  <CopyIcon />
+                </button>
+              </div>
+              <InlineDiff diff={diffText} />
+            </>
+          ) : (
+            <>
+              <div className="timeline-tool__body-actions">
+                <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
+                  <CopyIcon />
+                </button>
+              </div>
+              <pre className="timeline-tool__pre">{formatToolContent(item.input, item.output)}</pre>
+            </>
+          )}
+        </div>
+      ) : null}
     </article>
   );
+}
+
+function isWriteTool(toolName: string): boolean {
+  return /write|edit|patch|apply/i.test(toolName);
+}
+
+function buildCompactLabel(item: TimelineToolCall, diffStats: { added: number; removed: number } | undefined): string {
+  if (isWriteTool(item.toolName)) {
+    const filename = extractFilename(item.input);
+    if (filename) {
+      return `Edited ${shortenPath(filename)}`;
+    }
+  }
+  return item.label;
+}
+
+function extractFilename(input: unknown): string {
+  if (typeof input === "object" && input !== null) {
+    const record = input as Record<string, unknown>;
+    const path = record.file_path ?? record.filePath ?? record.path ?? record.filename;
+    if (typeof path === "string") {
+      return path;
+    }
+  }
+  return "";
+}
+
+function shortenPath(filePath: string): string {
+  // Show last 2-3 path segments for readability
+  const parts = filePath.split("/");
+  if (parts.length <= 3) {
+    return filePath;
+  }
+  return parts.slice(-3).join("/");
+}
+
+function countDiffStats(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      added += 1;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      removed += 1;
+    }
+  }
+  return { added, removed };
+}
+
+function formatToolContent(input: unknown, output: unknown): string {
+  const parts: string[] = [];
+  if (input !== undefined) {
+    parts.push(typeof input === "string" ? input : JSON.stringify(input, null, 2));
+  }
+  if (output !== undefined) {
+    parts.push(typeof output === "string" ? output : JSON.stringify(output, null, 2));
+  }
+  return parts.join("\n\n");
 }
 
 function statusLabel(status: "running" | "success" | "error") {

@@ -49,6 +49,14 @@ export const desktopIpc = {
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
+  listWorkspaceFiles: "pi-gui:list-workspace-files",
+  getChangedFiles: "pi-gui:get-changed-files",
+  getFileDiff: "pi-gui:get-file-diff",
+  stageFile: "pi-gui:stage-file",
+  getThemeMode: "pi-gui:get-theme-mode",
+  getResolvedTheme: "pi-gui:get-resolved-theme",
+  setThemeMode: "pi-gui:set-theme-mode",
+  themeChanged: "pi-gui:theme-changed",
   ping: "app:ping",
   openExternal: "app:open-external",
 } as const;
@@ -140,6 +148,14 @@ export interface PiDesktopApi {
   removeComposerImage(attachmentId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
   submitComposer(text: string): Promise<DesktopAppState>;
+  listWorkspaceFiles(workspaceId: string): Promise<string[]>;
+  getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>;
+  getFileDiff(workspaceId: string, filePath: string): Promise<string>;
+  stageFile(workspaceId: string, filePath: string): Promise<void>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
+  getThemeMode(): Promise<"system" | "light" | "dark">;
+  getResolvedTheme(): Promise<"light" | "dark">;
+  setThemeMode(mode: "system" | "light" | "dark"): Promise<string>;
+  onThemeChanged(callback: (theme: "light" | "dark") => void): () => void;
 }

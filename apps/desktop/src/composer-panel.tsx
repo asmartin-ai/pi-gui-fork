@@ -1,10 +1,13 @@
-import { type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
+import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
+import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerImageAttachment, SessionRecord } from "./desktop-state";
 import { ArrowUpIcon, ModelIcon, PlusIcon, ReasoningIcon, SkillIcon, SparkIcon, StatusIcon, StopSquareIcon } from "./icons";
 import type { ComposerSlashCommand, ComposerSlashCommandSection, ComposerSlashOption } from "./composer-commands";
+import { ModelSelector } from "./model-selector";
 
 interface ComposerPanelProps {
   readonly selectedSession: SessionRecord;
+  readonly runtime?: RuntimeSnapshot;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
   readonly composerDraft: string;
@@ -20,15 +23,24 @@ interface ComposerPanelProps {
   readonly showSlashOptionMenu: boolean;
   readonly onClearSlashCommand: () => void;
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  readonly onComposerDrop: (event: DragEvent<HTMLDivElement>) => void;
   readonly onPickImages: () => void;
   readonly onRemoveImage: (attachmentId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
+  readonly onSetModel: (provider: string, modelId: string) => void;
+  readonly onSetThinking: (level: string) => void;
   readonly onSubmit: () => void;
+  readonly showMentionMenu: boolean;
+  readonly mentionOptions: readonly string[];
+  readonly selectedMentionIndex: number;
+  readonly onSelectMention: (filePath: string) => void;
 }
 
 export function ComposerPanel({
   selectedSession,
+  runtime,
   activeSlashCommand,
   activeSlashCommandMeta,
   composerDraft,
@@ -44,15 +56,45 @@ export function ComposerPanel({
   showSlashOptionMenu,
   onClearSlashCommand,
   onComposerKeyDown,
+  onComposerPaste,
+  onComposerDrop,
   onPickImages,
   onRemoveImage,
   onSelectSlashCommand,
   onSelectSlashOption,
+  onSetModel,
+  onSetThinking,
   onSubmit,
+  showMentionMenu,
+  mentionOptions,
+  selectedMentionIndex,
+  onSelectMention,
 }: ComposerPanelProps) {
   return (
     <footer className="composer">
       <div className="conversation conversation--composer">
+        {showMentionMenu ? (
+          <div className="composer__menus">
+            <div className="mention-menu" data-testid="mention-menu" onWheel={(event) => event.stopPropagation()}>
+              {mentionOptions.map((filePath, index) => {
+                const lastSlash = filePath.lastIndexOf("/");
+                const dirPart = lastSlash >= 0 ? filePath.slice(0, lastSlash + 1) : "";
+                const namePart = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
+                return (
+                  <button
+                    className={`mention-menu__item ${index === selectedMentionIndex ? "mention-menu__item--active" : ""}`}
+                    key={filePath}
+                    type="button"
+                    onClick={() => onSelectMention(filePath)}
+                  >
+                    {dirPart ? <span className="mention-menu__dirname">{dirPart}</span> : null}
+                    <span className="mention-menu__filename">{namePart}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         {showSlashMenu || (showSlashOptionMenu && selectedSlashCommand) ? (
           <div className="composer__menus">
             {showSlashMenu ? (
@@ -121,7 +163,12 @@ export function ComposerPanel({
             ) : null}
           </div>
         ) : null}
-        <div className="composer__surface">
+        <div
+          className="composer__surface"
+          onPaste={onComposerPaste}
+          onDrop={onComposerDrop}
+          onDragOver={(event) => event.preventDefault()}
+        >
           {activeSlashCommand ? (
             <div className="composer__slash-intent">
               <span className="composer__slash-intent-icon" aria-hidden="true">
@@ -179,12 +226,12 @@ export function ComposerPanel({
           <div className="composer__bar">
             <div className="composer__hint">
               {selectedSession.status === "running" ? runningLabel : "Enter to send · Shift+Enter for newline"}
-              {selectedSession.config?.provider && selectedSession.config?.modelId ? (
-                <span className="composer__config"> · {selectedSession.config.provider}:{selectedSession.config.modelId}</span>
-              ) : null}
-              {selectedSession.config?.thinkingLevel ? (
-                <span className="composer__config"> · {selectedSession.config.thinkingLevel}</span>
-              ) : null}
+              <ModelSelector
+                runtime={runtime}
+                session={selectedSession}
+                onSetModel={onSetModel}
+                onSetThinking={onSetThinking}
+              />
             </div>
             <div className="composer__actions">
               <button
