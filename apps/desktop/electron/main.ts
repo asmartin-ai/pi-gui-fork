@@ -228,9 +228,11 @@ app.whenReady().then(async () => {
     const attachments = await Promise.all(result.filePaths.map(readComposerImage));
     return store.addComposerImages(attachments);
   });
-  ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) =>
-    store.addComposerImages(attachments),
-  );
+  ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) => {
+    const allowedMimeTypes = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));
+    const validated = attachments.filter((a) => typeof a.mimeType === "string" && allowedMimeTypes.has(a.mimeType));
+    return store.addComposerImages(validated);
+  });
   ipcMain.handle(desktopIpc.removeComposerImage, (_event, attachmentId: string) =>
     store.removeComposerImage(attachmentId),
   );

@@ -1,4 +1,13 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
+
+function validateFilePath(workspacePath: string, filePath: string): string {
+  const resolved = path.resolve(workspacePath, filePath);
+  if (!resolved.startsWith(workspacePath + path.sep) && resolved !== workspacePath) {
+    throw new Error("Path escapes workspace");
+  }
+  return filePath;
+}
 
 export interface ChangedFileEntry {
   readonly path: string;
@@ -40,6 +49,7 @@ export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry
 }
 
 export function getFileDiff(workspacePath: string, filePath: string): Promise<string> {
+  validateFilePath(workspacePath, filePath);
   return new Promise((resolve) => {
     execFile(
       "git",
@@ -78,6 +88,7 @@ export function getFileDiff(workspacePath: string, filePath: string): Promise<st
 }
 
 export function stageFile(workspacePath: string, filePath: string): Promise<void> {
+  validateFilePath(workspacePath, filePath);
   return new Promise((resolve, reject) => {
     execFile(
       "git",
