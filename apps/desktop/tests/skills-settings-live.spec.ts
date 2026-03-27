@@ -45,7 +45,7 @@ Use this skill when the user wants a short demo workflow.
     await window.getByRole("button", { name: /Demo Skill/i }).click();
     await expect(window.locator(".skill-detail")).toContainText("/skill:demo-skill");
 
-    await window.getByRole("button", { name: "Try" }).click();
+    await window.getByRole("button", { name: "Try", exact: true }).click();
     await expect(window.getByRole("button", { name: "Threads", exact: true })).toBeVisible();
     await expect(window.getByTestId("composer")).toHaveValue("/skill:demo-skill ");
 
@@ -58,7 +58,7 @@ Use this skill when the user wants a short demo workflow.
     const composer = window.getByTestId("composer");
     await composer.fill("/skill");
     const slashMenu = window.getByTestId("slash-menu");
-    await expect(slashMenu).toContainText("Skills");
+    await expect(slashMenu).toContainText("Runtime Commands");
     await expect(slashMenu).toContainText("Demo Skill");
   } finally {
     await harness.close();

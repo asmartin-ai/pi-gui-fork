@@ -78,6 +78,18 @@ export async function makeWorkspace(name: string): Promise<string> {
   return realpath(workspacePath);
 }
 
+export async function writeProjectExtension(
+  workspacePath: string,
+  fileName: string,
+  source: string,
+): Promise<string> {
+  const extensionsDir = join(workspacePath, ".pi", "extensions");
+  await mkdir(extensionsDir, { recursive: true });
+  const extensionPath = join(extensionsDir, fileName);
+  await writeFile(extensionPath, source, "utf8");
+  return extensionPath;
+}
+
 export async function getDesktopState(window: Page) {
   const state = await window.evaluate(() => {
     const app = (window as PiAppWindow).piApp;
