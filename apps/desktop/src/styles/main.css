@@ -708,6 +708,10 @@
   overflow: visible;
 }
 
+.composer__editor {
+  position: relative;
+}
+
 .composer__slash-intent {
   display: flex;
   align-items: center;
@@ -1794,82 +1798,67 @@
   gap: 8px;
 }
 
-.extension-status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid #dfe4ee;
-  background: #f9fbfe;
-}
-
-.extension-status-strip__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-strong);
-  font-size: 13px;
-}
-
-.extension-status-strip__label {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #eef2f8;
-  color: var(--muted-soft);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.extension-widget-rail {
-  margin: 0 28px 14px;
-  padding: 14px 18px;
-  border-radius: 18px;
-  border: 1px solid #dfe4ee;
-  background: #fff;
-}
-
-.extension-widget-rail__title {
+.extension-dock {
   margin-bottom: 10px;
-  color: var(--muted-soft);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
-.extension-widget-rail__list {
-  display: grid;
+.extension-dock--expanded {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #edf0f6;
+}
+
+.extension-dock__toggle {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
   gap: 10px;
-  max-height: 180px;
-  overflow: auto;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: 1px solid #e4e9f2;
+  background: #f8fafc;
+  color: var(--muted-strong);
+  text-align: left;
 }
 
-.extension-widget-card {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: #f7f9fc;
-  border: 1px solid #e5eaf3;
+.extension-dock__toggle:hover {
+  background: #f4f7fb;
 }
 
-.extension-widget-card__key {
-  margin-bottom: 6px;
-  color: var(--muted-soft);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.extension-widget-card__body {
-  display: grid;
-  gap: 4px;
-  color: var(--text-strong);
+.extension-dock__summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+
+.extension-dock__chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--muted-soft);
+}
+
+.extension-dock__chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.extension-dock__body {
+  margin: 8px 0 0;
+  padding: 10px 12px 0;
+  max-height: min(220px, 28vh);
+  overflow: auto;
+  color: var(--muted-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .extension-dialog-backdrop {
@@ -2258,15 +2247,14 @@ mark.thread-find-active {
   color: #6ee7b7;
 }
 
-:root.dark .extension-status-strip,
-:root.dark .extension-widget-rail,
+:root.dark .extension-dock__toggle,
+:root.dark .extension-dock--expanded,
 :root.dark .extension-dialog {
   border-color: var(--line);
   background: var(--surface);
 }
 
-:root.dark .extension-status-strip__label,
-:root.dark .extension-widget-card,
+:root.dark .extension-dock__toggle:hover,
 :root.dark .extension-dialog__option {
   background: var(--surface-muted);
   border-color: var(--line);

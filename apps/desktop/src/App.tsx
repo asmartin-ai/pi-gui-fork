@@ -27,7 +27,7 @@ import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
-import { ExtensionDialog, ExtensionStatusStrip, ExtensionWidgetRail, partitionExtensionUiState } from "./extension-session-ui";
+import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } from "./extension-session-ui";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -119,6 +119,7 @@ export default function App() {
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<"local" | "new-worktree">("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
+  const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
@@ -216,9 +217,10 @@ export default function App() {
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
+  const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
-  const { statuses, aboveComposerWidgets, belowComposerWidgets, activeDialog: activeExtensionDialog } =
-    partitionExtensionUiState(selectedExtensionUi);
+  const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
+  const isSelectedExtensionDockExpanded = dockExpandedBySession[selectedSessionKey] ?? false;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
@@ -284,6 +286,31 @@ export default function App() {
     }
     setComposerDraft(snapshot.composerDraft);
   }, [persistedComposerDraft, selectedSessionKey]);
+
+  useEffect(() => {
+    const sessionExtensionUiBySession = snapshot?.sessionExtensionUiBySession;
+    if (!sessionExtensionUiBySession) {
+      setDockExpandedBySession((current) => (Object.keys(current).length > 0 ? {} : current));
+      return;
+    }
+
+    setDockExpandedBySession((current) => {
+      let next: Record<string, boolean> | undefined;
+      for (const [sessionKey, expanded] of Object.entries(current)) {
+        if (!expanded && sessionExtensionUiBySession[sessionKey]) {
+          continue;
+        }
+        if (hasExtensionDockContent(sessionExtensionUiBySession[sessionKey])) {
+          continue;
+        }
+        if (!next) {
+          next = { ...current };
+        }
+        delete next[sessionKey];
+      }
+      return next ?? current;
+    });
+  }, [snapshot?.sessionExtensionUiBySession]);
 
   useEffect(() => {
     if (rootWorkspaceOptions.length === 0) {
@@ -698,6 +725,17 @@ export default function App() {
     });
   };
 
+  const handleToggleExtensionDock = () => {
+    if (!selectedExtensionDock) {
+      return;
+    }
+
+    setDockExpandedBySession((current) => ({
+      ...current,
+      [selectedSessionKey]: !(current[selectedSessionKey] ?? false),
+    }));
+  };
+
   const handleUnarchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.unarchiveSession(target));
   };
@@ -987,7 +1025,6 @@ export default function App() {
                 </div>
 
                 {snapshot.lastError ? <div className="error-banner">{snapshot.lastError}</div> : null}
-                {statuses.length ? <ExtensionStatusStrip statuses={statuses} /> : null}
 
                 <div className="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
                   {threadSearch.isOpen ? (
@@ -1019,8 +1056,6 @@ export default function App() {
                 </div>
               </div>
             </section>
-
-            {aboveComposerWidgets.length ? <ExtensionWidgetRail title="Above Composer" widgets={aboveComposerWidgets} /> : null}
             <ComposerPanel
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
@@ -1056,8 +1091,10 @@ export default function App() {
               mentionOptions={mentionMenu.mentionOptions}
               selectedMentionIndex={mentionMenu.selectedIndex}
               onSelectMention={mentionMenu.insertMention}
+              extensionDock={selectedExtensionDock}
+              extensionDockExpanded={isSelectedExtensionDockExpanded}
+              onToggleExtensionDock={handleToggleExtensionDock}
             />
-            {belowComposerWidgets.length ? <ExtensionWidgetRail title="Below Composer" widgets={belowComposerWidgets} /> : null}
             {activeExtensionDialog ? (
               <ExtensionDialog dialog={activeExtensionDialog} onRespond={handleRespondToExtensionDialog} />
             ) : null}
