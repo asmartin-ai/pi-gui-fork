@@ -65,7 +65,9 @@ pnpm --filter @pi-gui/desktop run test:e2e:all
 
 ## Targeted Commands
 
-Use a targeted script while iterating, then rerun the matching lane before closing.
+Use a targeted script while iterating.
+Rerun the matching lane before closing for `core` and `live`.
+For `native`, rerun the targeted native spec by default and expand to `test:e2e:native` only when the change touches shared native helpers, multiple native specs, or lane-wide native behavior.
 
 ```bash
 pnpm --filter @pi-gui/desktop run test:core:worktrees
