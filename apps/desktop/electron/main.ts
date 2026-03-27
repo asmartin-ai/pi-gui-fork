@@ -20,6 +20,7 @@ import type {
 } from "../src/desktop-state";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+const windowTestMode = resolveWindowTestMode();
 let store: DesktopAppStore;
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
@@ -35,6 +36,7 @@ const SUPPORTED_IMAGE_TYPES = [
 ] as const;
 
 function createWindow(): BrowserWindow {
+  const backgroundTestMode = windowTestMode === "background";
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
@@ -49,10 +51,16 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Keep hidden test windows responsive so Playwright exercises the same UI flows.
+      backgroundThrottling: !backgroundTestMode,
     },
   });
 
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (!backgroundTestMode) {
+      window.show();
+    }
+  });
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") {
       return;
@@ -318,6 +326,10 @@ function resolveInitialWorkspacePaths(): readonly string[] {
   }
 
   return [];
+}
+
+function resolveWindowTestMode(): "foreground" | "background" {
+  return process.env.PI_APP_TEST_MODE?.trim().toLowerCase() === "background" ? "background" : "foreground";
 }
 
 async function readComposerImage(filePath: string): Promise<ComposerImageAttachment> {
