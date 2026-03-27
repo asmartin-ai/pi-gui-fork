@@ -222,6 +222,10 @@ export default function App() {
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace],
   );
+  const resetNewThreadWorktreeTarget = () => {
+    setNewThreadEnvironment("local");
+    setNewThreadTargetWorkspaceId("");
+  };
 
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
@@ -287,8 +291,7 @@ export default function App() {
       setSettingsWorkspaceId("");
       setSkillsWorkspaceId("");
       setNewThreadRootWorkspaceId("");
-      setNewThreadEnvironment("local");
-      setNewThreadTargetWorkspaceId("");
+      resetNewThreadWorktreeTarget();
       return;
     }
     setSettingsWorkspaceId((current) =>
@@ -306,14 +309,10 @@ export default function App() {
     if (newThreadEnvironment !== "current-worktree") {
       return;
     }
-    if (
-      newThreadTargetWorkspace?.kind === "worktree" &&
-      newThreadTargetWorkspace.rootWorkspaceId === newThreadRootWorkspaceId
-    ) {
+    if (isWorktreeForRoot(newThreadTargetWorkspace, newThreadRootWorkspaceId)) {
       return;
     }
-    setNewThreadEnvironment("local");
-    setNewThreadTargetWorkspaceId("");
+    resetNewThreadWorktreeTarget();
   }, [newThreadEnvironment, newThreadRootWorkspaceId, newThreadTargetWorkspace]);
 
   useEffect(() => {
@@ -463,11 +462,9 @@ export default function App() {
     if (nextRootWorkspace) {
       setNewThreadRootWorkspaceId(nextRootWorkspace.id);
     }
-    const currentWorktreeWorkspace =
-      selectedWorkspace?.kind === "worktree" &&
-        (selectedWorkspace.rootWorkspaceId ?? selectedWorkspace.id) === nextRootWorkspace?.id
-        ? selectedWorkspace
-        : undefined;
+    const currentWorktreeWorkspace = isWorktreeForRoot(selectedWorkspace, nextRootWorkspace?.id)
+      ? selectedWorkspace
+      : undefined;
     setNewThreadTargetWorkspaceId(currentWorktreeWorkspace?.id ?? "");
     setNewThreadEnvironment(currentWorktreeWorkspace ? "current-worktree" : "local");
     setNewThreadPrompt("");
@@ -476,13 +473,10 @@ export default function App() {
 
   const handleSelectNewThreadWorkspace = (workspaceId: string) => {
     setNewThreadRootWorkspaceId(workspaceId);
-    if (newThreadTargetWorkspace?.kind === "worktree" && newThreadTargetWorkspace.rootWorkspaceId === workspaceId) {
+    if (isWorktreeForRoot(newThreadTargetWorkspace, workspaceId)) {
       return;
     }
-    setNewThreadTargetWorkspaceId("");
-    if (newThreadEnvironment === "current-worktree") {
-      setNewThreadEnvironment("local");
-    }
+    resetNewThreadWorktreeTarget();
   };
 
   const submitComposerDraft = () => {
@@ -713,8 +707,7 @@ export default function App() {
       api.startThread(input),
     ).then(() => {
       setNewThreadPrompt("");
-      setNewThreadEnvironment("local");
-      setNewThreadTargetWorkspaceId("");
+      resetNewThreadWorktreeTarget();
     });
   };
 
@@ -1063,4 +1056,15 @@ export default function App() {
 function isNearBottom(element: HTMLDivElement): boolean {
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
   return remaining < 32;
+}
+
+function isWorktreeForRoot(
+  workspace: WorkspaceRecord | undefined,
+  rootWorkspaceId: string | undefined,
+): workspace is WorkspaceRecord & { kind: "worktree" } {
+  return Boolean(
+    workspace &&
+      workspace.kind === "worktree" &&
+      (workspace.rootWorkspaceId ?? workspace.id) === rootWorkspaceId,
+  );
 }
