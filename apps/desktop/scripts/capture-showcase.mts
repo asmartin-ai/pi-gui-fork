@@ -5,7 +5,13 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
-import { addWorkspace, createSession, getDesktopState, launchDesktop, makeWorkspace, type PiAppWindow } from "../tests/harness.ts";
+import {
+  addWorkspaceViaIpc,
+  getDesktopState,
+  launchDesktop,
+  makeWorkspace,
+  type PiAppWindow,
+} from "../tests/helpers/electron-app.ts";
 
 const execFileAsync = promisify(execFile);
 // Each Retina screenshot takes ~200ms, so effective capture rate is ~5fps.
@@ -300,7 +306,7 @@ async function withFreshApp(
     // Bring window to front
     await page.evaluate(() => window.focus());
     await hold(700);
-    await addWorkspace(page, workspacePath);
+    await addWorkspaceViaIpc(page, workspacePath);
     await hold(700);
 
     // Verify the app actually rendered

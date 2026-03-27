@@ -1,33 +1,40 @@
-// TODO: test renaming to empty string, cancelling the remove confirmation dialog
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
-import { addWorkspace, assertExists, getDesktopState, launchDesktop, makeWorkspace } from "./harness";
+import {
+  assertExists,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  waitForWorkspaceByPath,
+} from "../helpers/electron-app";
 
 test("supports workspace rename and remove from the sidebar menu", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspaceA = await makeWorkspace("workspace-menu-a");
   const workspaceB = await makeWorkspace("workspace-menu-b");
-  const harness = await launchDesktop(userDataDir);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspaceA, workspaceB],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    await addWorkspace(window, workspaceA);
-    await addWorkspace(window, workspaceB);
+    await waitForWorkspaceByPath(window, workspaceA);
+    await waitForWorkspaceByPath(window, workspaceB);
 
     const state = await getDesktopState(window);
     const workspace = state.workspaces.find((entry) => entry.path === workspaceA);
     assertExists(workspace, "Expected first workspace");
 
-    await window.getByRole("button", { name: `Workspace actions for ${workspace.name}` }).click();
+    await window.getByRole("button", { name: `Workspace actions for ${basename(workspaceA)}` }).click();
     await expect(window.getByRole("button", { name: "Open in Finder" })).toBeVisible();
     await expect(window.getByRole("button", { name: "Edit name" })).toBeVisible();
     await expect(window.getByRole("button", { name: "Remove" })).toBeVisible();
 
     await window.getByRole("button", { name: "Edit name" }).click();
-    const renameInput = window.getByLabel(`Rename ${workspace.name}`);
+    const renameInput = window.getByLabel(`Rename ${basename(workspaceA)}`);
     await renameInput.fill("Renamed workspace");
     await window.getByRole("button", { name: "Save" }).click();
 

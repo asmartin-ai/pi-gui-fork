@@ -5,7 +5,13 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
-import { addWorkspace, createSession, getDesktopState, launchDesktop, makeWorkspace } from "../tests/harness.ts";
+import {
+  addWorkspaceViaIpc,
+  createSessionViaIpc,
+  getDesktopState,
+  launchDesktop,
+  makeWorkspace,
+} from "../tests/helpers/electron-app.ts";
 
 const execFileAsync = promisify(execFile);
 const frameRate = 10;
@@ -28,10 +34,10 @@ async function main(): Promise<void> {
     stopRecording = startFrameRecorder(page, framesDir);
 
     await hold(700);
-    await addWorkspace(page, workspacePath);
+    await addWorkspaceViaIpc(page, workspacePath);
     await hold(700);
 
-    await createSession(page, workspacePath, "README demo");
+    await createSessionViaIpc(page, workspacePath, "README demo");
     await hold(500);
 
     const prompt = [

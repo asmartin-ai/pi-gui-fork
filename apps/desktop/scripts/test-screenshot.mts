@@ -1,7 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchDesktop, makeWorkspace, addWorkspace } from "../tests/harness.ts";
+import { addWorkspaceViaIpc, launchDesktop, makeWorkspace } from "../tests/helpers/electron-app.ts";
 
 async function main() {
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-test-screenshot-"));
@@ -18,7 +18,7 @@ async function main() {
     await page.screenshot({ path: "/tmp/pi-test-1-before-workspace.png" });
     console.log("Screenshot 1 taken (before workspace)");
 
-    await addWorkspace(page, workspacePath);
+    await addWorkspaceViaIpc(page, workspacePath);
     console.log("Workspace added, waiting 2s...");
     await new Promise((r) => setTimeout(r, 2000));
 

@@ -1,0 +1,116 @@
+import { expect, test } from "@playwright/test";
+import {
+  createNamedThread,
+  desktopShortcut,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  selectSession,
+} from "../helpers/electron-app";
+
+test("supports keyboard shortcuts, slash menus, and topbar controls through the user surface", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("controls-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Controls session");
+    await expect(window.locator(".topbar__session")).toHaveText("Controls session");
+
+    const composer = window.getByTestId("composer");
+
+    await window.keyboard.press(desktopShortcut(","));
+    await expect(window.getByTestId("settings-surface")).toBeVisible();
+    await expect(window.locator(".view-header__title")).toContainText("General");
+
+    await window.keyboard.press(desktopShortcut("Shift+O"));
+    await expect(window.getByTestId("new-thread-composer")).toBeVisible();
+    await expect(window.getByTestId("new-thread-composer")).toBeFocused();
+
+    await selectSession(window, "Controls session");
+    await expect(composer).toBeFocused();
+
+    await composer.fill("/st");
+    const slashMenu = window.getByTestId("slash-menu");
+    await expect(slashMenu).toBeVisible();
+    await expect(slashMenu).toContainText("Status");
+    const slashMenuBox = await slashMenu.boundingBox();
+    const composerBox = await composer.boundingBox();
+    expect(slashMenuBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+    expect((slashMenuBox?.y ?? 0) + (slashMenuBox?.height ?? 0)).toBeLessThanOrEqual((composerBox?.y ?? 0) + 2);
+
+    await composer.press("Tab");
+    await expect(slashMenu).toHaveCount(0);
+    await expect(composer).toHaveValue("/status");
+    await composer.press("Enter");
+    await expect(window.getByTestId("transcript")).toContainText("Model");
+    await expect(composer).toHaveValue("");
+
+    await composer.fill("/thinking");
+    const optionsMenu = window.getByTestId("slash-options-menu");
+    await expect(optionsMenu).toBeVisible();
+    await expect(optionsMenu).toContainText("Low");
+    await expect(optionsMenu).toContainText("Extra High");
+    await composer.press("ArrowDown");
+    await composer.press("ArrowDown");
+    await composer.press("Enter");
+    await expect(optionsMenu).toHaveCount(0);
+    await expect(window.getByTestId("transcript")).toContainText("Thinking set to high");
+    await expect(window.locator(".composer__hint")).toContainText("high");
+
+    const selectedModelText = async () => {
+      const state = await getDesktopState(window);
+      const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+      const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+      const selectedConfig = selectedSession?.config;
+      return selectedConfig?.provider && selectedConfig?.modelId
+        ? `${selectedConfig.provider}:${selectedConfig.modelId}`
+        : null;
+    };
+
+    await composer.fill("/model");
+    await expect(optionsMenu).toBeVisible();
+    await optionsMenu.getByRole("button").first().click();
+    await expect(optionsMenu).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const selectedModel = await selectedModelText();
+        const timelineText = await window.getByTestId("transcript").textContent();
+        return selectedModel && timelineText?.includes(`Model set to ${selectedModel}`) ? selectedModel : null;
+      })
+      .not.toBeNull();
+    const selectedModel = await selectedModelText();
+    expect(selectedModel).toBeTruthy();
+    await expect(window.locator(".composer__hint")).toContainText(selectedModel ?? "");
+
+    const appRegions = await window.evaluate(() => {
+      const topbar = document.querySelector<HTMLElement>("[data-testid='topbar']");
+      const addFolder = document.querySelector<HTMLElement>(".topbar__actions button");
+      return {
+        topbar: topbar ? getComputedStyle(topbar).getPropertyValue("-webkit-app-region") : "",
+        addFolder: addFolder ? getComputedStyle(addFolder).getPropertyValue("-webkit-app-region") : "",
+      };
+    });
+    expect(appRegions.topbar).toBe("drag");
+    expect(appRegions.addFolder).toBe("no-drag");
+
+    const maximizedBefore = await harness.electronApp.evaluate(({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows()[0]?.isMaximized() ?? false;
+    });
+    await window.getByTestId("topbar").dblclick({ position: { x: 140, y: 12 } });
+    await expect
+      .poll(() =>
+        harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized() ?? false),
+      )
+      .toBe(!maximizedBefore);
+  } finally {
+    await harness.close();
+  }
+});
