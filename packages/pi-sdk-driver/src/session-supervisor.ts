@@ -7,11 +7,17 @@ import {
   type AgentSession,
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
+  type ExtensionCommandContextActions,
+  type ExtensionUIDialogOptions,
+  type ExtensionUIContext,
+  type ExtensionWidgetOptions,
   type SessionInfo,
 } from "@mariozechner/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/catalogs";
 import type {
   CreateSessionOptions,
+  HostUiRequest,
+  HostUiResponse,
   SessionConfig,
   SessionDriverEvent,
   SessionEventListener,
@@ -24,7 +30,14 @@ import type {
   WorkspaceId,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
+import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
 import { JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
+import {
+  applyHostUiRequestToExtensionUiState,
+  createEmptyExtensionUiState,
+  type ExtensionUiState,
+} from "./extension-ui-state.js";
+import { normalizeRuntimeCommandName, skillCommandName } from "./runtime-command-utils.js";
 import {
   buildSnapshot,
   createWorkspaceRef,
@@ -56,7 +69,7 @@ export interface SyncWorkspaceResult {
 }
 
 interface ManagedSessionRecord {
-  readonly ref: SessionRef;
+  ref: SessionRef;
   workspace: WorkspaceRef;
   title: string;
   session: AgentSession | undefined;
@@ -71,6 +84,38 @@ interface ManagedSessionRecord {
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
   unsubscribeAgent: (() => void) | undefined;
+  pendingHostUiRequests: Map<
+    string,
+    {
+      resolve: (response: HostUiResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >;
+  extensionUiState: ExtensionUiState;
+  sessionCommands: RuntimeCommandRecord[];
+}
+
+interface RegisteredCommandAdapter {
+  readonly name: string;
+  readonly invocationName?: string;
+  readonly description?: string;
+  readonly sourceInfo?: RuntimeCommandRecord["sourceInfo"];
+  readonly extensionPath?: string;
+}
+
+interface PromptTemplateAdapter {
+  readonly name: string;
+  readonly description?: string;
+  readonly sourceInfo?: RuntimeCommandRecord["sourceInfo"];
+  readonly filePath?: string;
+}
+
+interface SkillAdapter {
+  readonly name: string;
+  readonly description: string;
+  readonly sourceInfo?: RuntimeCommandRecord["sourceInfo"];
+  readonly filePath?: string;
+  readonly source?: string;
 }
 
 export class SessionSupervisor {
@@ -205,6 +250,22 @@ export class SessionSupervisor {
     return transcriptFromMessages(record.session?.messages ?? [], record.updatedAt);
   }
 
+  async getSessionCommands(sessionRef: SessionRef): Promise<readonly RuntimeCommandRecord[]> {
+    const record = await this.ensureRecord(sessionRef);
+    return record.sessionCommands;
+  }
+
+  async respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const pending = record.pendingHostUiRequests.get(response.requestId);
+    if (!pending) {
+      return;
+    }
+
+    record.pendingHostUiRequests.delete(response.requestId);
+    pending.resolve(response);
+  }
+
   async createSession(workspace: WorkspaceRef, options?: CreateSessionOptions): Promise<SessionSnapshot> {
     await this.touchWorkspace(workspace);
 
@@ -225,6 +286,7 @@ export class SessionSupervisor {
     }
 
     this.records.set(sessionKey(record.ref), record);
+    await this.bindSessionRuntime(record);
     await this.persistSnapshot(record);
     const snapshot = buildSnapshot(record);
     await this.emit(record, {
@@ -259,38 +321,38 @@ export class SessionSupervisor {
 
   async sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
-    if (!record.session) {
-      throw new Error(`Session ${sessionKey(sessionRef)} is not active.`);
-    }
-    if (record.session.isStreaming) {
+    const session = this.requireSession(record);
+    const isExtensionCommand = this.isExtensionCommand(session, input.text);
+    if (session.isStreaming && !isExtensionCommand) {
       throw new Error("Session is already streaming. TODO: expose steer/follow-up queueing on the driver API.");
     }
 
-    const runId = crypto.randomUUID();
+    const runId = isExtensionCommand ? undefined : crypto.randomUUID();
     record.runningRunId = runId;
-    record.status = "running";
+    record.status = isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
-    record.config = deriveSessionConfig(record.session.sessionManager);
+    record.config = deriveSessionConfig(session.sessionManager);
     record.preview = truncate(input.text);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
 
     try {
-      const content = input.attachments?.length
-        ? [
-            { type: "text" as const, text: input.text },
-            ...input.attachments.map((attachment) => ({
-              type: "image" as const,
-              data: attachment.data,
-              mimeType: attachment.mimeType,
-            })),
-          ]
-        : input.text;
+      const images = input.attachments?.map((attachment) => ({
+        type: "image" as const,
+        data: attachment.data,
+        mimeType: attachment.mimeType,
+      }));
+      await session.prompt(input.text, {
+        ...(images && images.length > 0 ? { images } : {}),
+        source: "interactive",
+      });
 
-      await record.session.sendUserMessage(content);
+      if (isExtensionCommand) {
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+      }
     } catch (error) {
       record.runningRunId = undefined;
-      record.status = "failed";
+      record.status = isExtensionCommand ? "idle" : "failed";
       record.updatedAt = nowIso();
       record.preview = error instanceof Error ? error.message : String(error);
       await this.persistSnapshot(record);
@@ -299,7 +361,7 @@ export class SessionSupervisor {
         sessionRef: record.ref,
         timestamp: nowIso(),
         error: toSessionErrorInfo(error, "SEND_FAILED"),
-        runId,
+        ...(runId ? { runId } : {}),
       });
       await this.emit(record, sessionUpdatedEvent(record));
       throw error;
@@ -379,15 +441,12 @@ export class SessionSupervisor {
 
   async reloadSession(sessionRef: SessionRef): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
-    if (!record.session) {
-      throw new Error(`Session ${sessionKey(sessionRef)} is not active.`);
-    }
+    const session = this.requireSession(record);
 
-    await record.session.reload();
-    record.updatedAt = nowIso();
-    record.config = deriveSessionConfig(record.session.sessionManager);
-    await this.persistSnapshot(record);
-    await this.emit(record, sessionUpdatedEvent(record));
+    this.clearExtensionUiState(record);
+    this.cancelPendingHostUiRequests(record);
+    await session.reload();
+    await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
   }
 
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe {
@@ -398,6 +457,7 @@ export class SessionSupervisor {
 
     record.listeners.add(listener);
     void Promise.resolve(listener(sessionUpdatedEvent(record))).catch(() => {});
+    this.replayExtensionUiState(record, listener);
 
     return () => {
       record.listeners.delete(listener);
@@ -414,6 +474,8 @@ export class SessionSupervisor {
     record.runningRunId = undefined;
     record.status = "idle";
     record.updatedAt = nowIso();
+    this.clearExtensionUiState(record);
+    this.cancelPendingHostUiRequests(record);
 
     if (record.session) {
       try {
@@ -482,6 +544,7 @@ export class SessionSupervisor {
     });
 
     this.records.set(key, record);
+    await this.bindSessionRuntime(record);
     return record;
   }
 
@@ -507,6 +570,9 @@ export class SessionSupervisor {
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
       unsubscribeAgent: undefined,
+      pendingHostUiRequests: new Map(),
+      extensionUiState: createEmptyExtensionUiState(),
+      sessionCommands: [],
     };
 
     record.unsubscribeAgent = session.subscribe((event) => {
@@ -523,6 +589,238 @@ export class SessionSupervisor {
     return sessionManager;
   }
 
+  private requireSession(record: ManagedSessionRecord): AgentSession {
+    if (!record.session) {
+      throw new Error(`Session ${sessionKey(record.ref)} is not active.`);
+    }
+    return record.session;
+  }
+
+  private async bindSessionRuntime(record: ManagedSessionRecord): Promise<void> {
+    const session = this.requireSession(record);
+    await session.bindExtensions({
+      uiContext: this.createExtensionUiContext(record),
+      commandContextActions: this.createCommandContextActions(record),
+      onError: (error) => {
+        void this.emitExtensionError(record, error.extensionPath, error.event, error.error);
+      },
+    });
+    record.sessionCommands = this.collectSessionCommands(session);
+  }
+
+  private createCommandContextActions(record: ManagedSessionRecord): ExtensionCommandContextActions {
+    return {
+      waitForIdle: () => this.requireSession(record).agent.waitForIdle(),
+      newSession: async (options) => {
+        const cancelled = !(await this.requireSession(record).newSession(options));
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+        return { cancelled };
+      },
+      fork: async (entryId) => {
+        const result = await this.requireSession(record).fork(entryId);
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+        return { cancelled: result.cancelled };
+      },
+      navigateTree: async (targetId, options) => {
+        const result = await this.requireSession(record).navigateTree(targetId, options);
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+        return { cancelled: result.cancelled };
+      },
+      switchSession: async (sessionPath) => {
+        const cancelled = !(await this.requireSession(record).switchSession(sessionPath));
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+        return { cancelled };
+      },
+      reload: async () => {
+        this.clearExtensionUiState(record);
+        this.cancelPendingHostUiRequests(record);
+        await this.requireSession(record).reload();
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+      },
+    };
+  }
+
+  private createExtensionUiContext(record: ManagedSessionRecord): ExtensionUIContext {
+    const noOpTheme = extensionUiThemeStub;
+
+    const createDialogPromise = <T>(
+      opts: ExtensionUIDialogOptions | undefined,
+      defaultValue: T,
+      createRequest: (requestId: string) => HostUiRequest,
+      parseResponse: (response: HostUiResponse) => T,
+    ): Promise<T> => {
+      if (opts?.signal?.aborted) {
+        return Promise.resolve(defaultValue);
+      }
+
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+        const cleanup = () => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          opts?.signal?.removeEventListener("abort", onAbort);
+          record.pendingHostUiRequests.delete(requestId);
+        };
+
+        const onAbort = () => {
+          cleanup();
+          resolve(defaultValue);
+        };
+
+        opts?.signal?.addEventListener("abort", onAbort, { once: true });
+
+        if (opts?.timeout) {
+          timeoutId = setTimeout(() => {
+            cleanup();
+            resolve(defaultValue);
+          }, opts.timeout);
+        }
+
+        record.pendingHostUiRequests.set(requestId, {
+          resolve: (response) => {
+            cleanup();
+            resolve(parseResponse(response));
+          },
+          reject,
+        });
+
+        this.emitHostUiRequest(record, createRequest(requestId));
+      });
+    };
+
+    return {
+      select: (title, options, opts) =>
+        createDialogPromise(
+          opts,
+          undefined,
+          (requestId) => ({
+            kind: "select",
+            requestId,
+            title,
+            options,
+            ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+          }),
+          (response) => ("cancelled" in response && response.cancelled ? undefined : "value" in response ? response.value : undefined),
+        ),
+      confirm: (title, message, opts) =>
+        createDialogPromise(
+          opts,
+          false,
+          (requestId) => ({
+            kind: "confirm",
+            requestId,
+            title,
+            message,
+            ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+          }),
+          (response) =>
+            "cancelled" in response && response.cancelled ? false : "confirmed" in response ? response.confirmed : false,
+        ),
+      input: (title, placeholder, opts) =>
+        createDialogPromise(
+          opts,
+          undefined,
+          (requestId) => ({
+            kind: "input",
+            requestId,
+            title,
+            ...(placeholder ? { placeholder } : {}),
+            ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+          }),
+          (response) => ("cancelled" in response && response.cancelled ? undefined : "value" in response ? response.value : undefined),
+        ),
+      notify: (message, level) => {
+        this.emitHostUiRequest(record, {
+          kind: "notify",
+          requestId: crypto.randomUUID(),
+          message,
+          ...(level ? { level } : {}),
+        });
+      },
+      onTerminalInput: () => () => {},
+      setStatus: (key, text) => {
+        this.emitHostUiRequest(record, {
+          kind: "status",
+          requestId: crypto.randomUUID(),
+          key,
+          ...(text ? { text } : {}),
+        });
+      },
+      setWorkingMessage: () => {},
+      setWidget: (key, content: unknown, options?: ExtensionWidgetOptions) => {
+        if (content === undefined || Array.isArray(content)) {
+          const lines = content as readonly string[] | undefined;
+          this.emitHostUiRequest(record, {
+            kind: "widget",
+            requestId: crypto.randomUUID(),
+            key,
+            ...(lines ? { lines } : {}),
+            placement: options?.placement === "belowEditor" ? "belowComposer" : "aboveComposer",
+          });
+        }
+      },
+      setFooter: () => {},
+      setHeader: () => {},
+      setTitle: (title) => {
+        this.emitHostUiRequest(record, {
+          kind: "title",
+          requestId: crypto.randomUUID(),
+          title,
+        });
+      },
+      custom: async () => undefined as never,
+      pasteToEditor: (text) => {
+        this.emitHostUiRequest(record, {
+          kind: "editorText",
+          requestId: crypto.randomUUID(),
+          text,
+        });
+      },
+      setEditorText: (text) => {
+        this.emitHostUiRequest(record, {
+          kind: "editorText",
+          requestId: crypto.randomUUID(),
+          text,
+        });
+      },
+      getEditorText: () => record.extensionUiState.editorText ?? "",
+      editor: (title, initialValue) =>
+        createDialogPromise(
+          undefined,
+          undefined,
+          (requestId) => ({
+            kind: "editor",
+            requestId,
+            title,
+            ...(initialValue ? { initialValue } : {}),
+          }),
+          (response) => ("cancelled" in response && response.cancelled ? undefined : "value" in response ? response.value : undefined),
+        ),
+      setEditorComponent: () => {},
+      get theme() {
+        return noOpTheme;
+      },
+      getAllThemes: () => [],
+      getTheme: () => undefined,
+      setTheme: () => ({ success: false, error: "Theme switching not supported in pi-gui host UI" }),
+      getToolsExpanded: () => false,
+      setToolsExpanded: () => {},
+    };
+  }
+
+  private isExtensionCommand(session: AgentSession, text: string): boolean {
+    if (!text.trimStart().startsWith("/")) {
+      return false;
+    }
+    const trimmed = text.trimStart();
+    const spaceIndex = trimmed.indexOf(" ");
+    const commandName = spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex);
+    return Boolean(session.extensionRunner?.getCommand(commandName));
+  }
+
   private resolveModel(provider: string, modelId: string) {
     const model = this.modelRegistry?.find(provider, modelId);
     if (!model) {
@@ -531,19 +829,185 @@ export class SessionSupervisor {
     return model;
   }
 
+  private emitHostUiRequest(
+    record: ManagedSessionRecord,
+    request: Extract<SessionDriverEvent, { type: "hostUiRequest" }>["request"],
+  ): void {
+    this.applyExtensionUiRequest(record, request);
+    this.queueDriverEvents(record, [
+      {
+        type: "hostUiRequest",
+        sessionRef: record.ref,
+        timestamp: nowIso(),
+        request,
+      },
+    ], { persistSnapshot: false });
+  }
+
+  private async emitExtensionError(
+    record: ManagedSessionRecord,
+    extensionPath: string,
+    eventName: string,
+    error: string,
+  ): Promise<void> {
+    this.emitHostUiRequest(record, {
+      kind: "notify",
+      requestId: crypto.randomUUID(),
+      level: "error",
+      message: `[${extensionPath}] ${eventName}: ${error}`,
+    });
+  }
+
+  private applyExtensionUiRequest(
+    record: ManagedSessionRecord,
+    request: Extract<SessionDriverEvent, { type: "hostUiRequest" }>["request"],
+  ): void {
+    applyHostUiRequestToExtensionUiState(record.extensionUiState, request);
+  }
+
+  private clearExtensionUiState(record: ManagedSessionRecord): void {
+    record.extensionUiState.statuses.clear();
+    record.extensionUiState.widgets.clear();
+    record.extensionUiState.title = undefined;
+    record.extensionUiState.editorText = undefined;
+  }
+
+  private cancelPendingHostUiRequests(record: ManagedSessionRecord): void {
+    for (const [requestId, pending] of [...record.pendingHostUiRequests.entries()]) {
+      record.pendingHostUiRequests.delete(requestId);
+      pending.resolve({ requestId, cancelled: true });
+    }
+  }
+
+  private replayExtensionUiState(record: ManagedSessionRecord, listener: SessionEventListener): void {
+    const timestamp = nowIso();
+
+    for (const [key, text] of record.extensionUiState.statuses) {
+      void Promise.resolve(
+        listener({
+          type: "hostUiRequest",
+          sessionRef: record.ref,
+          timestamp,
+          request: {
+            kind: "status",
+            requestId: `replay:status:${key}`,
+            key,
+            text,
+          },
+        }),
+      ).catch(() => {});
+    }
+
+    for (const widget of record.extensionUiState.widgets.values()) {
+      void Promise.resolve(
+        listener({
+          type: "hostUiRequest",
+          sessionRef: record.ref,
+          timestamp,
+          request: {
+            kind: "widget",
+            requestId: `replay:widget:${widget.key}`,
+            key: widget.key,
+            ...(widget.lines ? { lines: widget.lines } : {}),
+            placement: widget.placement,
+          },
+        }),
+      ).catch(() => {});
+    }
+
+    if (record.extensionUiState.title) {
+      void Promise.resolve(
+        listener({
+          type: "hostUiRequest",
+          sessionRef: record.ref,
+          timestamp,
+          request: {
+            kind: "title",
+            requestId: "replay:title",
+            title: record.extensionUiState.title,
+          },
+        }),
+      ).catch(() => {});
+    }
+
+    if (record.extensionUiState.editorText) {
+      void Promise.resolve(
+        listener({
+          type: "hostUiRequest",
+          sessionRef: record.ref,
+          timestamp,
+          request: {
+            kind: "editorText",
+            requestId: "replay:editorText",
+            text: record.extensionUiState.editorText,
+          },
+        }),
+      ).catch(() => {});
+    }
+  }
+
+  private async syncRecordAfterSessionMutation(
+    record: ManagedSessionRecord,
+    options: { emitUpdate?: boolean } = {},
+  ): Promise<void> {
+    const session = this.requireSession(record);
+    const previousKey = sessionKey(record.ref);
+    const nextRef = {
+      workspaceId: record.workspace.workspaceId,
+      sessionId: session.sessionId,
+    } satisfies SessionRef;
+    const nextKey = sessionKey(nextRef);
+
+    if (previousKey !== nextKey) {
+      this.records.delete(previousKey);
+      record.ref = nextRef;
+      this.records.set(nextKey, record);
+    }
+
+    record.sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
+    record.title = session.sessionName?.trim() || record.title || deriveWorkspaceTitle(record.workspace);
+    record.updatedAt = nowIso();
+    record.status = session.isStreaming ? "running" : "idle";
+    record.runningRunId = session.isStreaming ? record.runningRunId ?? crypto.randomUUID() : undefined;
+    record.config = deriveSessionConfig(session.sessionManager);
+    record.preview =
+      session.messages.length > 0 ? extractPreview(session.messages[session.messages.length - 1]) : undefined;
+    record.sessionCommands = this.collectSessionCommands(session);
+    await this.persistSnapshot(record);
+    if (options.emitUpdate) {
+      await this.emit(record, sessionUpdatedEvent(record));
+    }
+  }
+
+  private queueDriverEvents(
+    record: ManagedSessionRecord,
+    events: readonly SessionDriverEvent[],
+    options?: {
+      readonly persistSnapshot?: boolean;
+    },
+  ): void {
+    if (events.length === 0) {
+      return;
+    }
+
+    record.eventQueue = record.eventQueue.then(async () => {
+      if (options?.persistSnapshot !== false) {
+        await this.persistSnapshot(record);
+      }
+      for (const event of events) {
+        await this.emit(record, event);
+      }
+    });
+    record.eventQueue.catch(() => {});
+  }
+
   private async handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): Promise<void> {
     const mapped = this.mapAgentEvent(record, event);
     if (mapped.length === 0) {
       return;
     }
 
-    record.eventQueue = record.eventQueue.then(async () => {
-      await this.persistSnapshot(record);
-      for (const next of mapped) {
-        await this.emit(record, next);
-      }
-    });
-    record.eventQueue.catch(() => {});
+    this.queueDriverEvents(record, mapped);
   }
 
   private mapAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): SessionDriverEvent[] {
@@ -615,6 +1079,9 @@ export class SessionSupervisor {
         if (!outcome.success && outcome.error) {
           record.preview = outcome.error.message;
         }
+        if (record.session) {
+          record.sessionCommands = this.collectSessionCommands(record.session);
+        }
 
         return toDriverEvents(
           outcome.success
@@ -667,6 +1134,48 @@ export class SessionSupervisor {
     if (record.sessionFile) {
       await this.catalogs.setSessionFile(record.ref, record.sessionFile);
     }
+  }
+
+  private collectSessionCommands(session: AgentSession): RuntimeCommandRecord[] {
+    const commands: RuntimeCommandRecord[] = [];
+
+    for (const command of getRegisteredCommands(session)) {
+      commands.push({
+        name: normalizeRuntimeCommandName(command.invocationName ?? command.name),
+        ...(command.description ? { description: command.description } : {}),
+        source: "extension",
+        sourceInfo: runtimeSourceInfoFromLoose(command.sourceInfo, {
+          path: command.extensionPath ?? `<extension:${command.name}>`,
+          source: "extension",
+        }),
+      });
+    }
+
+    for (const template of getPromptTemplates(session)) {
+      commands.push({
+        name: normalizeRuntimeCommandName(template.name),
+        ...(template.description ? { description: template.description } : {}),
+        source: "prompt",
+        sourceInfo: runtimeSourceInfoFromLoose(template.sourceInfo, {
+          path: template.filePath ?? `<prompt:${template.name}>`,
+          source: "prompt",
+        }),
+      });
+    }
+
+    for (const skill of getSkills(session)) {
+      commands.push({
+        name: skillCommandName(skill.name),
+        description: skill.description,
+        source: "skill",
+        sourceInfo: runtimeSourceInfoFromLoose(skill.sourceInfo, {
+          path: skill.filePath ?? `<skill:${skill.name}>`,
+          source: skill.source ?? "skill",
+        }),
+      });
+    }
+
+    return commands;
   }
 
   private async deriveWorkspaceSortOrder(workspaceId: string): Promise<number> {
@@ -770,6 +1279,44 @@ async function canonicalizePath(path: string): Promise<string> {
     return resolvedPath;
   }
 }
+
+function runtimeSourceInfoFromLoose(
+  sourceInfo: RuntimeCommandRecord["sourceInfo"] | undefined,
+  fallback: { path: string; source: string },
+): RuntimeCommandRecord["sourceInfo"] {
+  if (sourceInfo) {
+    return sourceInfo;
+  }
+
+  return {
+    path: fallback.path,
+    source: fallback.source,
+    scope: "temporary",
+    origin: "top-level",
+  };
+}
+
+function getRegisteredCommands(session: AgentSession): readonly RegisteredCommandAdapter[] {
+  return (session.extensionRunner?.getRegisteredCommands() ?? []) as readonly RegisteredCommandAdapter[];
+}
+
+function getPromptTemplates(session: AgentSession): readonly PromptTemplateAdapter[] {
+  return session.promptTemplates as readonly PromptTemplateAdapter[];
+}
+
+function getSkills(session: AgentSession): readonly SkillAdapter[] {
+  return session.resourceLoader.getSkills().skills as readonly SkillAdapter[];
+}
+
+const extensionUiThemeStub = new Proxy(
+  {},
+  {
+    get: () => (...args: unknown[]) => {
+      const last = args.at(-1);
+      return typeof last === "string" ? last : "";
+    },
+  },
+) as ExtensionUIContext["theme"];
 
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
   return {

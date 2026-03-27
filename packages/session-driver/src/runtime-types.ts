@@ -1,6 +1,17 @@
 import type { WorkspaceRef } from "./types.js";
 
 export type RuntimeAuthType = "oauth" | "api_key" | "none";
+export type RuntimeSourceScope = "user" | "project" | "temporary";
+export type RuntimeSourceOrigin = "package" | "top-level";
+export type RuntimeCommandSource = "extension" | "prompt" | "skill";
+
+export interface RuntimeSourceInfo {
+  readonly path: string;
+  readonly source: string;
+  readonly scope: RuntimeSourceScope;
+  readonly origin: RuntimeSourceOrigin;
+  readonly baseDir?: string;
+}
 
 export interface RuntimeProviderRecord {
   readonly id: string;
@@ -32,6 +43,47 @@ export interface RuntimeSkillRecord {
   readonly slashCommand: string;
 }
 
+export interface RuntimeExtensionDiagnostic {
+  readonly type: "warning" | "error" | "collision";
+  readonly message: string;
+  readonly path?: string;
+}
+
+export interface RuntimeExtensionRecord {
+  readonly path: string;
+  readonly displayName: string;
+  readonly enabled: boolean;
+  readonly sourceInfo: RuntimeSourceInfo;
+  readonly commands: readonly string[];
+  readonly tools: readonly string[];
+  readonly flags: readonly string[];
+  readonly shortcuts: readonly string[];
+  readonly diagnostics: readonly RuntimeExtensionDiagnostic[];
+}
+
+export interface RuntimeCommandRecord {
+  readonly name: string;
+  readonly description?: string;
+  readonly source: RuntimeCommandSource;
+  readonly sourceInfo: RuntimeSourceInfo;
+}
+
+export function normalizeRuntimeCommandName(value: string): string {
+  return value.trim().replace(/^\/+/, "");
+}
+
+export function runtimeCommandToken(name: string): string {
+  return `/${normalizeRuntimeCommandName(name)}`;
+}
+
+export function skillCommandName(name: string): string {
+  return `skill:${normalizeRuntimeCommandName(name)}`;
+}
+
+export function skillSlashCommand(name: string): string {
+  return runtimeCommandToken(skillCommandName(name));
+}
+
 export interface RuntimeSettingsSnapshot {
   readonly defaultProvider?: string;
   readonly defaultModelId?: string;
@@ -45,6 +97,7 @@ export interface RuntimeSnapshot {
   readonly providers: readonly RuntimeProviderRecord[];
   readonly models: readonly RuntimeModelRecord[];
   readonly skills: readonly RuntimeSkillRecord[];
+  readonly extensions: readonly RuntimeExtensionRecord[];
   readonly settings: RuntimeSettingsSnapshot;
 }
 
@@ -86,4 +139,5 @@ export interface RuntimeResourceDriver {
   setEnableSkillCommands(workspace: WorkspaceRef, enabled: boolean): Promise<RuntimeSnapshot>;
   setScopedModelPatterns(workspace: WorkspaceRef, patterns: readonly string[]): Promise<RuntimeSnapshot>;
   setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
+  setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
 }
