@@ -13,7 +13,6 @@ interface ExtensionDockBlock {
 }
 
 export interface ExtensionDockModel {
-  readonly hasContent: boolean;
   readonly summaryText: string;
   readonly bodyText: string;
 }
@@ -42,7 +41,6 @@ export function buildExtensionDockModel(uiState?: SessionExtensionUiStateRecord)
   const summaryText = resolveDockSummaryText(statuses, primaryBlocks, secondaryBlocks);
 
   return {
-    hasContent: true,
     summaryText,
     bodyText: buildDockBodyText(statuses, primaryBlocks, secondaryBlocks),
   };
