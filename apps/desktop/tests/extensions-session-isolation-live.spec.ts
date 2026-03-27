@@ -45,19 +45,19 @@ test("keeps extension widgets, status, and title scoped to the active session", 
     await composer.press("Enter");
 
     await expect(window.locator(".topbar__session")).toHaveText("Marked by extension");
-    await expect(window.getByTestId("extension-status-strip")).toContainText("Session marked");
-    await expect(window.locator(".extension-widget-card").filter({ hasText: "Marked widget" })).toBeVisible();
-    await expect(window.locator(".extension-widget-card").filter({ hasText: "Marked below" })).toBeVisible();
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Session marked");
+    await window.getByTestId("extension-dock-toggle").click();
+    await expect(window.getByTestId("extension-dock-body")).toContainText("Marked widget");
+    await expect(window.getByTestId("extension-dock-body")).toContainText("Marked below");
 
     await selectSession("Session B");
     await expect(window.locator(".topbar__session")).toHaveText("Session B");
-    await expect(window.getByTestId("extension-status-strip")).toHaveCount(0);
-    await expect(window.getByTestId("extension-widget-rail")).toHaveCount(0);
+    await expect(window.getByTestId("extension-dock")).toHaveCount(0);
 
     await selectSession("Session A");
     await expect(window.locator(".topbar__session")).toHaveText("Marked by extension");
-    await expect(window.getByTestId("extension-status-strip")).toContainText("Session marked");
-    await expect(window.locator(".extension-widget-card").filter({ hasText: "Marked widget" })).toBeVisible();
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Session marked");
+    await expect(window.getByTestId("extension-dock-body")).toContainText("Marked widget");
   } finally {
     await harness.close();
   }

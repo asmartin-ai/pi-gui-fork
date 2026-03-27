@@ -1,7 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { assertExists, createSession, getDesktopState, launchDesktop, makeWorkspace, writeProjectExtension } from "./harness";
 
 const extensionSource = String.raw`
@@ -30,6 +30,12 @@ export default function demoExtension(pi) {
 }
 `;
 
+async function expandDock(window: Page) {
+  const toggle = window.getByTestId("extension-dock-toggle");
+  await toggle.click();
+  return window.getByTestId("extension-dock-body");
+}
+
 test("manages extensions and prefers runtime commands over colliding host actions", async () => {
   test.setTimeout(60_000);
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
@@ -46,9 +52,16 @@ test("manages extensions and prefers runtime commands over colliding host action
     await createSession(window, workspace.id, "Extension session");
 
     await expect(window.locator(".topbar__session")).toHaveText("Extension Surface");
-    await expect(window.getByTestId("extension-status-strip")).toContainText("Demo ready");
-    await expect(window.locator(".extension-widget-card").filter({ hasText: "Demo widget line" })).toBeVisible();
-    await expect(window.locator(".extension-widget-card").filter({ hasText: "Below widget line" })).toBeVisible();
+    await expect(window.getByTestId("extension-dock")).toBeVisible();
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Demo ready");
+    await expect(window.getByTestId("extension-status-strip")).toHaveCount(0);
+    await expect(window.getByTestId("extension-widget-rail")).toHaveCount(0);
+    const dockBody = await expandDock(window);
+    await expect(dockBody).toContainText("demo-status: Demo ready");
+    await expect(dockBody).toContainText("demo-widget:");
+    await expect(dockBody).toContainText("Demo widget line");
+    await expect(dockBody).toContainText("demo-widget-below:");
+    await expect(dockBody).toContainText("Below widget line");
 
     await window.getByRole("button", { name: "Extensions", exact: true }).click();
     await expect(window.getByTestId("extensions-surface")).toBeVisible();
@@ -63,8 +76,7 @@ test("manages extensions and prefers runtime commands over colliding host action
     await expect(window.locator(".skill-detail__status")).toHaveText("Disabled");
     await window.getByRole("button", { name: "Back to app", exact: true }).click();
     await expect(window.locator(".topbar__session")).toHaveText("Extension session");
-    await expect(window.getByTestId("extension-status-strip")).toHaveCount(0);
-    await expect(window.locator(".extension-widget-card")).toHaveCount(0);
+    await expect(window.getByTestId("extension-dock")).toHaveCount(0);
     const composer = window.getByTestId("composer");
     await composer.fill("/settings");
     const disabledSlashMenu = window.getByTestId("slash-menu");
@@ -79,7 +91,8 @@ test("manages extensions and prefers runtime commands over colliding host action
     await expect(window.locator(".skill-detail__status")).toHaveText("Enabled");
     await window.getByRole("button", { name: "Back to app", exact: true }).click();
     await expect(window.locator(".topbar__session")).toHaveText("Extension Surface");
-    await expect(window.getByTestId("extension-status-strip")).toContainText("Demo ready");
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Demo ready");
+    await expect(window.getByTestId("extension-dock-body")).toHaveCount(0);
 
     await composer.fill("/settings");
     const slashMenu = window.getByTestId("slash-menu");
