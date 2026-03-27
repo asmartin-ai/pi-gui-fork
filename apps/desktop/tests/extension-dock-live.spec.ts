@@ -41,6 +41,26 @@ export default function dockExtension(pi) {
 }
 `;
 
+const tickingExtensionSource = String.raw`
+export default function tickingExtension(pi) {
+  pi.on("session_start", async (_event, ctx) => {
+    let tick = 0;
+    const render = () => {
+      ctx.ui.setWidget("ticker", ["Tick " + tick, "child line"]);
+    };
+    render();
+
+    const interval = setInterval(() => {
+      tick += 1;
+      render();
+      if (tick >= 3) {
+        clearInterval(interval);
+      }
+    }, 250);
+  });
+}
+`;
+
 test("renders a single collapsed dock inside the composer surface and expands to one text body", async () => {
   test.setTimeout(60_000);
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
@@ -161,6 +181,34 @@ test("uses literal fallback summaries for status-only and widget-only extension 
     await dockToggle.click();
     await expect(dockBody).toContainText("Widget only line");
     await expect(dockBody).not.toContainText("Only status");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("does not spam the transcript when an extension updates its widget repeatedly", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const workspacePath = await makeWorkspace("extension-dock-ticker-workspace");
+  await writeProjectExtension(workspacePath, "ticking-extension.ts", tickingExtensionSource);
+
+  const harness = await launchDesktop(userDataDir, [workspacePath]);
+
+  try {
+    const window = await harness.firstWindow();
+    const state = await getDesktopState(window);
+    const workspace = state.workspaces[0];
+    assertExists(workspace, "Expected workspace");
+    await createSession(window, workspace.id, "Ticker session");
+
+    const transcriptActivities = window.locator(".timeline .timeline-activity");
+    const baselineCount = await transcriptActivities.count();
+
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Tick 3", { timeout: 10_000 });
+    await expect(transcriptActivities).toHaveCount(baselineCount);
+    await expect(window.locator(".timeline")).not.toContainText("Tick 1");
+    await expect(window.locator(".timeline")).not.toContainText("Tick 2");
+    await expect(window.locator(".timeline")).not.toContainText("Tick 3");
   } finally {
     await harness.close();
   }

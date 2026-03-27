@@ -178,7 +178,9 @@ export function applyTimelineEvent(
       transcript.push(makeActivityItem("Stopped", { metadata: relativeDetail(event.timestamp) }));
       break;
     case "hostUiRequest":
-      transcript.push(makeActivityItem(hostUiLabel(event), { metadata: relativeDetail(event.timestamp) }));
+      if (event.request.kind === "notify") {
+        transcript.push(makeActivityItem(event.request.message, { metadata: relativeDetail(event.timestamp) }));
+      }
       break;
     default:
       break;
@@ -328,30 +330,6 @@ function workedForLabel(startedAt: string, endedAt: string): string {
 
 function relativeDetail(timestamp: string): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function hostUiLabel(event: Extract<SessionDriverEvent, { type: "hostUiRequest" }>): string {
-  switch (event.request.kind) {
-    case "confirm":
-      return event.request.title;
-    case "input":
-    case "select":
-      return event.request.title;
-    case "notify":
-      return event.request.message;
-    case "status":
-      return event.request.text ?? event.request.key;
-    case "widget":
-      return event.request.lines?.join(" · ") ?? event.request.key;
-    case "title":
-      return `Renamed session to ${event.request.title}`;
-    case "editorText":
-      return "Prepared editor text";
-    case "reset":
-      return "Cleared extension UI";
-    default:
-      return "Requested input";
-  }
 }
 
 function truncate(value: string, limit = 160): string {
