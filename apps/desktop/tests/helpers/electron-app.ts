@@ -244,7 +244,7 @@ export async function startThreadFromSurface(
 ): Promise<void> {
   const {
     environment = "local",
-    prompt = "",
+    prompt = "Start thread",
     workspaceName,
   } = options;
 
