@@ -28,34 +28,36 @@ export function SettingsModelsSection({
   const models = runtime?.models ?? [];
   const providers = runtime?.providers ?? [];
   const availableModels = models.filter((m) => m.available);
-  const connectedProviders = providers.filter((p) => p.hasAuth);
 
-  const activeScopedPatterns =
-    runtime && runtime.settings.enabledModelPatterns.length > 0
-      ? runtime.settings.enabledModelPatterns
-      : availableModels.map((model) => `${model.providerId}/${model.modelId}`);
+  const enabledPatterns = runtime?.settings.enabledModelPatterns ?? [];
+  const allImplicitlyEnabled = enabledPatterns.length === 0;
 
-  const featuredProviderIds = new Set(
-    [
-      runtime?.settings.defaultProvider,
-      ...connectedProviders.map((p) => p.id),
-      "openai-codex",
-      "anthropic",
-    ].filter(Boolean),
-  );
+  const activeScopedPatterns = allImplicitlyEnabled
+    ? availableModels.map((model) => `${model.providerId}/${model.modelId}`)
+    : enabledPatterns;
 
-  const featuredModels = (() => {
-    const seen = new Set<string>();
-    return availableModels.filter((model) => {
-      const key = `${model.providerId}:${model.modelId}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return featuredProviderIds.has(model.providerId);
-    });
-  })();
+  const enabledAvailableModels = availableModels.filter((model) => {
+    if (allImplicitlyEnabled) return true;
+    return activeScopedPatterns.includes(`${model.providerId}/${model.modelId}`);
+  });
 
-  const filteredModels = filterModels(availableModels, modelQuery);
+  const defaultProvider = runtime?.settings.defaultProvider;
+  const defaultModelId = runtime?.settings.defaultModelId;
+  const defaultIsEnabled =
+    defaultProvider && defaultModelId
+      ? enabledAvailableModels.some((m) => m.providerId === defaultProvider && m.modelId === defaultModelId)
+      : false;
+
+  const filteredModels = filterModels(models, modelQuery);
   const filteredScopedModels = filterModels(availableModels, scopedQuery);
+
+  const togglePattern = (pattern: string, checked: boolean) => {
+    const newPatterns = checked
+      ? [...activeScopedPatterns, pattern]
+      : activeScopedPatterns.filter((entry) => entry !== pattern);
+    if (newPatterns.length === 0) return;
+    onSetScopedModelPatterns(newPatterns);
+  };
 
   return (
     <>
@@ -66,12 +68,12 @@ export function SettingsModelsSection({
       >
         <div className="settings-stack">
           <label className="settings-field">
-            <span>Featured models</span>
+            <span>Enabled models</span>
             <select
               className="settings-select"
               value={
-                runtime?.settings.defaultProvider && runtime?.settings.defaultModelId
-                  ? `${runtime.settings.defaultProvider}:${runtime.settings.defaultModelId}`
+                defaultProvider && defaultModelId && defaultIsEnabled
+                  ? `${defaultProvider}:${defaultModelId}`
                   : ""
               }
               onChange={(event) => {
@@ -83,7 +85,7 @@ export function SettingsModelsSection({
               }}
             >
               <option value="">Choose a model</option>
-              {featuredModels.map((model) => (
+              {enabledAvailableModels.map((model) => (
                 <option key={`${model.providerId}:${model.modelId}`} value={`${model.providerId}:${model.modelId}`}>
                   {model.providerName} · {model.label}
                 </option>
@@ -91,10 +93,8 @@ export function SettingsModelsSection({
             </select>
           </label>
           <div className="settings-pill-row">
-            {featuredModels.map((model) => {
-              const active =
-                runtime?.settings.defaultProvider === model.providerId &&
-                runtime?.settings.defaultModelId === model.modelId;
+            {enabledAvailableModels.map((model) => {
+              const active = defaultProvider === model.providerId && defaultModelId === model.modelId;
               return (
                 <button
                   className={settingsPill(active)}
@@ -130,32 +130,36 @@ export function SettingsModelsSection({
       </SettingsCard>
 
       <SettingsCard
-        description="Manage the shortlist used for quick model switching."
+        description="Choose which models appear in pickers throughout the app."
         icon={<SettingsIcon />}
-        title="Scoped models"
+        title="Enabled models"
       >
         <div className="settings-stack">
           <div className="settings-pill-row">
-            {activeScopedPatterns.length > 0 ? (
-              activeScopedPatterns.map((pattern) => (
-                <span className={settingsPill(true)} key={pattern}>
-                  {pattern}
-                </span>
-              ))
-            ) : (
-              <span className="settings-card__empty">No scoped models selected.</span>
-            )}
+            {activeScopedPatterns.map((pattern) => (
+              <span className={settingsPill(true)} key={pattern}>
+                {pattern}
+              </span>
+            ))}
           </div>
+          {allImplicitlyEnabled ? (
+            <span className="settings-card__hint">All models enabled by default.</span>
+          ) : null}
+          {!defaultIsEnabled && defaultProvider && defaultModelId ? (
+            <span className="settings-card__warning">
+              Your default model ({defaultProvider}:{defaultModelId}) is not enabled. Choose a new default above.
+            </span>
+          ) : null}
           <details className="settings-disclosure">
             <summary className="settings-disclosure__summary">
-              <span>Edit shortlist</span>
+              <span>Edit enabled models</span>
               <span>{filteredScopedModels.length}</span>
             </summary>
             <div className="settings-disclosure__body">
               <input
-                aria-label="Search scoped models"
+                aria-label="Search enabled models"
                 className="settings-search"
-                placeholder="Search scoped models"
+                placeholder="Search enabled models"
                 value={scopedQuery}
                 onChange={(event) => setScopedQuery(event.target.value)}
               />
@@ -163,18 +167,15 @@ export function SettingsModelsSection({
                 {filteredScopedModels.map((model) => {
                   const pattern = `${model.providerId}/${model.modelId}`;
                   const enabled = activeScopedPatterns.includes(pattern);
+                  const isLast = enabled && activeScopedPatterns.length <= 1;
                   return (
                     <label className="settings-toggle settings-toggle--row" key={pattern}>
                       <input
                         checked={enabled}
+                        disabled={isLast}
+                        title={isLast ? "At least one model must be enabled" : undefined}
                         type="checkbox"
-                        onChange={(event) =>
-                          onSetScopedModelPatterns(
-                            event.target.checked
-                              ? [...activeScopedPatterns, pattern]
-                              : activeScopedPatterns.filter((entry) => entry !== pattern),
-                          )
-                        }
+                        onChange={(event) => togglePattern(pattern, event.target.checked)}
                       />
                       <span>
                         <strong>{model.providerName}</strong> · {model.label}
@@ -190,9 +191,9 @@ export function SettingsModelsSection({
       </SettingsCard>
 
       <SettingsCard
-        description="Search the full available model inventory without forcing every model into the main controls."
+        description="Browse the full model catalog. Enable models above to use them."
         icon={<ModelIcon />}
-        title="All available models"
+        title="All models"
       >
         <details className="settings-disclosure">
           <summary className="settings-disclosure__summary">
@@ -209,23 +210,34 @@ export function SettingsModelsSection({
             />
             <div className="settings-list">
               {filteredModels.map((model) => {
-                const active =
-                  runtime?.settings.defaultProvider === model.providerId &&
-                  runtime?.settings.defaultModelId === model.modelId;
+                const pattern = `${model.providerId}/${model.modelId}`;
+                const enabled = activeScopedPatterns.includes(pattern);
+                const isLast = enabled && activeScopedPatterns.length <= 1;
                 return (
-                  <button
-                    className={`settings-option ${active ? "settings-option--active" : ""}`}
+                  <div
+                    className="settings-option"
                     key={`${model.providerId}:${model.modelId}`}
-                    type="button"
-                    onClick={() => onSetDefaultModel(model.providerId, model.modelId)}
                   >
                     <span className="settings-option__title">{model.providerName} · {model.label}</span>
                     <span className="settings-option__meta">
                       {model.providerId}:{model.modelId}
                       {model.reasoning ? " · reasoning" : ""}
                       {model.supportsImages ? " · images" : ""}
+                      {!model.available ? " · not logged in" : ""}
                     </span>
-                  </button>
+                    {model.available ? (
+                      <label className="settings-toggle settings-toggle--inline">
+                        <input
+                          checked={enabled}
+                          disabled={isLast}
+                          title={isLast ? "At least one model must be enabled" : undefined}
+                          type="checkbox"
+                          onChange={(event) => togglePattern(pattern, event.target.checked)}
+                        />
+                        <span className="sr-only">Enable</span>
+                      </label>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>

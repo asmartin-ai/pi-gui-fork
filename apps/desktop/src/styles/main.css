@@ -1524,6 +1524,24 @@
   font-size: 13px;
 }
 
+.settings-card__hint {
+  color: var(--muted-soft);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.settings-card__warning {
+  color: var(--warning, #d97706);
+  font-size: 13px;
+}
+
+.settings-toggle--inline {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  cursor: pointer;
+}
+
 .settings-field {
   display: grid;
   gap: 6px;
