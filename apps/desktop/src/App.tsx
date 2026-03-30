@@ -787,7 +787,7 @@ export default function App() {
   };
 
   const handleStartThread = () => {
-    if (!newThreadRootWorkspaceId) {
+    if (!newThreadRootWorkspaceId || !newThreadPrompt.trim()) {
       return;
     }
     const modelConfig = {
