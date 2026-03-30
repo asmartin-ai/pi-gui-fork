@@ -615,9 +615,23 @@ export class DesktopAppStore implements AppStoreInternals {
     }
 
     const unsubscribe = this.driver.subscribe(sessionRef, (event) => {
-      void this.handleSessionEvent(event);
+      void this.handleSessionEvent(event, key);
     });
     this.sessionState.sessionSubscriptions.set(key, unsubscribe);
+  }
+
+  private migrateSessionSubscriptionKey(sourceKey: string, targetKey: string): void {
+    if (sourceKey === targetKey || this.sessionState.sessionSubscriptions.has(targetKey)) {
+      return;
+    }
+
+    const unsubscribe = this.sessionState.sessionSubscriptions.get(sourceKey);
+    if (!unsubscribe) {
+      return;
+    }
+
+    this.sessionState.sessionSubscriptions.delete(sourceKey);
+    this.sessionState.sessionSubscriptions.set(targetKey, unsubscribe);
   }
 
   async cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void> {
@@ -759,8 +773,11 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  private async handleSessionEvent(event: SessionDriverEvent): Promise<void> {
+  private async handleSessionEvent(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
     const key = sessionKey(event.sessionRef);
+    if (subscriptionKey !== key) {
+      this.migrateSessionSubscriptionKey(subscriptionKey, key);
+    }
     const knownSession = this.sessionFromState(event.sessionRef);
     if (
       !knownSession &&
@@ -769,15 +786,20 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "runCompleted" ||
         event.type === "hostUiRequest")
     ) {
+      const selectedKey =
+        this.state.selectedWorkspaceId && this.state.selectedSessionId
+          ? sessionKey({
+              workspaceId: this.state.selectedWorkspaceId,
+              sessionId: this.state.selectedSessionId,
+            })
+          : undefined;
+      const shouldFollowSessionMutation = subscriptionKey !== key && selectedKey === subscriptionKey;
       await this.refreshState({
         selectedWorkspaceId:
           this.state.selectedWorkspaceId === event.sessionRef.workspaceId
             ? event.sessionRef.workspaceId
             : this.state.selectedWorkspaceId,
-        selectedSessionId:
-          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
-            ? event.sessionRef.sessionId
-            : this.state.selectedSessionId,
+        selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
         clearLastError: true,
       });
     }

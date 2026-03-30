@@ -769,7 +769,10 @@ export class SessionSupervisor {
           title,
         });
       },
-      custom: async () => undefined as never,
+      // pi-gui does not render arbitrary TUI custom components. Returning null
+      // lets extensions that handle cancellation degrade cleanly instead of
+      // continuing with an undefined result.
+      custom: async () => null as never,
       pasteToEditor: (text) => {
         this.emitHostUiRequest(record, {
           kind: "editorText",
