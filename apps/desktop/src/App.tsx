@@ -121,6 +121,9 @@ export default function App() {
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<NewThreadEnvironment>("local");
   const [newThreadTargetWorkspaceId, setNewThreadTargetWorkspaceId] = useState("");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
+  const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
+  const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
+  const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -214,6 +217,9 @@ export default function App() {
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
   const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
+  const newThreadWorkspace =
+    rootWorkspaceOptions.find((entry) => entry.id === newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
+  const newThreadRuntime = newThreadWorkspace ? snapshot?.runtimeByWorkspace[newThreadWorkspace.id] : undefined;
   const newThreadTargetWorkspace = useMemo(
     () =>
       newThreadTargetWorkspaceId
@@ -528,6 +534,9 @@ export default function App() {
 
   const handleSelectNewThreadWorkspace = (workspaceId: string) => {
     setNewThreadRootWorkspaceId(workspaceId);
+    setNewThreadProvider(undefined);
+    setNewThreadModelId(undefined);
+    setNewThreadThinkingLevel(undefined);
     if (isWorktreeForRoot(newThreadTargetWorkspace, workspaceId)) {
       return;
     }
@@ -781,6 +790,12 @@ export default function App() {
     if (!newThreadRootWorkspaceId) {
       return;
     }
+    const modelConfig = {
+      prompt: newThreadPrompt,
+      provider: newThreadProvider ?? newThreadRuntime?.settings.defaultProvider,
+      modelId: newThreadModelId ?? newThreadRuntime?.settings.defaultModelId,
+      thinkingLevel: newThreadThinkingLevel ?? newThreadRuntime?.settings.defaultThinkingLevel,
+    };
     const input: StartThreadInput =
       newThreadEnvironment === "current-worktree"
         ? newThreadTargetWorkspaceId
@@ -788,22 +803,25 @@ export default function App() {
               rootWorkspaceId: newThreadRootWorkspaceId,
               environment: "current-worktree",
               targetWorkspaceId: newThreadTargetWorkspaceId,
-              prompt: newThreadPrompt,
+              ...modelConfig,
             }
           : {
               rootWorkspaceId: newThreadRootWorkspaceId,
               environment: "local",
-              prompt: newThreadPrompt,
+              ...modelConfig,
             }
         : {
             rootWorkspaceId: newThreadRootWorkspaceId,
             environment: newThreadEnvironment,
-            prompt: newThreadPrompt,
+            ...modelConfig,
           };
     void updateSnapshot(api, setSnapshot, () =>
       api.startThread(input),
     ).then(() => {
       setNewThreadPrompt("");
+      setNewThreadProvider(undefined);
+      setNewThreadModelId(undefined);
+      setNewThreadThinkingLevel(undefined);
       resetNewThreadWorktreeTarget();
     });
   };
@@ -1035,19 +1053,18 @@ export default function App() {
             <NewThreadView
               workspaces={rootWorkspaceOptions}
               selectedWorkspaceId={newThreadRootWorkspaceId || rootWorkspaceOptions[0]?.id || ""}
-              runtime={
-                (() => {
-                  const workspace =
-                    rootWorkspaceOptions.find((entry) => entry.id === newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
-                  return workspace ? snapshot.runtimeByWorkspace[workspace.id] : undefined;
-                })()
-              }
+              runtime={newThreadRuntime}
               environment={newThreadEnvironment}
               currentWorktreeName={newThreadTargetWorkspace?.kind === "worktree" ? newThreadTargetWorkspace.name : undefined}
               prompt={newThreadPrompt}
+              provider={newThreadProvider ?? newThreadRuntime?.settings.defaultProvider}
+              modelId={newThreadModelId ?? newThreadRuntime?.settings.defaultModelId}
+              thinkingLevel={newThreadThinkingLevel ?? newThreadRuntime?.settings.defaultThinkingLevel}
               onChangePrompt={setNewThreadPrompt}
               onSelectEnvironment={setNewThreadEnvironment}
               onSelectWorkspace={handleSelectNewThreadWorkspace}
+              onSetModel={(provider, modelId) => { setNewThreadProvider(provider); setNewThreadModelId(modelId); }}
+              onSetThinking={setNewThreadThinkingLevel}
               onSubmit={handleStartThread}
             />
           ) : (

@@ -1394,6 +1394,13 @@
   height: 14px;
 }
 
+.new-thread__meta .model-selector__dropdown {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 4px;
+}
+
 .settings-disclosure {
   border-top: 1px solid #edf0f6;
   padding-top: 12px;

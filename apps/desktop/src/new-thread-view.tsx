@@ -1,7 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
-import { ArrowUpIcon, ModelIcon, ReasoningIcon } from "./icons";
+import { ArrowUpIcon } from "./icons";
+import { ModelSelector } from "./model-selector";
 
 interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
@@ -10,9 +11,14 @@ interface NewThreadViewProps {
   readonly environment: NewThreadEnvironment;
   readonly currentWorktreeName?: string;
   readonly prompt: string;
+  readonly provider: string | undefined;
+  readonly modelId: string | undefined;
+  readonly thinkingLevel: string | undefined;
   readonly onChangePrompt: (prompt: string) => void;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSelectWorkspace: (workspaceId: string) => void;
+  readonly onSetModel: (provider: string, modelId: string) => void;
+  readonly onSetThinking: (level: string) => void;
   readonly onSubmit: () => void;
 }
 
@@ -23,19 +29,18 @@ export function NewThreadView({
   environment,
   currentWorktreeName,
   prompt,
+  provider,
+  modelId,
+  thinkingLevel,
   onChangePrompt,
   onSelectEnvironment,
   onSelectWorkspace,
+  onSetModel,
+  onSetThinking,
   onSubmit,
 }: NewThreadViewProps) {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const workspace = workspaces.find((entry) => entry.id === selectedWorkspaceId) ?? workspaces[0];
-  const modelLabel = runtime?.settings.defaultProvider && runtime?.settings.defaultModelId
-    ? `${runtime.settings.defaultProvider}:${runtime.settings.defaultModelId}`
-    : "Choose model in settings";
-  const thinkingLabel = runtime?.settings.defaultThinkingLevel
-    ? formatThinking(runtime.settings.defaultThinkingLevel)
-    : "Reasoning default";
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
@@ -129,14 +134,14 @@ export function NewThreadView({
                     <span>{currentWorktreeName}</span>
                   </span>
                 ) : null}
-                <span className="new-thread__meta-item">
-                  <ModelIcon />
-                  <span>{modelLabel}</span>
-                </span>
-                <span className="new-thread__meta-item">
-                  <ReasoningIcon />
-                  <span>{thinkingLabel}</span>
-                </span>
+                <ModelSelector
+                  runtime={runtime}
+                  provider={provider}
+                  modelId={modelId}
+                  thinkingLevel={thinkingLevel}
+                  onSetModel={onSetModel}
+                  onSetThinking={onSetThinking}
+                />
               </div>
             </div>
 
@@ -153,8 +158,4 @@ export function NewThreadView({
       </div>
     </section>
   );
-}
-
-function formatThinking(value: string): string {
-  return value === "xhigh" ? "Extra High" : value.charAt(0).toUpperCase() + value.slice(1);
 }
