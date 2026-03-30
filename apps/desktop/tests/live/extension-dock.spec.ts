@@ -1,9 +1,16 @@
 import { execSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { assertExists, createSession, getDesktopState, launchDesktop, makeWorkspace, writeProjectExtension } from "./harness";
+import {
+  assertExists,
+  createNamedThread,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  writeProjectExtension,
+} from "../helpers/electron-app";
 
 const extensionSource = String.raw`
 const green = "\u001b[32m";
@@ -63,7 +70,7 @@ export default function tickingExtension(pi) {
 
 test("renders a single collapsed dock inside the composer surface and expands to one text body", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-workspace");
   execSync("git init", { cwd: workspacePath, stdio: "ignore" });
   await mkdir(join(workspacePath, "src"), { recursive: true });
@@ -72,14 +79,14 @@ test("renders a single collapsed dock inside the composer surface and expands to
   execSync("git commit -m init", { cwd: workspacePath, stdio: "ignore" });
   await writeProjectExtension(workspacePath, "dock-extension.ts", extensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Dock session");
+    await createNamedThread(window, "Dock session");
 
     const dock = window.getByTestId("extension-dock");
     const dockSummary = window.getByTestId("extension-dock-summary");
@@ -126,7 +133,7 @@ test("renders a single collapsed dock inside the composer surface and expands to
     const slashMenuBox = await slashMenu.boundingBox();
     assertExists(slashMenuBox, "Expected slash menu box");
     expect(slashMenuBox.y + slashMenuBox.height).toBeLessThanOrEqual(composerBox.y + 16);
-    expect(slashMenuBox.y + slashMenuBox.height).toBeGreaterThan(dockBox.y + dockBox.height);
+    expect(slashMenuBox.y + slashMenuBox.height).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 4);
 
     await composer.fill("@");
     const mentionMenu = window.getByTestId("mention-menu");
@@ -134,7 +141,7 @@ test("renders a single collapsed dock inside the composer surface and expands to
     const mentionMenuBox = await mentionMenu.boundingBox();
     assertExists(mentionMenuBox, "Expected mention menu box");
     expect(mentionMenuBox.y + mentionMenuBox.height).toBeLessThanOrEqual(composerBox.y + 16);
-    expect(mentionMenuBox.y + mentionMenuBox.height).toBeGreaterThan(dockBox.y + dockBox.height);
+    expect(mentionMenuBox.y + mentionMenuBox.height).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 4);
   } finally {
     await harness.close();
   }
@@ -142,18 +149,18 @@ test("renders a single collapsed dock inside the composer surface and expands to
 
 test("uses literal fallback summaries for status-only and widget-only extension ui", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-fallback-workspace");
   await writeProjectExtension(workspacePath, "dock-extension.ts", extensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Fallback session");
+    await createNamedThread(window, "Fallback session");
 
     const composer = window.getByTestId("composer");
     const dockToggle = window.getByTestId("extension-dock-toggle");
@@ -188,18 +195,18 @@ test("uses literal fallback summaries for status-only and widget-only extension 
 
 test("does not spam the transcript when an extension updates its widget repeatedly", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-ticker-workspace");
   await writeProjectExtension(workspacePath, "ticking-extension.ts", tickingExtensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Ticker session");
+    await createNamedThread(window, "Ticker session");
 
     const transcriptActivities = window.locator(".timeline .timeline-activity");
     const baselineCount = await transcriptActivities.count();

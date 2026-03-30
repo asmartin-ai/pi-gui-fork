@@ -1,21 +1,24 @@
-// TODO: test archiving the last remaining thread and archive persistence across restarts
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { addWorkspace, createSession, getDesktopState, launchDesktop, makeWorkspace } from "./harness";
+import {
+  createNamedThread,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+} from "../helpers/electron-app";
 
 test("archives a hovered thread into a restorable sidebar section", async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-app-user-data-"));
+  const userDataDir = await makeUserDataDir("pi-app-user-data-");
   const workspacePath = await makeWorkspace("archive-sidebar-workspace");
-  const harness = await launchDesktop(userDataDir);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-
-    await addWorkspace(window, workspacePath);
-    await createSession(window, workspacePath, "Thread one");
-    await createSession(window, workspacePath, "Thread two");
+    await createNamedThread(window, "Thread one");
+    await createNamedThread(window, "Thread two");
     await expect(window.locator(".topbar__session")).toHaveText("Thread two");
 
     const activeRow = window.locator(".session-list > .session-row").filter({ hasText: "Thread two" }).first();

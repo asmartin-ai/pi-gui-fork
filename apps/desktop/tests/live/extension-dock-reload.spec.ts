@@ -1,8 +1,5 @@
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { writeProjectExtension, createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 import { expect, test } from "@playwright/test";
-import { assertExists, createSession, getDesktopState, launchDesktop, makeWorkspace, writeProjectExtension } from "./harness";
 
 const initialExtensionSource = String.raw`
 export default function reloadDockExtension(pi) {
@@ -40,18 +37,18 @@ export default function reloadDockExtension(pi) {
 
 test("resets dock expansion on /reload and extension enable or disable transitions", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-reload-workspace");
   await writeProjectExtension(workspacePath, "reload-dock-extension.ts", initialExtensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Reload session");
+    await createNamedThread(window, "Reload session");
 
     const composer = window.getByTestId("composer");
     const dockSummary = window.getByTestId("extension-dock-summary");
@@ -87,18 +84,18 @@ test("resets dock expansion on /reload and extension enable or disable transitio
 
 test("refreshes runtime with new extension output and keeps the dock collapsed after rebuild", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-refresh-workspace");
   await writeProjectExtension(workspacePath, "reload-dock-extension.ts", initialExtensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Refresh session");
+    await createNamedThread(window, "Refresh session");
 
     const dockSummary = window.getByTestId("extension-dock-summary");
     const dockToggle = window.getByTestId("extension-dock-toggle");

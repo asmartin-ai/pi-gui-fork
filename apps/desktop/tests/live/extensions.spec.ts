@@ -1,8 +1,11 @@
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { expect, test, type Page } from "@playwright/test";
-import { assertExists, createSession, getDesktopState, launchDesktop, makeWorkspace, writeProjectExtension } from "./harness";
+import {
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  startThreadFromSurface,
+  writeProjectExtension,
+} from "../helpers/electron-app";
 
 const extensionSource = String.raw`
 export default function demoExtension(pi) {
@@ -38,18 +41,18 @@ async function expandDock(window: Page) {
 
 test("manages extensions and prefers runtime commands over colliding host actions", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extensions-workspace");
   await writeProjectExtension(workspacePath, "demo-extension.ts", extensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Extension session");
+    await startThreadFromSurface(window);
 
     await expect(window.locator(".topbar__session")).toHaveText("Extension Surface");
     await expect(window.getByTestId("extension-dock")).toBeVisible();
@@ -75,7 +78,7 @@ test("manages extensions and prefers runtime commands over colliding host action
     await window.getByRole("button", { name: "Disable", exact: true }).click();
     await expect(window.locator(".skill-detail__status")).toHaveText("Disabled");
     await window.getByRole("button", { name: "Back to app", exact: true }).click();
-    await expect(window.locator(".topbar__session")).toHaveText("Extension session");
+    await expect(window.locator(".topbar__session")).toHaveText("New thread");
     await expect(window.getByTestId("extension-dock")).toHaveCount(0);
     const composer = window.getByTestId("composer");
     await composer.fill("/settings");

@@ -1,24 +1,33 @@
-// TODO: test creating multiple worktrees from same root and direct worktree workspace deletion
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
-import { assertExists, createSession, getDesktopState, launchDesktop } from "./harness";
+import {
+  assertExists,
+  createNamedThread,
+  createSessionViaIpc,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  waitForWorkspaceByPath,
+} from "../helpers/electron-app";
 
 const execFileAsync = promisify(execFile);
 
 test("creates and selects a worktree-backed workspace from the desktop UI", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeGitWorkspace("worktree-live-workspace");
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const rootWorkspace = await waitForRootWorkspace(window);
-    assertExists(rootWorkspace, "Expected an initial workspace");
+    const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
     await window.getByRole("button", { name: "Create permanent worktree" }).click();
@@ -47,6 +56,7 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
     await window.getByRole("complementary").getByRole("button", { name: "New thread" }).click();
     await expect(window.getByTestId("new-thread-composer")).toBeVisible();
     await expect(window.getByRole("button", { name: "Local", exact: true })).toBeVisible();
+    await expect(window.getByRole("button", { name: "Current worktree", exact: true })).toBeVisible();
     await expect(window.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
   } finally {
     await harness.close();
@@ -55,16 +65,18 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
 
 test("shows a worktree icon in the sidebar without a local text badge", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeGitWorkspace("worktree-sidebar-indicator");
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const rootWorkspace = await waitForRootWorkspace(window);
-    assertExists(rootWorkspace, "Expected an initial workspace");
+    const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
 
-    await createSession(window, rootWorkspace.id, "Local thread");
+    await createNamedThread(window, "Local thread");
     const localRow = window.locator(".session-row", { hasText: "Local thread" });
     await expect(localRow).toBeVisible();
     await expect(localRow).toHaveAttribute("data-sidebar-indicator", "none");
@@ -87,7 +99,7 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
     );
     assertExists(firstWorktree, "Expected selected worktree workspace");
 
-    await createSession(window, firstWorktree.id, "Worktree thread");
+    await createSessionViaIpc(window, firstWorktree.id, "Worktree thread");
     const worktreeRow = window.locator(".session-row", { hasText: "Worktree thread" });
     await expect(worktreeRow).toBeVisible();
     await expect(worktreeRow).toHaveAttribute("data-sidebar-indicator", "none");
@@ -100,14 +112,16 @@ test("shows a worktree icon in the sidebar without a local text badge", async ()
 
 test("keeps orphaned worktree workspaces visible after removing the root workspace", async () => {
   test.setTimeout(90_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeGitWorkspace("worktree-orphan-visibility");
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const rootWorkspace = await waitForRootWorkspace(window);
-    assertExists(rootWorkspace, "Expected an initial workspace");
+    const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
     await window.getByRole("button", { name: "Create permanent worktree" }).click();
@@ -125,7 +139,9 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
     assertExists(createdWorkspace, "Expected created worktree workspace");
 
     await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
-    window.once("dialog", (dialog) => dialog.accept());
+    window.once("dialog", (dialog) => {
+      void dialog.accept();
+    });
     await window.getByRole("button", { name: "Remove" }).click();
 
     await expect(window.getByTestId("empty-state")).toHaveCount(0);
@@ -141,26 +157,11 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
 });
 
 async function makeGitWorkspace(name: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "pi-gui-git-workspace-"));
-  const workspacePath = join(root, name);
-  await mkdir(workspacePath, { recursive: true });
-  await writeFile(join(workspacePath, "README.md"), `# ${name}\n`, "utf8");
+  const workspacePath = await makeWorkspace(name);
   await execFileAsync("git", ["init", "-b", "main"], { cwd: workspacePath });
   await execFileAsync("git", ["config", "user.name", "Pi App Tests"], { cwd: workspacePath });
   await execFileAsync("git", ["config", "user.email", "pi-gui-tests@example.com"], { cwd: workspacePath });
   await execFileAsync("git", ["add", "README.md"], { cwd: workspacePath });
   await execFileAsync("git", ["commit", "-m", "init"], { cwd: workspacePath });
   return realpath(workspacePath);
-}
-
-async function waitForRootWorkspace(window: import("@playwright/test").Page) {
-  await expect
-    .poll(async () => {
-      const state = await getDesktopState(window);
-      return state.workspaces[0] ?? null;
-    }, { timeout: 20_000 })
-    .not.toBeNull();
-
-  const state = await getDesktopState(window);
-  return state.workspaces[0];
 }

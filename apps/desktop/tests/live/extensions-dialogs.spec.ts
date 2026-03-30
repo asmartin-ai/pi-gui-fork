@@ -1,8 +1,5 @@
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { assertExists, createSession, getDesktopState, launchDesktop, makeWorkspace, writeProjectExtension } from "./harness";
+import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace, writeProjectExtension } from "../helpers/electron-app";
 
 const extensionSource = String.raw`
 export default function dialogExtension(pi) {
@@ -42,18 +39,18 @@ export default function dialogExtension(pi) {
 
 test("renders extension dialogs in the Electron surface and routes responses back to the session", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extensions-dialogs-workspace");
   await writeProjectExtension(workspacePath, "dialog-extension.ts", extensionSource);
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces[0];
-    assertExists(workspace, "Expected workspace");
-    await createSession(window, workspace.id, "Dialog session");
+    await createNamedThread(window, "Dialog session");
 
     const composer = window.getByTestId("composer");
 

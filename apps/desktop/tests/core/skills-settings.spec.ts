@@ -1,13 +1,11 @@
-// IPC bridge access requires inline window.evaluate — see harness.ts for shared helpers
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { launchDesktop, makeWorkspace, type PiAppWindow } from "./harness";
+import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 
 test("shows skills and settings surfaces from runtime data", async () => {
   test.setTimeout(60_000);
-  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-user-data-"));
+  const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("skills-settings-workspace");
   await mkdir(join(workspacePath, ".agents", "skills", "demo-skill"), { recursive: true });
   await writeFile(
@@ -24,19 +22,14 @@ Use this skill when the user wants a short demo workflow.
     "utf8",
   );
 
-  const harness = await launchDesktop(userDataDir, [workspacePath]);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
 
   try {
     const window = await harness.firstWindow();
-    const workspaceId = await window.evaluate(async () => {
-      const app = (window as PiAppWindow).piApp;
-      if (!app) throw new Error("piApp IPC bridge is unavailable");
-      const state = await app.getState();
-      const workspace = state.workspaces[0];
-      if (!workspace) throw new Error("Expected workspace");
-      await app.createSession({ workspaceId: workspace.id, title: "Skill test session" });
-      return workspace.id;
-    });
+    await createNamedThread(window, "Skill test session");
 
     await window.getByRole("button", { name: "Skills", exact: true }).click();
     await expect(window.locator(".skills-view")).toBeVisible();
