@@ -1,25 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { SessionRecord } from "./desktop-state";
 import { buildModelOptions, THINKING_OPTIONS, type ComposerModelOption } from "./composer-commands";
 
 interface ModelSelectorProps {
   readonly runtime: RuntimeSnapshot | undefined;
-  readonly session: SessionRecord;
+  readonly provider: string | undefined;
+  readonly modelId: string | undefined;
+  readonly thinkingLevel: string | undefined;
+  readonly disabled?: boolean;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
 }
 
 type OpenDropdown = "none" | "model" | "thinking";
 
-export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: ModelSelectorProps) {
+export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disabled, onSetModel, onSetThinking }: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const isRunning = session.status === "running";
 
-  const currentProvider = session.config?.provider;
-  const currentModelId = session.config?.modelId;
-  const currentThinking = session.config?.thinkingLevel;
+  const currentProvider = provider;
+  const currentModelId = modelId;
+  const currentThinking = thinkingLevel;
 
   const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
 
@@ -57,10 +58,10 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
           <button
             className="model-selector__badge"
             type="button"
-            disabled={isRunning}
+            disabled={disabled}
             onClick={() => setOpen(open === "model" ? "none" : "model")}
           >
-            {" · "}{currentProvider}:{currentModelId}
+            {currentProvider}:{currentModelId}
           </button>
           {open === "model" ? (
             <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
@@ -102,10 +103,10 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
           <button
             className="model-selector__badge"
             type="button"
-            disabled={isRunning}
+            disabled={disabled}
             onClick={() => setOpen(open === "thinking" ? "none" : "thinking")}
           >
-            {" · "}{currentThinking}
+            {currentThinking}
           </button>
           {open === "thinking" ? (
             <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
