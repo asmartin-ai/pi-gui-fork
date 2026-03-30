@@ -203,11 +203,10 @@
 }
 
 .workspace-row__select {
-  position: relative;
   width: 100%;
   display: grid;
   align-items: center;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   text-align: left;
   color: inherit;
