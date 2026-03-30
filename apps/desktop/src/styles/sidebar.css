@@ -242,6 +242,35 @@
   height: 18px;
 }
 
+/* Expanded: always show chevron, hide folder */
+.workspace-row__icon-chevron {
+  display: grid;
+  place-items: center;
+}
+
+.workspace-row__icon-folder {
+  display: none;
+}
+
+/* Collapsed: show folder, hide chevron */
+.workspace-row__icon[data-collapsed] .workspace-row__icon-folder {
+  display: grid;
+  place-items: center;
+}
+
+.workspace-row__icon[data-collapsed] .workspace-row__icon-chevron {
+  display: none;
+}
+
+/* Collapsed + hover on workspace row: swap folder → chevron */
+.workspace-row:hover .workspace-row__icon[data-collapsed] .workspace-row__icon-chevron {
+  display: grid;
+}
+
+.workspace-row:hover .workspace-row__icon[data-collapsed] .workspace-row__icon-folder {
+  display: none;
+}
+
 .workspace-row__name,
 .session-row__title {
   min-width: 0;
