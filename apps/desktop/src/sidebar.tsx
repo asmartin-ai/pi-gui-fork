@@ -90,7 +90,9 @@ export function Sidebar(props: SidebarProps) {
     if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
     const newOrder = arrayMove(rootGroupIds, oldIndex, newIndex);
-    void updateSnapshot(api, setSnapshot, () => api.reorderWorkspaces(newOrder));
+    // Optimistically update local state to avoid snap-back animation
+    setSnapshot((prev) => prev ? { ...prev, workspaceOrder: newOrder } : prev);
+    void api.reorderWorkspaces(newOrder);
   }
 
   const activeGroup = activeId ? rootGroups.find((g) => g.rootWorkspace.id === activeId) : undefined;
