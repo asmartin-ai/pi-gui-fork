@@ -868,11 +868,6 @@
   font-weight: 500;
 }
 
-.model-selector__item--unavailable {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .model-selector__item-label {
   flex: 1;
 }

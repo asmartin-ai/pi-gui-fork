@@ -35,10 +35,11 @@ export function SettingsModelsSection({
   const activeScopedPatterns = allImplicitlyEnabled
     ? availableModels.map((model) => `${model.providerId}/${model.modelId}`)
     : enabledPatterns;
+  const activeScopedSet = new Set(activeScopedPatterns);
 
   const enabledAvailableModels = availableModels.filter((model) => {
     if (allImplicitlyEnabled) return true;
-    return activeScopedPatterns.includes(`${model.providerId}/${model.modelId}`);
+    return activeScopedSet.has(`${model.providerId}/${model.modelId}`);
   });
 
   const defaultProvider = runtime?.settings.defaultProvider;
@@ -166,7 +167,7 @@ export function SettingsModelsSection({
               <div className="settings-list">
                 {filteredScopedModels.map((model) => {
                   const pattern = `${model.providerId}/${model.modelId}`;
-                  const enabled = activeScopedPatterns.includes(pattern);
+                  const enabled = activeScopedSet.has(pattern);
                   const isLast = enabled && activeScopedPatterns.length <= 1;
                   return (
                     <label className="settings-toggle settings-toggle--row" key={pattern}>
@@ -211,7 +212,7 @@ export function SettingsModelsSection({
             <div className="settings-list">
               {filteredModels.map((model) => {
                 const pattern = `${model.providerId}/${model.modelId}`;
-                const enabled = activeScopedPatterns.includes(pattern);
+                const enabled = activeScopedSet.has(pattern);
                 const isLast = enabled && activeScopedPatterns.length <= 1;
                 return (
                   <div

@@ -344,12 +344,13 @@ export function buildModelOptions(
 
   const enabledPatterns = runtime.settings.enabledModelPatterns;
   const allAvailable = enabledPatterns.length === 0;
+  const enabledSet = allAvailable ? undefined : new Set(enabledPatterns);
 
   return [...runtime.models]
     .filter((model) => {
       if (!model.available) return false;
-      if (allAvailable) return true;
-      return enabledPatterns.includes(`${model.providerId}/${model.modelId}`);
+      if (!enabledSet) return true;
+      return enabledSet.has(`${model.providerId}/${model.modelId}`);
     })
     .sort((left: RuntimeSnapshot["models"][number], right: RuntimeSnapshot["models"][number]) => {
       const providerCompare =
