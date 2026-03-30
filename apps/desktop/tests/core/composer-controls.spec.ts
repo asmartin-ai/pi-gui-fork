@@ -50,7 +50,7 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(slashMenu).toHaveCount(0);
     await expect(composer).toHaveValue("/status");
     await composer.press("Enter");
-    await expect(window.getByTestId("transcript")).toContainText("Model");
+    await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
     await expect(composer).toHaveValue("");
 
     await composer.fill("/thinking");

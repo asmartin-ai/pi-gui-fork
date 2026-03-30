@@ -59,7 +59,7 @@ test("persists transcript storage separately from ui state and restores the curr
 
     await composer.fill("/status");
     await composer.press("Enter");
-    await expect(window.getByTestId("transcript")).toContainText("Model");
+    await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
 
     await composer.fill("draft survives restart");
     await expect(composer).toHaveValue("draft survives restart");
