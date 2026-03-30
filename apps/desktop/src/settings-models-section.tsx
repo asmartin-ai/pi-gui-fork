@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import { ModelIcon, ReasoningIcon, SettingsIcon } from "./icons";
 import {
   filterModels,
   labelForThinking,
   settingsPill,
-  SettingsCard,
+  SettingsGroup,
+  SettingsRow,
   THINKING_LEVELS,
 } from "./settings-utils";
 
@@ -26,7 +26,6 @@ export function SettingsModelsSection({
   const [scopedQuery, setScopedQuery] = useState("");
 
   const models = runtime?.models ?? [];
-  const providers = runtime?.providers ?? [];
   const availableModels = models.filter((m) => m.available);
 
   const enabledPatterns = runtime?.settings.enabledModelPatterns ?? [];
@@ -62,65 +61,49 @@ export function SettingsModelsSection({
 
   return (
     <>
-      <SettingsCard
-        description="Choose the default model for new sessions in this workspace."
-        icon={<ModelIcon />}
-        title="Default model"
-      >
-        <div className="settings-stack">
-          <label className="settings-field">
-            <span>Enabled models</span>
-            <select
-              className="settings-select"
-              value={
-                defaultProvider && defaultModelId && defaultIsEnabled
-                  ? `${defaultProvider}:${defaultModelId}`
-                  : ""
+      <SettingsGroup>
+        <SettingsRow title="Default model" description="Choose the default model for new sessions.">
+          <select
+            className="settings-select"
+            value={
+              defaultProvider && defaultModelId && defaultIsEnabled
+                ? `${defaultProvider}:${defaultModelId}`
+                : ""
+            }
+            onChange={(event) => {
+              const [provider, ...modelParts] = event.target.value.split(":");
+              const modelId = modelParts.join(":");
+              if (provider && modelId) {
+                onSetDefaultModel(provider, modelId);
               }
-              onChange={(event) => {
-                const [provider, ...modelParts] = event.target.value.split(":");
-                const modelId = modelParts.join(":");
-                if (provider && modelId) {
-                  onSetDefaultModel(provider, modelId);
-                }
-              }}
-            >
-              <option value="">Choose a model</option>
-              {enabledAvailableModels.map((model) => (
-                <option key={`${model.providerId}:${model.modelId}`} value={`${model.providerId}:${model.modelId}`}>
-                  {model.providerName} · {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </SettingsCard>
+            }}
+          >
+            <option value="">Choose a model</option>
+            {enabledAvailableModels.map((model) => (
+              <option key={`${model.providerId}:${model.modelId}`} value={`${model.providerId}:${model.modelId}`}>
+                {model.providerName} · {model.label}
+              </option>
+            ))}
+          </select>
+        </SettingsRow>
+        <SettingsRow title="Reasoning" description="Set the workspace default reasoning level.">
+          <div className="settings-pill-row">
+            {THINKING_LEVELS.map((level) => (
+              <button
+                className={settingsPill(runtime?.settings.defaultThinkingLevel === level)}
+                key={level}
+                type="button"
+                onClick={() => onSetThinkingLevel(level)}
+              >
+                {labelForThinking(level)}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+      </SettingsGroup>
 
-      <SettingsCard
-        description="Set the workspace default reasoning level."
-        icon={<ReasoningIcon />}
-        title="Reasoning"
-      >
-        <div className="settings-pill-row">
-          {THINKING_LEVELS.map((level) => (
-            <button
-              className={settingsPill(runtime?.settings.defaultThinkingLevel === level)}
-              key={level}
-              type="button"
-              onClick={() => onSetThinkingLevel(level)}
-            >
-              {labelForThinking(level)}
-            </button>
-          ))}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        description="Choose which models appear in pickers throughout the app."
-        icon={<SettingsIcon />}
-        title="Enabled models"
-      >
-        <div className="settings-stack">
+      <SettingsGroup title="Enabled models" description="Choose which models appear in pickers throughout the app.">
+        <div className="settings-row">
           <div className="settings-pill-row">
             {activeScopedPatterns.map((pattern) => (
               <span className={settingsPill(true)} key={pattern}>
@@ -128,59 +111,59 @@ export function SettingsModelsSection({
               </span>
             ))}
           </div>
-          {allImplicitlyEnabled ? (
+        </div>
+        {allImplicitlyEnabled ? (
+          <div className="settings-row">
             <span className="settings-hint">All models enabled by default.</span>
-          ) : null}
-          {!defaultIsEnabled && defaultProvider && defaultModelId ? (
+          </div>
+        ) : null}
+        {!defaultIsEnabled && defaultProvider && defaultModelId ? (
+          <div className="settings-row">
             <span className="settings-warning">
               Your default model ({defaultProvider}:{defaultModelId}) is not enabled. Choose a new default above.
             </span>
-          ) : null}
-          <details className="settings-disclosure">
-            <summary className="settings-disclosure__summary">
-              <span>Edit enabled models</span>
-              <span>{filteredScopedModels.length}</span>
-            </summary>
-            <div className="settings-disclosure__body">
-              <input
-                aria-label="Search enabled models"
-                className="settings-search"
-                placeholder="Search enabled models"
-                value={scopedQuery}
-                onChange={(event) => setScopedQuery(event.target.value)}
-              />
-              <div className="settings-list">
-                {filteredScopedModels.map((model) => {
-                  const pattern = `${model.providerId}/${model.modelId}`;
-                  const enabled = activeScopedSet.has(pattern);
-                  const isLast = enabled && activeScopedPatterns.length <= 1;
-                  return (
-                    <label className="settings-toggle settings-toggle--row" key={pattern}>
-                      <input
-                        checked={enabled}
-                        disabled={isLast}
-                        title={isLast ? "At least one model must be enabled" : undefined}
-                        type="checkbox"
-                        onChange={(event) => togglePattern(pattern, event.target.checked)}
-                      />
-                      <span>
-                        <strong>{model.providerName}</strong> · {model.label}
-                        <span className="settings-list__meta"> · {pattern}</span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+          </div>
+        ) : null}
+        <details className="settings-disclosure">
+          <summary className="settings-disclosure__summary">
+            <span>Edit enabled models</span>
+            <span>{filteredScopedModels.length}</span>
+          </summary>
+          <div className="settings-disclosure__body">
+            <input
+              aria-label="Search enabled models"
+              className="settings-search"
+              placeholder="Search enabled models"
+              value={scopedQuery}
+              onChange={(event) => setScopedQuery(event.target.value)}
+            />
+            <div className="settings-list">
+              {filteredScopedModels.map((model) => {
+                const pattern = `${model.providerId}/${model.modelId}`;
+                const enabled = activeScopedSet.has(pattern);
+                const isLast = enabled && activeScopedPatterns.length <= 1;
+                return (
+                  <label className="settings-toggle settings-toggle--row" key={pattern}>
+                    <input
+                      checked={enabled}
+                      disabled={isLast}
+                      title={isLast ? "At least one model must be enabled" : undefined}
+                      type="checkbox"
+                      onChange={(event) => togglePattern(pattern, event.target.checked)}
+                    />
+                    <span>
+                      <strong>{model.providerName}</strong> · {model.label}
+                      <span className="settings-list__meta"> · {pattern}</span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
-          </details>
-        </div>
-      </SettingsCard>
+          </div>
+        </details>
+      </SettingsGroup>
 
-      <SettingsCard
-        description="Browse the full model catalog. Enable models above to use them."
-        icon={<ModelIcon />}
-        title="All models"
-      >
+      <SettingsGroup title="All models" description="Browse the full model catalog. Enable models above to use them.">
         <details className="settings-disclosure">
           <summary className="settings-disclosure__summary">
             <span>Browse full model inventory</span>
@@ -229,7 +212,7 @@ export function SettingsModelsSection({
             </div>
           </div>
         </details>
-      </SettingsCard>
+      </SettingsGroup>
     </>
   );
 }
