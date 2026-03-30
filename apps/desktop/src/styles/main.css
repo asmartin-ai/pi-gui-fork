@@ -1536,60 +1536,6 @@
   color: var(--muted-soft);
 }
 
-.settings-stack {
-  display: grid;
-  gap: 12px;
-}
-
-.settings-card {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid #dfe4ee;
-  background: #fff;
-  display: grid;
-  gap: 12px;
-}
-
-.settings-card__header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.settings-card__icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--muted-soft);
-  border-radius: 10px;
-  background: #f5f7fb;
-}
-
-.settings-card__icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.settings-card h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 17px;
-  font-weight: 620;
-}
-
-.settings-card p {
-  margin: 0;
-  color: var(--muted-strong);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.settings-card__empty {
-  color: var(--muted-soft);
-  font-size: 13px;
-}
-
 .settings-hint {
   color: var(--muted-soft);
   font-size: 13px;
@@ -2243,15 +2189,6 @@ mark.thread-find-active {
 :root.dark .surface-toolbar__field select {
   border-color: var(--line);
   background: var(--surface);
-}
-
-:root.dark .settings-card {
-  border-color: var(--line);
-  background: var(--surface);
-}
-
-:root.dark .settings-card__icon {
-  background: var(--surface-muted);
 }
 
 :root.dark .settings-list__row {
