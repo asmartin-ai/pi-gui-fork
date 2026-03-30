@@ -311,25 +311,25 @@ function WorkspaceGroupContent(
   return (
     <>
       <div className={`workspace-row ${workspaceActive ? "workspace-row--active" : ""}`}>
-        {dragHandleProps ? (
-          <span
-            className="workspace-row__drag-handle"
-            {...dragHandleProps.attributes}
-            {...dragHandleProps.listeners}
-          >
-            <GripIcon />
-          </span>
-        ) : null}
         <button
           className="workspace-row__select"
           onClick={() => wsMenu.selectWorkspace(rootWorkspace.id)}
           type="button"
         >
+          {dragHandleProps ? (
+            <span
+              className="workspace-row__drag-handle"
+              {...dragHandleProps.attributes}
+              {...dragHandleProps.listeners}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripIcon />
+            </span>
+          ) : null}
           <span className="workspace-row__icon" aria-hidden="true">
             <FolderIcon />
           </span>
           <span className="workspace-row__name">{rootWorkspace.name}</span>
-          <span className="workspace-row__time">{formatRelativeTime(rootWorkspace.lastOpenedAt)}</span>
         </button>
         <span
           className="workspace-row__menu-wrap"
