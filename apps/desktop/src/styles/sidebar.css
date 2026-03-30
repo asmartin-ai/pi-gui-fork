@@ -178,6 +178,44 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.workspace-row:has(.workspace-row__drag-handle) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.workspace-row__drag-handle {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-soft);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.workspace-row__drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-row:hover .workspace-row__drag-handle {
+  opacity: 1;
+}
+
+.workspace-row__drag-handle:active {
+  cursor: grabbing;
+}
+
+.workspace-group--dragging {
+  opacity: 0.3;
+}
+
+.workspace-group--overlay {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .worktree-row {
   padding: 2px 4px 1px;
   border-radius: 9px;
