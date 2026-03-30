@@ -24,5 +24,10 @@ export function formatRelativeTime(value: string): string {
   if (diffHours < 24) return `${diffHours}h`;
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d`;
-  return new Date(timestamp).toLocaleDateString();
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffDays < 30) return `${diffWeeks}w`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths}mo`;
+  const diffYears = Math.floor(diffDays / 365);
+  return `${diffYears}y`;
 }

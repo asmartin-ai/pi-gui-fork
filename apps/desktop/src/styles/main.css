@@ -868,11 +868,6 @@
   font-weight: 500;
 }
 
-.model-selector__item--unavailable {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .model-selector__item-label {
   flex: 1;
 }
@@ -1394,9 +1389,21 @@
   height: 14px;
 }
 
+.new-thread__meta .model-selector__dropdown {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 4px;
+}
+
 .settings-disclosure {
   border-top: 1px solid #edf0f6;
   padding-top: 12px;
+}
+
+.settings-group > .settings-disclosure {
+  border-top: none;
+  padding: 14px 18px;
 }
 
 .settings-disclosure__summary {
@@ -1460,61 +1467,96 @@
 
 .settings-grid {
   display: grid;
-  gap: 16px;
+  gap: 24px;
 }
 
-.settings-stack {
+.settings-section {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
-.settings-card {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid #dfe4ee;
-  background: #fff;
-  display: grid;
-  gap: 12px;
+.settings-section__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: inherit;
 }
 
-.settings-card__header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.settings-card__icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
+.settings-section__description {
+  font-size: 13px;
   color: var(--muted-soft);
-  border-radius: 10px;
-  background: #f5f7fb;
 }
 
-.settings-card__icon svg {
-  width: 18px;
-  height: 18px;
+.settings-group {
+  border: 1px solid #dfe4ee;
+  border-radius: 18px;
+  background: #fff;
 }
 
-.settings-card h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 17px;
-  font-weight: 620;
+.settings-group > :first-child {
+  border-radius: 18px 18px 0 0;
 }
 
-.settings-card p {
-  margin: 0;
-  color: var(--muted-strong);
+.settings-group > :last-child {
+  border-radius: 0 0 18px 18px;
+}
+
+.settings-group > :only-child {
+  border-radius: 18px;
+}
+
+.settings-group > * + * {
+  border-top: 1px solid #edf0f6;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 18px;
+}
+
+.settings-row__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-row__title {
   font-size: 14px;
-  line-height: 1.55;
+  font-weight: 590;
 }
 
-.settings-card__empty {
+.settings-row__description {
+  font-size: 13px;
+  color: var(--muted-soft);
+  line-height: 1.4;
+}
+
+.settings-row__control {
+  flex-shrink: 0;
+}
+
+.settings-row__value {
+  font-size: 13px;
+  color: var(--muted-soft);
+}
+
+.settings-hint {
   color: var(--muted-soft);
   font-size: 13px;
+  font-style: italic;
+}
+
+.settings-warning {
+  color: var(--warning, #d97706);
+  font-size: 13px;
+}
+
+.settings-toggle--inline {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  cursor: pointer;
 }
 
 .settings-field {
@@ -2154,15 +2196,6 @@ mark.thread-find-active {
   background: var(--surface);
 }
 
-:root.dark .settings-card {
-  border-color: var(--line);
-  background: var(--surface);
-}
-
-:root.dark .settings-card__icon {
-  background: var(--surface-muted);
-}
-
 :root.dark .settings-list__row {
   border-color: var(--line);
   background: var(--surface-muted);
@@ -2201,6 +2234,15 @@ mark.thread-find-active {
 }
 
 :root.dark .settings-disclosure {
+  border-top-color: var(--line);
+}
+
+:root.dark .settings-group {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root.dark .settings-group > * + * {
   border-top-color: var(--line);
 }
 

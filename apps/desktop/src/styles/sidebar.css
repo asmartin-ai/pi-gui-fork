@@ -178,6 +178,23 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.workspace-row__select--draggable {
+  cursor: grab;
+}
+
+.workspace-row__select--draggable:active {
+  cursor: grabbing;
+}
+
+.workspace-group--dragging {
+  opacity: 0.3;
+}
+
+.workspace-group--overlay {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .worktree-row {
   padding: 2px 4px 1px;
   border-radius: 9px;
@@ -189,10 +206,13 @@
   width: 100%;
   display: grid;
   align-items: center;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  padding-left: 23px;
   text-align: left;
   color: inherit;
+  position: relative;
 }
 
 .worktree-row__select {
@@ -218,11 +238,45 @@
   display: grid;
   place-items: center;
   color: var(--muted-icon);
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .workspace-row__icon svg {
   width: 18px;
   height: 18px;
+}
+
+/* Expanded: always show chevron, hide folder */
+.workspace-row__icon-chevron {
+  display: grid;
+  place-items: center;
+}
+
+.workspace-row__icon-folder {
+  display: none;
+}
+
+/* Collapsed: show folder, hide chevron */
+.workspace-row__icon[data-collapsed] .workspace-row__icon-folder {
+  display: grid;
+  place-items: center;
+}
+
+.workspace-row__icon[data-collapsed] .workspace-row__icon-chevron {
+  display: none;
+}
+
+/* Collapsed + hover on workspace row: swap folder → chevron */
+.workspace-row:hover .workspace-row__icon[data-collapsed] .workspace-row__icon-chevron {
+  display: grid;
+}
+
+.workspace-row:hover .workspace-row__icon[data-collapsed] .workspace-row__icon-folder {
+  display: none;
 }
 
 .workspace-row__name,
@@ -516,11 +570,22 @@
   color: var(--muted-strong);
 }
 
-.session-row__action {
+.session-row .session-row__action {
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px;
+  padding-right: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: scale(0.92);
+}
+
+.session-row .session-row__action svg {
+  width: 16px;
+  height: 16px;
 }
 
 .session-row:hover .session-row__time,

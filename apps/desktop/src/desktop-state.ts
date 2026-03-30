@@ -94,17 +94,26 @@ export type StartThreadInput =
       readonly rootWorkspaceId: string;
       readonly environment: "local";
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     }
   | {
       readonly rootWorkspaceId: string;
       readonly environment: "new-worktree";
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     }
   | {
       readonly rootWorkspaceId: string;
       readonly environment: "current-worktree";
       readonly targetWorkspaceId: string;
       readonly prompt?: string;
+      readonly provider?: string;
+      readonly modelId?: string;
+      readonly thinkingLevel?: string;
     };
 
 export interface RemoveWorktreeInput {
@@ -125,6 +134,7 @@ export interface DesktopAppState {
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly notificationPreferences: NotificationPreferences;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
+  readonly workspaceOrder: readonly string[];
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -157,6 +167,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       attentionNeeded: true,
     },
     lastViewedAtBySession: {},
+    workspaceOrder: [],
     revision: 0,
   };
 }

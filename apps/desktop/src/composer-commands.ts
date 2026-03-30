@@ -70,7 +70,7 @@ const INCOMPLETE_COMMAND_MESSAGES: Readonly<Record<string, string>> = {
   "/logout": "Choose a connected provider from the slash menu before sending /logout.",
   "/model": "Choose a provider and model from the slash menu before sending /model.",
   "/name": "Add a thread title after /name.",
-  "/scoped-models": "Open Scoped models from the slash menu or Settings.",
+  "/scoped-models": "Open Enabled models from the slash menu or Settings.",
   "/settings": "Open Settings from the slash menu or Cmd+,.",
   "/thinking": "Choose a reasoning level from the slash menu before sending /thinking.",
 } as const;
@@ -141,8 +141,8 @@ const HOST_ACTION_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
     kind: "scoped-models",
     command: "/scoped-models",
     template: "/scoped-models",
-    title: "Scoped models",
-    description: "Manage the quick-cycle model shortlist",
+    title: "Enabled models",
+    description: "Choose which models appear in pickers",
     submitMode: "immediate",
     section: "host",
   },
@@ -342,7 +342,16 @@ export function buildModelOptions(
     return [];
   }
 
+  const enabledPatterns = runtime.settings.enabledModelPatterns;
+  const allAvailable = enabledPatterns.length === 0;
+  const enabledSet = allAvailable ? undefined : new Set(enabledPatterns);
+
   return [...runtime.models]
+    .filter((model) => {
+      if (!model.available) return false;
+      if (!enabledSet) return true;
+      return enabledSet.has(`${model.providerId}/${model.modelId}`);
+    })
     .sort((left: RuntimeSnapshot["models"][number], right: RuntimeSnapshot["models"][number]) => {
       const providerCompare =
         providerRankForId(runtime.providers, left.providerId) - providerRankForId(runtime.providers, right.providerId);
@@ -354,7 +363,7 @@ export function buildModelOptions(
     .map((model: RuntimeSnapshot["models"][number]) => ({
       value: model.modelId,
       label: `${model.providerName} · ${model.label}`,
-      description: `${model.modelId}${model.available ? "" : " · unavailable"}`,
+      description: model.modelId,
       providerId: model.providerId,
       modelId: model.modelId,
     }));

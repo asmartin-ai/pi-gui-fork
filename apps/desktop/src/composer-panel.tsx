@@ -237,9 +237,13 @@ export function ComposerPanel({
             <div className="composer__bar">
               <div className="composer__hint">
                 {selectedSession.status === "running" ? runningLabel : "Enter to send · Shift+Enter for newline"}
+                {" · "}
                 <ModelSelector
                   runtime={runtime}
-                  session={selectedSession}
+                  provider={selectedSession.config?.provider}
+                  modelId={selectedSession.config?.modelId}
+                  thinkingLevel={selectedSession.config?.thinkingLevel}
+                  disabled={selectedSession.status === "running"}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
                 />

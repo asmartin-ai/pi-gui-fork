@@ -148,6 +148,20 @@ export class DesktopAppStore implements AppStoreInternals {
     return workspace.removeWorkspace(this, workspaceId);
   }
 
+  async reorderWorkspaces(order: readonly string[]): Promise<DesktopAppState> {
+    await this.initialize();
+    const primaryIds = new Set(this.state.workspaces.filter((w) => w.kind === "primary").map((w) => w.id));
+    const sanitized = [...new Set(order)].filter((id) => primaryIds.has(id));
+    this.state = {
+      ...this.state,
+      workspaceOrder: sanitized,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async selectWorkspace(workspaceId: string): Promise<DesktopAppState> {
     return workspace.selectWorkspace(this, workspaceId);
   }
@@ -371,6 +385,7 @@ export class DesktopAppStore implements AppStoreInternals {
           ...persisted.notificationPreferences,
         },
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
+        workspaceOrder: persisted.workspaceOrder ?? [],
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -510,6 +525,7 @@ export class DesktopAppStore implements AppStoreInternals {
       sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
       sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+      workspaceOrder: this.state.workspaceOrder,
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
@@ -599,9 +615,23 @@ export class DesktopAppStore implements AppStoreInternals {
     }
 
     const unsubscribe = this.driver.subscribe(sessionRef, (event) => {
-      void this.handleSessionEvent(event);
+      void this.handleSessionEvent(event, key);
     });
     this.sessionState.sessionSubscriptions.set(key, unsubscribe);
+  }
+
+  private migrateSessionSubscriptionKey(sourceKey: string, targetKey: string): void {
+    if (sourceKey === targetKey || this.sessionState.sessionSubscriptions.has(targetKey)) {
+      return;
+    }
+
+    const unsubscribe = this.sessionState.sessionSubscriptions.get(sourceKey);
+    if (!unsubscribe) {
+      return;
+    }
+
+    this.sessionState.sessionSubscriptions.delete(sourceKey);
+    this.sessionState.sessionSubscriptions.set(targetKey, unsubscribe);
   }
 
   async cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void> {
@@ -743,8 +773,11 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  private async handleSessionEvent(event: SessionDriverEvent): Promise<void> {
+  private async handleSessionEvent(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
     const key = sessionKey(event.sessionRef);
+    if (subscriptionKey !== key) {
+      this.migrateSessionSubscriptionKey(subscriptionKey, key);
+    }
     const knownSession = this.sessionFromState(event.sessionRef);
     if (
       !knownSession &&
@@ -753,15 +786,20 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "runCompleted" ||
         event.type === "hostUiRequest")
     ) {
+      const selectedKey =
+        this.state.selectedWorkspaceId && this.state.selectedSessionId
+          ? sessionKey({
+              workspaceId: this.state.selectedWorkspaceId,
+              sessionId: this.state.selectedSessionId,
+            })
+          : undefined;
+      const shouldFollowSessionMutation = subscriptionKey !== key && selectedKey === subscriptionKey;
       await this.refreshState({
         selectedWorkspaceId:
           this.state.selectedWorkspaceId === event.sessionRef.workspaceId
             ? event.sessionRef.workspaceId
             : this.state.selectedWorkspaceId,
-        selectedSessionId:
-          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
-            ? event.sessionRef.sessionId
-            : this.state.selectedSessionId,
+        selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
         clearLastError: true,
       });
     }
@@ -923,6 +961,7 @@ export class DesktopAppStore implements AppStoreInternals {
       composerDraftsBySession: mapToRecord(this.sessionState.composerDraftsBySession),
       notificationPreferences: this.state.notificationPreferences,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+      workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

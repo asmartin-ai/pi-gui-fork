@@ -1,25 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { SessionRecord } from "./desktop-state";
 import { buildModelOptions, THINKING_OPTIONS, type ComposerModelOption } from "./composer-commands";
 
 interface ModelSelectorProps {
   readonly runtime: RuntimeSnapshot | undefined;
-  readonly session: SessionRecord;
+  readonly provider: string | undefined;
+  readonly modelId: string | undefined;
+  readonly thinkingLevel: string | undefined;
+  readonly disabled?: boolean;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
 }
 
 type OpenDropdown = "none" | "model" | "thinking";
 
-export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: ModelSelectorProps) {
+export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disabled, onSetModel, onSetThinking }: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const isRunning = session.status === "running";
-
-  const currentProvider = session.config?.provider;
-  const currentModelId = session.config?.modelId;
-  const currentThinking = session.config?.thinkingLevel;
 
   const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
 
@@ -46,21 +43,21 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
     };
   }, [open]);
 
-  if (!currentProvider && !currentModelId && !currentThinking) {
+  if (!provider && !modelId && !thinkingLevel) {
     return null;
   }
 
   return (
     <span className="model-selector" ref={containerRef}>
-      {currentProvider && currentModelId ? (
+      {provider && modelId ? (
         <span className="model-selector__anchor">
           <button
             className="model-selector__badge"
             type="button"
-            disabled={isRunning}
+            disabled={disabled}
             onClick={() => setOpen(open === "model" ? "none" : "model")}
           >
-            {" · "}{currentProvider}:{currentModelId}
+            {provider}:{modelId}
           </button>
           {open === "model" ? (
             <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
@@ -68,19 +65,15 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
                 <div key={group.provider}>
                   <div className="model-selector__group-title">{group.provider}</div>
                   {group.items.map((option) => {
-                    const isActive = option.providerId === currentProvider && option.modelId === currentModelId;
-                    const isUnavailable = option.description.includes("unavailable");
+                    const isActive = option.providerId === provider && option.modelId === modelId;
                     return (
                       <button
-                        className={`model-selector__item${isActive ? " model-selector__item--active" : ""}${isUnavailable ? " model-selector__item--unavailable" : ""}`}
+                        className={`model-selector__item${isActive ? " model-selector__item--active" : ""}`}
                         key={`${option.providerId}:${option.modelId}`}
                         type="button"
-                        disabled={isUnavailable}
                         onClick={() => {
-                          if (!isUnavailable) {
-                            onSetModel(option.providerId, option.modelId);
-                            setOpen("none");
-                          }
+                          onSetModel(option.providerId, option.modelId);
+                          setOpen("none");
                         }}
                       >
                         <span className="model-selector__item-label">{option.label}</span>
@@ -97,21 +90,21 @@ export function ModelSelector({ runtime, session, onSetModel, onSetThinking }: M
           ) : null}
         </span>
       ) : null}
-      {currentThinking ? (
+      {thinkingLevel ? (
         <span className="model-selector__anchor">
           <button
             className="model-selector__badge"
             type="button"
-            disabled={isRunning}
+            disabled={disabled}
             onClick={() => setOpen(open === "thinking" ? "none" : "thinking")}
           >
-            {" · "}{currentThinking}
+            {thinkingLevel}
           </button>
           {open === "thinking" ? (
             <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
               <div className="model-selector__group-title">Thinking Level</div>
               {THINKING_OPTIONS.map((option) => {
-                const isActive = option.value === currentThinking;
+                const isActive = option.value === thinkingLevel;
                 return (
                   <button
                     className={`model-selector__item${isActive ? " model-selector__item--active" : ""}`}

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import { SettingsIcon, StatusIcon } from "./icons";
-import { filterProviders, ProviderRow, SettingsCard } from "./settings-utils";
+import { filterProviders, ProviderRow, SettingsGroup } from "./settings-utils";
 
 interface SettingsProvidersSectionProps {
   readonly runtime?: RuntimeSnapshot;
@@ -19,49 +18,35 @@ export function SettingsProvidersSection({ runtime, onLoginProvider, onLogoutPro
 
   return (
     <>
-      <SettingsCard
-        description="Connected providers are used first for picking models and auth-aware slash commands."
-        icon={<StatusIcon />}
-        title="Connected"
-      >
-        <div className="settings-list">
-          {connectedProviders.length > 0 ? (
-            connectedProviders.map((provider) => (
-              <ProviderRow
-                key={provider.id}
-                provider={provider}
-                onLoginProvider={onLoginProvider}
-                onLogoutProvider={onLogoutProvider}
-              />
-            ))
-          ) : (
-            <div className="settings-card__empty">No providers connected yet.</div>
-          )}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        description="OAuth-capable providers can sign in directly from the desktop app."
-        icon={<StatusIcon />}
-        title="Sign in"
-      >
-        <div className="settings-list">
-          {oauthProviders.map((provider) => (
+      <SettingsGroup title="Connected" description="Connected providers are used first for picking models.">
+        {connectedProviders.length > 0 ? (
+          connectedProviders.map((provider) => (
             <ProviderRow
               key={provider.id}
               provider={provider}
               onLoginProvider={onLoginProvider}
               onLogoutProvider={onLogoutProvider}
             />
-          ))}
-        </div>
-      </SettingsCard>
+          ))
+        ) : (
+          <div className="settings-row">
+            <span className="settings-row__description">No providers connected yet.</span>
+          </div>
+        )}
+      </SettingsGroup>
 
-      <SettingsCard
-        description="The full provider inventory stays searchable here without dominating the default settings view."
-        icon={<SettingsIcon />}
-        title="All providers"
-      >
+      <SettingsGroup title="Sign in" description="OAuth-capable providers can sign in directly from the desktop app.">
+        {oauthProviders.map((provider) => (
+          <ProviderRow
+            key={provider.id}
+            provider={provider}
+            onLoginProvider={onLoginProvider}
+            onLogoutProvider={onLogoutProvider}
+          />
+        ))}
+      </SettingsGroup>
+
+      <SettingsGroup title="All providers" description="Browse the full provider inventory.">
         <details className="settings-disclosure">
           <summary className="settings-disclosure__summary">
             <span>Browse all providers</span>
@@ -87,7 +72,7 @@ export function SettingsProvidersSection({ runtime, onLoginProvider, onLogoutPro
             </div>
           </div>
         </details>
-      </SettingsCard>
+      </SettingsGroup>
     </>
   );
 }

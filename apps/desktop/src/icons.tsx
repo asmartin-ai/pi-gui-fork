@@ -217,6 +217,19 @@ export function WorktreeIcon() {
   );
 }
 
+export function GripIcon() {
+  return (
+    <Icon>
+      <circle cx="8" cy="7" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="7" r="1.2" fill="currentColor" />
+      <circle cx="8" cy="10" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="10" r="1.2" fill="currentColor" />
+      <circle cx="8" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="13" r="1.2" fill="currentColor" />
+    </Icon>
+  );
+}
+
 export function DiffIcon() {
   return (
     <Icon>
