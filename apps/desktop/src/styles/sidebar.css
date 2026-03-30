@@ -538,7 +538,6 @@
   align-items: center;
   justify-content: flex-end;
   width: 100%;
-  padding-right: 5px;
 }
 
 .session-row__workspace-icon {
@@ -571,11 +570,22 @@
   color: var(--muted-strong);
 }
 
-.session-row__action {
+.session-row .session-row__action {
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px;
+  padding-right: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: scale(0.92);
+}
+
+.session-row .session-row__action svg {
+  width: 16px;
+  height: 16px;
 }
 
 .session-row:hover .session-row__time,
