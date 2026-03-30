@@ -1,6 +1,7 @@
 export type {
   AssistantDeltaEvent,
   CreateSessionOptions,
+  HostUiResponse,
   HostUiRequest,
   HostUiRequestEvent,
   RunCompletedEvent,
@@ -31,6 +32,10 @@ export type {
 } from "./types.js";
 export type {
   RuntimeAuthType,
+  RuntimeCommandRecord,
+  RuntimeCommandSource,
+  RuntimeExtensionDiagnostic,
+  RuntimeExtensionRecord,
   RuntimeLoginAuthInfo,
   RuntimeLoginCallbacks,
   RuntimeLoginPrompt,
@@ -39,5 +44,8 @@ export type {
   RuntimeResourceDriver,
   RuntimeSettingsSnapshot,
   RuntimeSkillRecord,
+  RuntimeSourceInfo,
+  RuntimeSourceOrigin,
+  RuntimeSourceScope,
   RuntimeSnapshot,
 } from "./runtime-types.js";

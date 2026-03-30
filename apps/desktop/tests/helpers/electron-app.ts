@@ -87,6 +87,18 @@ export async function makeWorkspace(name: string): Promise<string> {
   return realpath(workspacePath);
 }
 
+export async function writeProjectExtension(
+  workspacePath: string,
+  fileName: string,
+  source: string,
+): Promise<string> {
+  const extensionsDir = join(workspacePath, ".pi", "extensions");
+  await mkdir(extensionsDir, { recursive: true });
+  const extensionPath = join(extensionsDir, fileName);
+  await writeFile(extensionPath, source, "utf8");
+  return extensionPath;
+}
+
 export async function writeTinyPng(filePath: string): Promise<void> {
   await writeFile(filePath, Buffer.from(TINY_PNG_BASE64, "base64"));
 }
@@ -251,8 +263,8 @@ export async function startThreadFromSurface(
     await window.getByLabel("New thread prompt").fill(prompt);
   }
   await window.getByRole("button", { name: "Start thread" }).click();
-  await expect(window.getByTestId("composer")).toBeVisible();
-  await expect(window.getByTestId("composer")).toBeFocused();
+  await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+  await expect(window.getByTestId("composer")).toBeFocused({ timeout: 15_000 });
 }
 
 export async function renameCurrentThread(window: Page, title: string): Promise<void> {

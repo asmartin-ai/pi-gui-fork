@@ -114,6 +114,20 @@ export interface RunFailedEvent extends SessionEventBase {
   readonly error: SessionErrorInfo;
 }
 
+export type HostUiResponse =
+  | {
+      readonly requestId: string;
+      readonly value: string;
+    }
+  | {
+      readonly requestId: string;
+      readonly confirmed: boolean;
+    }
+  | {
+      readonly requestId: string;
+      readonly cancelled: true;
+    };
+
 export type HostUiRequest =
   | {
       readonly kind: "confirm";
@@ -121,6 +135,7 @@ export type HostUiRequest =
       readonly title: string;
       readonly message: string;
       readonly defaultValue?: boolean;
+      readonly timeoutMs?: number;
     }
   | {
       readonly kind: "input";
@@ -128,6 +143,7 @@ export type HostUiRequest =
       readonly title: string;
       readonly placeholder?: string;
       readonly initialValue?: string;
+      readonly timeoutMs?: number;
     }
   | {
       readonly kind: "select";
@@ -135,6 +151,13 @@ export type HostUiRequest =
       readonly title: string;
       readonly options: readonly string[];
       readonly allowMultiple?: boolean;
+      readonly timeoutMs?: number;
+    }
+  | {
+      readonly kind: "editor";
+      readonly requestId: string;
+      readonly title: string;
+      readonly initialValue?: string;
     }
   | {
       readonly kind: "notify";
@@ -164,6 +187,10 @@ export type HostUiRequest =
       readonly kind: "editorText";
       readonly requestId: string;
       readonly text: string;
+    }
+  | {
+      readonly kind: "reset";
+      readonly requestId: string;
     };
 
 export interface HostUiRequestEvent extends SessionEventBase {
@@ -203,6 +230,8 @@ export interface SessionDriver {
   renameSession(sessionRef: SessionRef, title: string): Promise<void>;
   compactSession(sessionRef: SessionRef, customInstructions?: string): Promise<void>;
   reloadSession(sessionRef: SessionRef): Promise<void>;
+  getSessionCommands(sessionRef: SessionRef): Promise<readonly import("./runtime-types.js").RuntimeCommandRecord[]>;
+  respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;
   closeSession(sessionRef: SessionRef): Promise<void>;
 }

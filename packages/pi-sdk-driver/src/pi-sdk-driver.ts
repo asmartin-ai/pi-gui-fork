@@ -1,6 +1,7 @@
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } from "@pi-gui/catalogs";
 import type {
   CreateSessionOptions,
+  HostUiResponse,
   SessionDriver,
   SessionEventListener,
   SessionModelSelection,
@@ -73,6 +74,14 @@ export class PiSdkDriver implements SessionDriver {
 
   reloadSession(sessionRef: SessionRef): Promise<void> {
     return this.supervisor.reloadSession(sessionRef);
+  }
+
+  getSessionCommands(sessionRef: SessionRef) {
+    return this.supervisor.getSessionCommands(sessionRef);
+  }
+
+  respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void> {
+    return this.supervisor.respondToHostUiRequest(sessionRef, response);
   }
 
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe {

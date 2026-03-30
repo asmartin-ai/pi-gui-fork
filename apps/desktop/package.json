@@ -34,6 +34,11 @@
     "test:live:parallel": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/parallel-runs.spec.ts",
     "test:live:notifications": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/notifications.spec.ts",
     "test:live:tool-calls": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/tool-calls.spec.ts",
+    "test:live:extension-dock": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extension-dock.spec.ts",
+    "test:live:extension-dock-reload": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extension-dock-reload.spec.ts",
+    "test:live:extensions": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions.spec.ts",
+    "test:live:extensions-dialogs": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions-dialogs.spec.ts",
+    "test:live:extensions-session-isolation": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm exec playwright test tests/live/extensions-session-isolation.spec.ts",
     "test:native:open-folder": "pnpm build && cross-env PI_APP_TEST_MODE=foreground pnpm exec playwright test tests/native/open-folder.spec.ts",
     "test:native:paste": "pnpm build && cross-env PI_APP_TEST_MODE=foreground pnpm exec playwright test tests/native/paste.spec.ts",
     "test:native:attach-image": "pnpm build && cross-env PI_APP_TEST_MODE=foreground pnpm exec playwright test tests/native/attach-image.spec.ts"

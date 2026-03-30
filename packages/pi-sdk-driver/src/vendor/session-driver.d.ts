@@ -3,6 +3,17 @@ declare module "@pi-gui/session-driver" {
   export type SessionId = string;
   export type RunId = string;
   export type Timestamp = string;
+  export type RuntimeSourceScope = "user" | "project" | "temporary";
+  export type RuntimeSourceOrigin = "package" | "top-level";
+  export type RuntimeCommandSource = "extension" | "prompt" | "skill";
+
+  export interface RuntimeSourceInfo {
+    readonly path: string;
+    readonly source: string;
+    readonly scope: RuntimeSourceScope;
+    readonly origin: RuntimeSourceOrigin;
+    readonly baseDir?: string;
+  }
 
   export interface WorkspaceRef {
     readonly workspaceId: WorkspaceId;
@@ -115,6 +126,20 @@ declare module "@pi-gui/session-driver" {
     readonly error: SessionErrorInfo;
   }
 
+  export type HostUiResponse =
+    | {
+        readonly requestId: string;
+        readonly value: string;
+      }
+    | {
+        readonly requestId: string;
+        readonly confirmed: boolean;
+      }
+    | {
+        readonly requestId: string;
+        readonly cancelled: true;
+      };
+
   export type HostUiRequest =
     | {
         readonly kind: "confirm";
@@ -122,6 +147,7 @@ declare module "@pi-gui/session-driver" {
         readonly title: string;
         readonly message: string;
         readonly defaultValue?: boolean;
+        readonly timeoutMs?: number;
       }
     | {
         readonly kind: "input";
@@ -129,6 +155,7 @@ declare module "@pi-gui/session-driver" {
         readonly title: string;
         readonly placeholder?: string;
         readonly initialValue?: string;
+        readonly timeoutMs?: number;
       }
     | {
         readonly kind: "select";
@@ -136,6 +163,13 @@ declare module "@pi-gui/session-driver" {
         readonly title: string;
         readonly options: readonly string[];
         readonly allowMultiple?: boolean;
+        readonly timeoutMs?: number;
+      }
+    | {
+        readonly kind: "editor";
+        readonly requestId: string;
+        readonly title: string;
+        readonly initialValue?: string;
       }
     | {
         readonly kind: "notify";
@@ -165,7 +199,11 @@ declare module "@pi-gui/session-driver" {
         readonly kind: "editorText";
         readonly requestId: string;
         readonly text: string;
-      };
+    }
+    | {
+        readonly kind: "reset";
+        readonly requestId: string;
+    };
 
   export interface HostUiRequestEvent extends SessionEventBase {
     readonly type: "hostUiRequest";
@@ -192,6 +230,31 @@ declare module "@pi-gui/session-driver" {
   export type SessionEventListener = (event: SessionDriverEvent) => void | Promise<void>;
   export type Unsubscribe = () => void;
 
+  export interface RuntimeExtensionDiagnostic {
+    readonly type: "warning" | "error" | "collision";
+    readonly message: string;
+    readonly path?: string;
+  }
+
+  export interface RuntimeExtensionRecord {
+    readonly path: string;
+    readonly displayName: string;
+    readonly enabled: boolean;
+    readonly sourceInfo: RuntimeSourceInfo;
+    readonly commands: readonly string[];
+    readonly tools: readonly string[];
+    readonly flags: readonly string[];
+    readonly shortcuts: readonly string[];
+    readonly diagnostics: readonly RuntimeExtensionDiagnostic[];
+  }
+
+  export interface RuntimeCommandRecord {
+    readonly name: string;
+    readonly description?: string;
+    readonly source: RuntimeCommandSource;
+    readonly sourceInfo: RuntimeSourceInfo;
+  }
+
   export interface SessionDriver {
     createSession(workspace: WorkspaceRef, options?: CreateSessionOptions): Promise<SessionSnapshot>;
     openSession(sessionRef: SessionRef): Promise<SessionSnapshot>;
@@ -204,7 +267,139 @@ declare module "@pi-gui/session-driver" {
     renameSession(sessionRef: SessionRef, title: string): Promise<void>;
     compactSession(sessionRef: SessionRef, customInstructions?: string): Promise<void>;
     reloadSession(sessionRef: SessionRef): Promise<void>;
+    getSessionCommands(sessionRef: SessionRef): Promise<readonly RuntimeCommandRecord[]>;
+    respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
     subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;
     closeSession(sessionRef: SessionRef): Promise<void>;
+  }
+}
+
+declare module "@pi-gui/session-driver/runtime-types" {
+  import type { WorkspaceRef } from "@pi-gui/session-driver";
+
+  export type RuntimeAuthType = "oauth" | "api_key" | "none";
+  export type RuntimeSourceScope = "user" | "project" | "temporary";
+  export type RuntimeSourceOrigin = "package" | "top-level";
+  export type RuntimeCommandSource = "extension" | "prompt" | "skill";
+
+  export interface RuntimeSourceInfo {
+    readonly path: string;
+    readonly source: string;
+    readonly scope: RuntimeSourceScope;
+    readonly origin: RuntimeSourceOrigin;
+    readonly baseDir?: string;
+  }
+
+  export interface RuntimeProviderRecord {
+    readonly id: string;
+    readonly name: string;
+    readonly hasAuth: boolean;
+    readonly authType: RuntimeAuthType;
+    readonly oauthSupported: boolean;
+  }
+
+  export interface RuntimeModelRecord {
+    readonly providerId: string;
+    readonly providerName: string;
+    readonly modelId: string;
+    readonly label: string;
+    readonly available: boolean;
+    readonly authType: RuntimeAuthType;
+    readonly reasoning: boolean;
+    readonly supportsImages: boolean;
+  }
+
+  export interface RuntimeSkillRecord {
+    readonly name: string;
+    readonly description: string;
+    readonly filePath: string;
+    readonly baseDir: string;
+    readonly source: string;
+    readonly enabled: boolean;
+    readonly disableModelInvocation: boolean;
+    readonly slashCommand: string;
+  }
+
+  export interface RuntimeExtensionDiagnostic {
+    readonly type: "warning" | "error" | "collision";
+    readonly message: string;
+    readonly path?: string;
+  }
+
+  export interface RuntimeExtensionRecord {
+    readonly path: string;
+    readonly displayName: string;
+    readonly enabled: boolean;
+    readonly sourceInfo: RuntimeSourceInfo;
+    readonly commands: readonly string[];
+    readonly tools: readonly string[];
+    readonly flags: readonly string[];
+    readonly shortcuts: readonly string[];
+    readonly diagnostics: readonly RuntimeExtensionDiagnostic[];
+  }
+
+  export interface RuntimeCommandRecord {
+    readonly name: string;
+    readonly description?: string;
+    readonly source: RuntimeCommandSource;
+    readonly sourceInfo: RuntimeSourceInfo;
+  }
+
+  export interface RuntimeSettingsSnapshot {
+    readonly defaultProvider?: string;
+    readonly defaultModelId?: string;
+    readonly defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    readonly enableSkillCommands: boolean;
+    readonly enabledModelPatterns: readonly string[];
+  }
+
+  export interface RuntimeLoginAuthInfo {
+    readonly url: string;
+    readonly instructions?: string;
+  }
+
+  export interface RuntimeLoginPrompt {
+    readonly message: string;
+    readonly placeholder?: string;
+    readonly allowEmpty?: boolean;
+  }
+
+  export interface RuntimeLoginCallbacks {
+    readonly onAuth: (info: RuntimeLoginAuthInfo) => void | Promise<void>;
+    readonly onPrompt: (prompt: RuntimeLoginPrompt) => Promise<string>;
+    readonly onProgress?: (message: string) => void | Promise<void>;
+    readonly onManualCodeInput?: () => Promise<string>;
+    readonly signal?: AbortSignal;
+  }
+
+  export interface RuntimeSnapshot {
+    readonly workspace: WorkspaceRef;
+    readonly providers: readonly RuntimeProviderRecord[];
+    readonly models: readonly RuntimeModelRecord[];
+    readonly skills: readonly RuntimeSkillRecord[];
+    readonly extensions: readonly RuntimeExtensionRecord[];
+    readonly settings: RuntimeSettingsSnapshot;
+  }
+
+  export interface RuntimeResourceDriver {
+    getRuntimeSnapshot(workspace: WorkspaceRef): Promise<RuntimeSnapshot>;
+    refreshRuntime(workspace: WorkspaceRef): Promise<RuntimeSnapshot>;
+    login(workspace: WorkspaceRef, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<RuntimeSnapshot>;
+    logout(workspace: WorkspaceRef, providerId: string): Promise<RuntimeSnapshot>;
+    setDefaultModel(
+      workspace: WorkspaceRef,
+      selection: {
+        readonly provider: string;
+        readonly modelId: string;
+      },
+    ): Promise<RuntimeSnapshot>;
+    setDefaultThinkingLevel(
+      workspace: WorkspaceRef,
+      thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
+    ): Promise<RuntimeSnapshot>;
+    setEnableSkillCommands(workspace: WorkspaceRef, enabled: boolean): Promise<RuntimeSnapshot>;
+    setScopedModelPatterns(workspace: WorkspaceRef, patterns: readonly string[]): Promise<RuntimeSnapshot>;
+    setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
+    setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
   }
 }

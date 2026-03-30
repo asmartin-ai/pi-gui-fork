@@ -1,4 +1,10 @@
 export { JsonCatalogStore } from "./json-catalog-store.js";
+export {
+  applyHostUiRequestToExtensionUiState,
+  createEmptyExtensionUiState,
+  isExtensionUiDialogRequest,
+} from "./extension-ui-state.js";
+export type { ExtensionUiDialogRequest, ExtensionUiState, ExtensionUiWidgetState } from "./extension-ui-state.js";
 export type { PiSdkDriverConfig } from "./pi-sdk-driver.js";
 export { createPiSdkDriver, PiSdkDriver } from "./pi-sdk-driver.js";
 export { RuntimeSupervisor } from "./runtime-supervisor.js";

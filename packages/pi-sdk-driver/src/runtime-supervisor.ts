@@ -12,15 +12,19 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type {
   RuntimeLoginCallbacks,
+  RuntimeExtensionDiagnostic,
+  RuntimeExtensionRecord,
   RuntimeModelRecord,
   RuntimeProviderRecord,
   RuntimeResourceDriver,
   RuntimeSettingsSnapshot,
   RuntimeSkillRecord,
+  RuntimeSourceInfo,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
 import { createRuntimeDependencies } from "./runtime-deps.js";
+import { skillSlashCommand } from "./runtime-command-utils.js";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 
 interface RuntimeContext {
@@ -37,6 +41,7 @@ export interface RuntimeSupervisorOptions {
 }
 
 type ResourceScope = "user" | "project";
+type ToggleableResourceKind = "extension" | "skill";
 
 export class RuntimeSupervisor implements RuntimeResourceDriver {
   private readonly agentDir: string;
@@ -130,7 +135,21 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       throw new Error(`Unknown skill: ${filePath}`);
     }
 
-    this.toggleSkillResource(context, resource, enabled);
+    this.toggleResource(context, resource, enabled, "skill");
+    await context.settingsManager.flush();
+    await context.resourceLoader.reload();
+    return this.buildSnapshot(context);
+  }
+
+  async setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    const resolvedPaths = await context.packageManager.resolve();
+    const resource = resolvedPaths.extensions.find((entry) => resolve(entry.path) === resolve(filePath));
+    if (!resource) {
+      throw new Error(`Unknown extension: ${filePath}`);
+    }
+
+    this.toggleResource(context, resource, enabled, "extension");
     await context.settingsManager.flush();
     await context.resourceLoader.reload();
     return this.buildSnapshot(context);
@@ -167,8 +186,9 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   private async buildSnapshot(context: RuntimeContext): Promise<RuntimeSnapshot> {
     const resolvedPaths = await context.packageManager.resolve();
-    const [skills, providers, models] = await Promise.all([
+    const [skills, extensions, providers, models] = await Promise.all([
       this.buildSkillRecords(context, resolvedPaths.skills),
+      this.buildExtensionRecords(context, resolvedPaths.extensions),
       this.buildProviderRecords(),
       this.buildModelRecords(),
     ]);
@@ -189,6 +209,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       providers,
       models,
       skills,
+      extensions,
       settings,
     };
   }
@@ -272,7 +293,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
           source: loaded?.source ?? resource.metadata.source,
           enabled: resource.enabled,
           disableModelInvocation,
-          slashCommand: `/skill:${name}`,
+          slashCommand: skillSlashCommand(name),
         } satisfies RuntimeSkillRecord;
       }),
     );
@@ -280,20 +301,72 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     return records.sort((left: RuntimeSkillRecord, right: RuntimeSkillRecord) => left.name.localeCompare(right.name));
   }
 
-  private toggleSkillResource(context: RuntimeContext, resource: ResolvedResource, enabled: boolean): void {
+  private async buildExtensionRecords(
+    context: RuntimeContext,
+    resolvedExtensions: readonly ResolvedResource[],
+  ): Promise<readonly RuntimeExtensionRecord[]> {
+    const loadedResult = context.resourceLoader.getExtensions();
+    const loadedByPath = new Map(
+      loadedResult.extensions.map((extension) => [resolve(extension.resolvedPath || extension.path), extension] as const),
+    );
+    const diagnosticsByPath = new Map<string, RuntimeExtensionDiagnostic[]>();
+
+    for (const error of loadedResult.errors) {
+      const diagnostics = diagnosticsByPath.get(resolve(error.path)) ?? [];
+      diagnostics.push({
+        type: "error",
+        message: error.error,
+        path: error.path,
+      });
+      diagnosticsByPath.set(resolve(error.path), diagnostics);
+    }
+
+    const records = resolvedExtensions.map<RuntimeExtensionRecord>((resource) => {
+      const path = resolve(resource.path);
+      const loaded = loadedByPath.get(path);
+      return {
+        path,
+        displayName: inferExtensionName(path),
+        enabled: resource.enabled,
+        sourceInfo: toRuntimeSourceInfo(path, resource.metadata),
+        commands: loaded ? [...loaded.commands.keys()].sort((left, right) => left.localeCompare(right)) : [],
+        tools: loaded
+          ? [...loaded.tools.values()]
+              .map((tool) => tool.definition.name)
+              .sort((left, right) => left.localeCompare(right))
+          : [],
+        flags: loaded ? [...loaded.flags.keys()].sort((left, right) => left.localeCompare(right)) : [],
+        shortcuts: loaded ? [...loaded.shortcuts.keys()].sort((left, right) => left.localeCompare(right)) : [],
+        diagnostics: diagnosticsByPath.get(path) ?? [],
+      };
+    });
+
+    return records.sort((left, right) =>
+      left.displayName === right.displayName
+        ? left.path.localeCompare(right.path)
+        : left.displayName.localeCompare(right.displayName),
+    );
+  }
+
+  private toggleResource(
+    context: RuntimeContext,
+    resource: ResolvedResource,
+    enabled: boolean,
+    kind: ToggleableResourceKind,
+  ): void {
     const { settingsManager } = context;
-    const scope = resource.metadata.scope as ResourceScope;
+    const scope = resource.metadata.scope;
+    if (scope !== "project" && scope !== "user") {
+      throw new Error(`Cannot update ${kind} at scope ${scope}`);
+    }
     const origin = resource.metadata.origin;
     const settings = scope === "project" ? settingsManager.getProjectSettings() : settingsManager.getGlobalSettings();
-    const pattern = this.relativeSkillPattern(resource.path, resource.metadata, scope, origin);
+    const pattern = this.relativeResourcePattern(resource.path, resource.metadata, scope, origin);
 
     if (origin === "top-level") {
-      const updated = replaceResourcePattern([...(settings.skills ?? [])], pattern, enabled);
-      if (scope === "project") {
-        settingsManager.setProjectSkillPaths(updated);
-      } else {
-        settingsManager.setSkillPaths(updated);
-      }
+      const currentPaths = kind === "skill" ? [...(settings.skills ?? [])] : [...(settings.extensions ?? [])];
+      const updated = replaceResourcePattern(currentPaths, pattern, enabled);
+      this.setTopLevelResourcePaths(settingsManager, scope, kind, updated);
       return;
     }
 
@@ -301,16 +374,25 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     const source = resource.metadata.source;
     const packageIndex = packages.findIndex((entry) => (typeof entry === "string" ? entry : entry.source) === source);
     if (packageIndex < 0) {
-      throw new Error(`Skill package source not found for ${resource.path}`);
+      throw new Error(`${titleForResourceKind(kind)} package source not found for ${resource.path}`);
     }
 
     const currentPackage = packages[packageIndex];
     const nextPackage = typeof currentPackage === "string" ? { source: currentPackage } : { ...currentPackage };
-    const updatedPatterns = replaceResourcePattern([...(nextPackage.skills ?? [])], pattern, enabled);
+    const currentPatterns = kind === "skill" ? [...(nextPackage.skills ?? [])] : [...(nextPackage.extensions ?? [])];
+    const updatedPatterns = replaceResourcePattern(currentPatterns, pattern, enabled);
     if (updatedPatterns.length > 0) {
-      nextPackage.skills = updatedPatterns;
+      if (kind === "skill") {
+        nextPackage.skills = updatedPatterns;
+      } else {
+        nextPackage.extensions = updatedPatterns;
+      }
     } else {
-      delete nextPackage.skills;
+      if (kind === "skill") {
+        delete nextPackage.skills;
+      } else {
+        delete nextPackage.extensions;
+      }
     }
 
     const hasFilters = ["skills", "extensions", "prompts", "themes"].some((key) =>
@@ -325,7 +407,29 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     }
   }
 
-  private relativeSkillPattern(
+  private setTopLevelResourcePaths(
+    settingsManager: SettingsManager,
+    scope: ResourceScope,
+    kind: ToggleableResourceKind,
+    paths: string[],
+  ): void {
+    if (kind === "skill") {
+      if (scope === "project") {
+        settingsManager.setProjectSkillPaths(paths);
+      } else {
+        settingsManager.setSkillPaths(paths);
+      }
+      return;
+    }
+
+    if (scope === "project") {
+      settingsManager.setProjectExtensionPaths(paths);
+    } else {
+      settingsManager.setExtensionPaths(paths);
+    }
+  }
+
+  private relativeResourcePattern(
     filePath: string,
     metadata: PathMetadata,
     scope: ResourceScope,
@@ -387,6 +491,24 @@ function inferSkillName(filePath: string): string {
     return parent;
   }
   return basename(filePath).replace(/\.md$/i, "");
+}
+
+function inferExtensionName(filePath: string): string {
+  return basename(filePath).replace(/\.(c|m)?(t|j)sx?$/i, "");
+}
+
+function toRuntimeSourceInfo(path: string, metadata: PathMetadata): RuntimeSourceInfo {
+  return {
+    path,
+    source: metadata.source,
+    scope: metadata.scope,
+    origin: metadata.origin,
+    ...(metadata.baseDir ? { baseDir: metadata.baseDir } : {}),
+  };
+}
+
+function titleForResourceKind(kind: ToggleableResourceKind): string {
+  return kind === "skill" ? "Skill" : "Extension";
 }
 
 function firstNonEmptyLine(value: string): string | undefined {
