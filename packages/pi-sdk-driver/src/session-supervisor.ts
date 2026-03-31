@@ -1061,16 +1061,13 @@ export class SessionSupervisor {
       case "agent_start":
       case "turn_start":
         record.status = "running";
-        record.updatedAt = timestamp;
         return [sessionUpdatedEvent(record)];
       case "message_start":
       case "message_end":
         this.updatePreviewFromMessage(record, event.message);
-        record.updatedAt = timestamp;
         return [sessionUpdatedEvent(record)];
       case "message_update":
         this.updatePreviewFromMessage(record, event.message);
-        record.updatedAt = timestamp;
         if (event.message.role === "assistant" && event.assistantMessageEvent.type === "text_delta") {
           return toDriverEvents({
             type: "assistantDelta" as const,
@@ -1082,7 +1079,6 @@ export class SessionSupervisor {
         return [sessionUpdatedEvent(record)];
       case "tool_execution_start":
         record.status = "running";
-        record.updatedAt = timestamp;
         return toDriverEvents({
           type: "toolStarted" as const,
           sessionRef: record.ref,
@@ -1092,7 +1088,6 @@ export class SessionSupervisor {
           input: event.args,
         }, record);
       case "tool_execution_update":
-        record.updatedAt = timestamp;
         return toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
@@ -1102,7 +1097,6 @@ export class SessionSupervisor {
           ...(typeof event.partialResult === "number" ? { progress: event.partialResult } : {}),
         }, record);
       case "tool_execution_end":
-        record.updatedAt = timestamp;
         return toDriverEvents({
           type: "toolFinished" as const,
           sessionRef: record.ref,
@@ -1112,14 +1106,12 @@ export class SessionSupervisor {
           output: event.result,
         }, record);
       case "turn_end":
-        record.updatedAt = timestamp;
         return [sessionUpdatedEvent(record)];
       case "agent_end": {
         const outcome = determineRunOutcome(event.messages);
         const runId = record.runningRunId;
         record.runningRunId = undefined;
         record.status = outcome.success ? "idle" : "failed";
-        record.updatedAt = timestamp;
         if (!outcome.success && outcome.error) {
           record.preview = outcome.error.message;
         }
