@@ -7,9 +7,9 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  stubNextOpenDialog,
   writeTinyPng,
 } from "../helpers/electron-app";
-import { acceptOpenImageDialog } from "../helpers/macos-ui";
 
 test("attaches an image through the native picker and shows the attachment chip", async () => {
   test.setTimeout(60_000);
@@ -21,16 +21,15 @@ test("attaches an image through the native picker and shows the attachment chip"
 
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
-    testMode: "foreground",
+    testMode: "background",
   });
 
   try {
     const window = await harness.firstWindow();
     await createNamedThread(window, "Image attach session");
-    await harness.focusWindow();
 
+    await stubNextOpenDialog(harness, [imagePath]);
     await window.getByRole("button", { name: "Attach image" }).click();
-    await acceptOpenImageDialog(imagePath);
 
     await expect(window.locator(".composer-attachment")).toContainText("screenshot.png");
     await window.getByRole("button", { name: "Remove screenshot.png" }).click();

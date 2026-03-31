@@ -46,7 +46,7 @@ test("shows workspace file mentions from the composer and inserts the selected f
     await expect(mentionMenu).toHaveCount(0);
     await expect(composer).toHaveValue("@README.md ");
 
-    await composer.clear();
+    await composer.fill("");
     await composer.pressSequentially("@src");
     await expect(mentionMenu).toBeVisible();
     await composer.press("Escape");

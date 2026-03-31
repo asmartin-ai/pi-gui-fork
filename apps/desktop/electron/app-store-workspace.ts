@@ -217,7 +217,11 @@ export async function createSession(store: AppStoreInternals, input: CreateSessi
     store.sessionState.transcriptCache.set(key, []);
     store.sessionState.loadedTranscriptKeys.add(key);
     store.updateSessionConfig(snapshot.ref, snapshot.config);
-    await store.ensureSessionSubscribed(snapshot.ref);
+    store.state = {
+      ...store.state,
+      selectedWorkspaceId: snapshot.ref.workspaceId,
+      selectedSessionId: snapshot.ref.sessionId,
+    };
     return store.refreshState({
       selectedWorkspaceId: snapshot.ref.workspaceId,
       selectedSessionId: snapshot.ref.sessionId,

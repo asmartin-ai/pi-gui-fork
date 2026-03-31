@@ -19,6 +19,7 @@ export function SettingsGeneralSection({ runtime, onToggleSkillCommands }: Setti
         <SettingsInfoRow label="Discovered skills" value={String(runtime?.skills.length ?? 0)} />
         <SettingsRow title="Enable skill slash commands" description="Keep skill slash commands available in the composer.">
           <input
+            aria-label="Enable skill slash commands"
             checked={runtime?.settings.enableSkillCommands ?? true}
             type="checkbox"
             onChange={(event) => onToggleSkillCommands(event.target.checked)}

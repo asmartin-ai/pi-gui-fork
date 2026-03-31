@@ -158,6 +158,19 @@ export async function pasteTinyPng(window: Page, fileName = "screenshot.png"): P
   }, { encodedPng: TINY_PNG_BASE64, name: fileName });
 }
 
+export async function stubNextOpenDialog(
+  harness: DesktopHarness,
+  filePaths: readonly string[],
+): Promise<void> {
+  await harness.electronApp.evaluate(({ dialog }, paths) => {
+    const original = dialog.showOpenDialog;
+    dialog.showOpenDialog = async (...args: Parameters<typeof dialog.showOpenDialog>) => {
+      dialog.showOpenDialog = original;
+      return { canceled: false, filePaths: paths as string[] };
+    };
+  }, filePaths);
+}
+
 export async function getDesktopState(window: Page): Promise<DesktopAppState> {
   const state = await window.evaluate(() => {
     const app = (window as PiAppWindow).piApp;

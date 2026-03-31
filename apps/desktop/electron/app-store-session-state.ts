@@ -49,9 +49,9 @@ function updateSessionRecord(
   lastViewedAt: string | undefined,
 ): SessionRecord {
   const snapshot = snapshotForEvent(event);
-  const updatedAt = snapshot?.updatedAt ?? event.timestamp;
+  const snapshotUpdatedAt = snapshot?.updatedAt ?? event.timestamp;
+  const updatedAt = snapshotUpdatedAt > event.timestamp ? snapshotUpdatedAt : event.timestamp;
   const nextStatus = statusForEvent(session.status, event);
-
   return {
     ...session,
     title: snapshot?.title ?? session.title,

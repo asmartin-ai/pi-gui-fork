@@ -1162,8 +1162,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    const viewedAt = this.sessionFromState(sessionRef)?.updatedAt ?? new Date().toISOString();
-    this.markSessionViewed(sessionRef, viewedAt);
+    this.markSessionViewed(sessionRef, new Date().toISOString());
   }
 
   private markSessionViewed(sessionRef: SessionRef, viewedAt: string): void {

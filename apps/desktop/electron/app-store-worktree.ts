@@ -104,9 +104,15 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
       await store.driver.setSessionThinkingLevel(session.ref, input.thinkingLevel);
     }
 
-    await store.ensureSessionSubscribed(session.ref);
-
-    // Navigate to thread view immediately so streaming deltas render live
+    // Navigate to thread view immediately so streaming deltas render live.
+    // Set selection eagerly so that any subscription replay events
+    // (fired by ensureSessionReady inside refreshState) read the new
+    // session ID instead of the stale one.
+    store.state = {
+      ...store.state,
+      selectedWorkspaceId: session.ref.workspaceId,
+      selectedSessionId: session.ref.sessionId,
+    };
     const state = await store.refreshState({
       selectedWorkspaceId: session.ref.workspaceId,
       selectedSessionId: session.ref.sessionId,

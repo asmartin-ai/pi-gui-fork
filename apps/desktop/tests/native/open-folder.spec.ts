@@ -1,21 +1,19 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
-import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
-import { acceptOpenFolderDialog } from "../helpers/macos-ui";
+import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace, stubNextOpenDialog } from "../helpers/electron-app";
 
 test("opens the native folder picker and adds the selected workspace", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("native-open-folder-workspace");
-  const harness = await launchDesktop(userDataDir, { testMode: "foreground" });
+  const harness = await launchDesktop(userDataDir, { testMode: "background" });
 
   try {
     const window = await harness.firstWindow();
-    await harness.focusWindow();
     await expect(window.getByTestId("empty-state")).toBeVisible();
 
+    await stubNextOpenDialog(harness, [workspacePath]);
     await window.getByRole("button", { name: "Open first folder" }).click();
-    await acceptOpenFolderDialog(workspacePath);
 
     await expect
       .poll(async () => {
