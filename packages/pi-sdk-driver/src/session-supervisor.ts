@@ -381,7 +381,6 @@ export class SessionSupervisor {
     await record.session.abort();
     record.runningRunId = undefined;
     record.status = "idle";
-    record.updatedAt = nowIso();
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -395,7 +394,6 @@ export class SessionSupervisor {
 
     await session.setModel(this.resolveModel(selection.provider, selection.modelId));
     record.config = deriveSessionConfig(session.sessionManager);
-    record.updatedAt = nowIso();
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -406,7 +404,6 @@ export class SessionSupervisor {
     sessionManager.appendThinkingLevelChange(thinkingLevel);
     forcePersistSession(sessionManager);
     record.config = deriveSessionConfig(sessionManager);
-    record.updatedAt = nowIso();
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -422,7 +419,6 @@ export class SessionSupervisor {
     sessionManager.appendSessionInfo(nextTitle);
     forcePersistSession(sessionManager);
     record.title = nextTitle;
-    record.updatedAt = nowIso();
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -436,7 +432,6 @@ export class SessionSupervisor {
     await record.session.compact(customInstructions);
     record.runningRunId = undefined;
     record.status = "idle";
-    record.updatedAt = nowIso();
     record.config = deriveSessionConfig(record.session.sessionManager);
     record.preview = extractPreview(record.session.messages) ?? record.preview;
     await this.persistSnapshot(record);
@@ -476,7 +471,6 @@ export class SessionSupervisor {
     record.closed = true;
     record.runningRunId = undefined;
     record.status = "idle";
-    record.updatedAt = nowIso();
     this.clearExtensionUiState(record);
     this.cancelPendingHostUiRequests(record);
 
@@ -1010,7 +1004,6 @@ export class SessionSupervisor {
 
     record.sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
     record.title = session.sessionName?.trim() || record.title || deriveWorkspaceTitle(record.workspace);
-    record.updatedAt = nowIso();
     record.status = session.isStreaming ? "running" : "idle";
     record.runningRunId = session.isStreaming ? record.runningRunId ?? crypto.randomUUID() : undefined;
     record.config = deriveSessionConfig(session.sessionManager);
