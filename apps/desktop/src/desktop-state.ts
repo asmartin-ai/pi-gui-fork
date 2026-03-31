@@ -7,7 +7,7 @@ import type { TranscriptMessage } from "./timeline-types";
 export type AppView = "threads" | "new-thread" | "skills" | "extensions" | "settings";
 export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
-export type NewThreadEnvironment = "local" | "current-worktree" | "new-worktree";
+export type NewThreadEnvironment = "local" | "worktree";
 export type ThemeMode = "system" | "light" | "dark";
 
 export interface NotificationPreferences {
@@ -100,32 +100,14 @@ export interface CreateWorktreeInput {
   readonly fromSessionId?: string;
 }
 
-export type StartThreadInput =
-  | {
-      readonly rootWorkspaceId: string;
-      readonly environment: "local";
-      readonly prompt?: string;
-      readonly provider?: string;
-      readonly modelId?: string;
-      readonly thinkingLevel?: string;
-    }
-  | {
-      readonly rootWorkspaceId: string;
-      readonly environment: "new-worktree";
-      readonly prompt?: string;
-      readonly provider?: string;
-      readonly modelId?: string;
-      readonly thinkingLevel?: string;
-    }
-  | {
-      readonly rootWorkspaceId: string;
-      readonly environment: "current-worktree";
-      readonly targetWorkspaceId: string;
-      readonly prompt?: string;
-      readonly provider?: string;
-      readonly modelId?: string;
-      readonly thinkingLevel?: string;
-    };
+export type StartThreadInput = {
+  readonly rootWorkspaceId: string;
+  readonly environment: NewThreadEnvironment;
+  readonly prompt?: string;
+  readonly provider?: string;
+  readonly modelId?: string;
+  readonly thinkingLevel?: string;
+};
 
 export interface RemoveWorktreeInput {
   readonly workspaceId: string;

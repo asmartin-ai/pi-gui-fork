@@ -9,7 +9,6 @@ interface NewThreadViewProps {
   readonly selectedWorkspaceId: string;
   readonly runtime?: RuntimeSnapshot;
   readonly environment: NewThreadEnvironment;
-  readonly currentWorktreeName?: string;
   readonly prompt: string;
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
@@ -27,7 +26,6 @@ export function NewThreadView({
   selectedWorkspaceId,
   runtime,
   environment,
-  currentWorktreeName,
   prompt,
   provider,
   modelId,
@@ -111,29 +109,15 @@ export function NewThreadView({
                 >
                   <span>Local</span>
                 </button>
-                {currentWorktreeName ? (
-                  <button
-                    className={`new-thread__environment ${environment === "current-worktree" ? "new-thread__environment--active" : ""}`}
-                    type="button"
-                    onClick={() => onSelectEnvironment("current-worktree")}
-                  >
-                    <span>Current worktree</span>
-                  </button>
-                ) : null}
                 <button
-                  className={`new-thread__environment ${environment === "new-worktree" ? "new-thread__environment--active" : ""}`}
+                  className={`new-thread__environment ${environment === "worktree" ? "new-thread__environment--active" : ""}`}
                   type="button"
-                  onClick={() => onSelectEnvironment("new-worktree")}
+                  onClick={() => onSelectEnvironment("worktree")}
                 >
-                  <span>New worktree</span>
+                  <span>Worktree</span>
                 </button>
               </div>
               <div className="new-thread__meta">
-                {currentWorktreeName && environment === "current-worktree" ? (
-                  <span className="new-thread__meta-item">
-                    <span>{currentWorktreeName}</span>
-                  </span>
-                ) : null}
                 <ModelSelector
                   runtime={runtime}
                   provider={provider}

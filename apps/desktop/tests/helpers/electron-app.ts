@@ -261,10 +261,8 @@ export async function startThreadFromSurface(
   if (workspaceName) {
     await window.locator(".new-thread__workspace").selectOption({ label: workspaceName });
   }
-  if (environment === "new-worktree") {
-    await window.getByRole("button", { name: "New worktree", exact: true }).click();
-  } else if (environment === "current-worktree") {
-    await window.getByRole("button", { name: "Current worktree", exact: true }).click();
+  if (environment === "worktree") {
+    await window.getByRole("button", { name: "Worktree", exact: true }).click();
   } else {
     await window.getByRole("button", { name: "Local", exact: true }).click();
   }

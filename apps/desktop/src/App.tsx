@@ -119,7 +119,6 @@ export default function App() {
   const [extensionsWorkspaceId, setExtensionsWorkspaceId] = useState("");
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<NewThreadEnvironment>("local");
-  const [newThreadTargetWorkspaceId, setNewThreadTargetWorkspaceId] = useState("");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
   const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
@@ -229,13 +228,6 @@ export default function App() {
   const resolvedNewThreadProvider = newThreadProvider ?? (newThreadDefaultEnabled ? newThreadRuntime?.settings.defaultProvider : undefined);
   const resolvedNewThreadModelId = newThreadModelId ?? (newThreadDefaultEnabled ? newThreadRuntime?.settings.defaultModelId : undefined);
   const resolvedNewThreadThinkingLevel = newThreadThinkingLevel ?? newThreadRuntime?.settings.defaultThinkingLevel;
-  const newThreadTargetWorkspace = useMemo(
-    () =>
-      newThreadTargetWorkspaceId
-        ? snapshot?.workspaces.find((workspace) => workspace.id === newThreadTargetWorkspaceId)
-        : undefined,
-    [newThreadTargetWorkspaceId, snapshot?.workspaces],
-  );
   const [attachmentsClearedOnSubmit, setAttachmentsClearedOnSubmit] = useState(false);
   const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
@@ -254,10 +246,6 @@ export default function App() {
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace, snapshot?.workspaceOrder],
   );
-  const resetNewThreadWorktreeTarget = () => {
-    setNewThreadEnvironment("local");
-    setNewThreadTargetWorkspaceId("");
-  };
 
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
@@ -351,7 +339,7 @@ export default function App() {
       setSkillsWorkspaceId("");
       setExtensionsWorkspaceId("");
       setNewThreadRootWorkspaceId("");
-      resetNewThreadWorktreeTarget();
+      setNewThreadEnvironment("local");
       return;
     }
     setSettingsWorkspaceId((current) =>
@@ -368,15 +356,6 @@ export default function App() {
     );
   }, [rootWorkspaceOptions]);
 
-  useEffect(() => {
-    if (newThreadEnvironment !== "current-worktree") {
-      return;
-    }
-    if (isWorktreeForRoot(newThreadTargetWorkspace, newThreadRootWorkspaceId)) {
-      return;
-    }
-    resetNewThreadWorktreeTarget();
-  }, [newThreadEnvironment, newThreadRootWorkspaceId, newThreadTargetWorkspace]);
 
   useEffect(() => {
     const handleCommand = (command: PiDesktopCommand) => {
@@ -536,11 +515,7 @@ export default function App() {
     if (nextRootWorkspace) {
       setNewThreadRootWorkspaceId(nextRootWorkspace.id);
     }
-    const currentWorktreeWorkspace = isWorktreeForRoot(selectedWorkspace, nextRootWorkspace?.id)
-      ? selectedWorkspace
-      : undefined;
-    setNewThreadTargetWorkspaceId(currentWorktreeWorkspace?.id ?? "");
-    setNewThreadEnvironment(currentWorktreeWorkspace ? "current-worktree" : "local");
+    setNewThreadEnvironment("local");
     setNewThreadPrompt("");
     setActiveView("new-thread");
   };
@@ -550,10 +525,6 @@ export default function App() {
     setNewThreadProvider(undefined);
     setNewThreadModelId(undefined);
     setNewThreadThinkingLevel(undefined);
-    if (isWorktreeForRoot(newThreadTargetWorkspace, workspaceId)) {
-      return;
-    }
-    resetNewThreadWorktreeTarget();
   };
 
   const submitComposerDraft = () => {
@@ -809,25 +780,11 @@ export default function App() {
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
     };
-    const input: StartThreadInput =
-      newThreadEnvironment === "current-worktree"
-        ? newThreadTargetWorkspaceId
-          ? {
-              rootWorkspaceId: newThreadRootWorkspaceId,
-              environment: "current-worktree",
-              targetWorkspaceId: newThreadTargetWorkspaceId,
-              ...modelConfig,
-            }
-          : {
-              rootWorkspaceId: newThreadRootWorkspaceId,
-              environment: "local",
-              ...modelConfig,
-            }
-        : {
-            rootWorkspaceId: newThreadRootWorkspaceId,
-            environment: newThreadEnvironment,
-            ...modelConfig,
-          };
+    const input: StartThreadInput = {
+      rootWorkspaceId: newThreadRootWorkspaceId,
+      environment: newThreadEnvironment,
+      ...modelConfig,
+    };
     wsMenu.expandWorkspace(newThreadRootWorkspaceId);
     void updateSnapshot(api, setSnapshot, () =>
       api.startThread(input),
@@ -836,7 +793,7 @@ export default function App() {
       setNewThreadProvider(undefined);
       setNewThreadModelId(undefined);
       setNewThreadThinkingLevel(undefined);
-      resetNewThreadWorktreeTarget();
+      setNewThreadEnvironment("local");
     });
   };
 
@@ -1070,7 +1027,6 @@ export default function App() {
               selectedWorkspaceId={newThreadRootWorkspaceId || rootWorkspaceOptions[0]?.id || ""}
               runtime={newThreadRuntime}
               environment={newThreadEnvironment}
-              currentWorktreeName={newThreadTargetWorkspace?.kind === "worktree" ? newThreadTargetWorkspace.name : undefined}
               prompt={newThreadPrompt}
               provider={resolvedNewThreadProvider}
               modelId={resolvedNewThreadModelId}
@@ -1228,13 +1184,3 @@ function isNearBottom(element: HTMLDivElement): boolean {
   return remaining < 32;
 }
 
-function isWorktreeForRoot(
-  workspace: WorkspaceRecord | undefined,
-  rootWorkspaceId: string | undefined,
-): workspace is WorkspaceRecord & { kind: "worktree" } {
-  return Boolean(
-    workspace &&
-      workspace.kind === "worktree" &&
-      (workspace.rootWorkspaceId ?? workspace.id) === rootWorkspaceId,
-  );
-}
