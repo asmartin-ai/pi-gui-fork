@@ -1,6 +1,6 @@
 # pi-gui
 
-Experimental Electron desktop shell for `pi` sessions.
+Electron desktop shell for `pi` sessions.
 
 This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is not a standalone coding agent runtime. The app depends on the upstream `pi` package for session management, model/auth setup, and agent execution.
 
@@ -8,9 +8,27 @@ This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is no
 
 ## Status
 
-- Experimental
-- macOS-first desktop app
-- Public source repo, not currently configured for npm publication
+- Beta (macOS, arm64)
+- Public source repo
+
+## Install
+
+### From GitHub Releases
+
+Download the latest `.dmg` from [Releases](https://github.com/minghinmatthewlam/pi-gui/releases).
+
+> The app is unsigned. On first launch: right-click the app > Open, then click Open in the dialog.
+
+### With Homebrew
+
+```bash
+brew tap minghinmatthewlam/tap
+brew install --cask pi-gui
+```
+
+### From Source
+
+See [Development](#development) below.
 
 ## What It Does
 
@@ -21,12 +39,9 @@ This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is no
 
 ## Prerequisites
 
-- Node.js
-- `pnpm`
-- A working `pi` runtime environment through `@mariozechner/pi-coding-agent`
 - Valid model/provider authentication supported by `pi`
 
-Because this app wraps `pi`, you will need whatever auth and local setup `pi` itself requires before live agent runs will work.
+On first launch, go to **Settings > Providers** to connect your AI provider via OAuth.
 
 ## Development
 
