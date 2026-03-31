@@ -1,0 +1,44 @@
+appId: com.pi-gui.desktop
+productName: pi-gui
+copyright: Copyright 2026 Matthew Lam
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "**/*.wasm"
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  identity: null
+  darkModeSupport: true
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+
+publish:
+  provider: github
+  owner: minghinmatthewlam
+  repo: pi-gui

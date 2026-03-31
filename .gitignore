@@ -4,6 +4,7 @@ plans/
 dist/
 build/
 out/
+release/
 playwright-report/
 test-results/
 .claude/worktrees/
