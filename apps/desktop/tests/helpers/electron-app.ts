@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
@@ -8,7 +8,7 @@ import { _electron as electron, type ElectronApplication } from "playwright";
 import type { PiDesktopApi } from "../../src/ipc";
 import type { DesktopAppState, NewThreadEnvironment, SessionRecord, WorkspaceRecord } from "../../src/desktop-state";
 
-const desktopDir = process.cwd();
+const desktopDir = resolve(__dirname, "..", "..");
 const execFileAsync = promisify(execFile);
 export const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";

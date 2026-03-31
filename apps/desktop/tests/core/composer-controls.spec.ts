@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
   desktopShortcut,
+  getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -63,6 +64,16 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(optionsMenu).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("Thinking set to high");
     await expect(window.locator(".composer__hint")).toContainText("high");
+
+    const selectedWorkspaceId = (await getDesktopState(window)).selectedWorkspaceId;
+    expect(selectedWorkspaceId).toBeTruthy();
+    await window.evaluate(async ({ workspaceId }) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.setScopedModelPatterns(workspaceId, ["fake-provider/fake-model"]);
+    }, { workspaceId: selectedWorkspaceId });
 
     await composer.fill("/model");
     await expect(optionsMenu).toBeVisible();
