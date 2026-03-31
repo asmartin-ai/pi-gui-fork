@@ -1118,7 +1118,6 @@ export class SessionSupervisor {
         if (record.session) {
           record.sessionCommands = this.collectSessionCommands(record.session);
         }
-        record.updatedAt = timestamp;
 
         return toDriverEvents(
           outcome.success
