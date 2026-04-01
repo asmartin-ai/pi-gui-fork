@@ -28,6 +28,7 @@ export interface LaunchDesktopOptions {
   readonly initialWorkspaces?: readonly string[];
   readonly notificationLogPath?: string;
   readonly testMode?: DesktopTestMode;
+  readonly agentDir?: string;
 }
 
 export async function launchDesktop(
@@ -43,6 +44,7 @@ export async function launchDesktop(
       PI_APP_USER_DATA_DIR: userDataDir,
       PI_APP_INITIAL_WORKSPACES: (normalized.initialWorkspaces ?? []).join(delimiter),
       PI_APP_TEST_MODE: normalized.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
+      ...(normalized.agentDir ? { PI_CODING_AGENT_DIR: normalized.agentDir } : {}),
       ...(normalized.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: normalized.notificationLogPath } : {}),
       PI_APP_OPEN_DEVTOOLS: "0",
     },
