@@ -101,7 +101,8 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
     expect(alignedTitles[1]).not.toBeNull();
     expect(Math.abs((alignedTitles[0]?.x ?? 0) - (alignedTitles[1]?.x ?? 0))).toBeLessThanOrEqual(1);
 
-    await selectSession(window, "Session A");
+    await clickSession(window, "Session A");
+    await expect(window.locator(".topbar__session")).toHaveText("Session A");
     await expect(window.getByTestId("composer")).toBeFocused();
     await expect(sessionARow).toHaveAttribute("data-sidebar-indicator", "none");
 
@@ -181,9 +182,13 @@ test("switches threads promptly while sessions are already running", async () =>
         sessionBStatus: "running",
       });
 
+    const sessionARow = window.locator(".session-row", { hasText: "Session A" });
+    const sessionBRow = window.locator(".session-row", { hasText: "Session B" });
+
     await clickSession(window, "Session A");
     await expect(window.locator(".topbar__session")).toHaveText("Session A", { timeout: 1_000 });
     await expect(window.locator(".session-row--active")).toContainText("Session A", { timeout: 1_000 });
+    await expect(sessionARow).toHaveAttribute("data-sidebar-indicator", "running", { timeout: 1_000 });
     await expect
       .poll(async () => {
         const state = await getDesktopState(window);
@@ -194,6 +199,7 @@ test("switches threads promptly while sessions are already running", async () =>
     await clickSession(window, "Session B");
     await expect(window.locator(".topbar__session")).toHaveText("Session B", { timeout: 1_000 });
     await expect(window.locator(".session-row--active")).toContainText("Session B", { timeout: 1_000 });
+    await expect(sessionBRow).toHaveAttribute("data-sidebar-indicator", "running", { timeout: 1_000 });
     await expect
       .poll(async () => {
         const state = await getDesktopState(window);

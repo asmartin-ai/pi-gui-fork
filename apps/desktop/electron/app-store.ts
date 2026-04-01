@@ -248,11 +248,13 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.withErrorHandling(async () => {
       const selectionEpoch = ++this.selectionEpoch;
-      const snapshot = this.applyFastSessionSelection(sessionRef);
-      void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch).catch((error) => {
-        void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
-      });
-      return snapshot;
+      this.applyFastSessionSelection(sessionRef);
+      try {
+        await this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch);
+      } catch (error) {
+        await this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
+      }
+      return structuredClone(this.state);
     });
   }
 
@@ -1543,6 +1545,7 @@ export class DesktopAppStore implements AppStoreInternals {
       lastError: undefined,
       revision: this.state.revision + 1,
     };
+    this.markSessionViewedIfVisible(sessionRef);
     this.schedulePersistUiState();
     return this.emit();
   }
