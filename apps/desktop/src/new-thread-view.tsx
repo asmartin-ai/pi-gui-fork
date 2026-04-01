@@ -177,7 +177,7 @@ export function NewThreadView({
               textareaPlaceholder="Ask pi anything, use / for commands, or $ for skills"
               footer={(
                 <>
-                  <div className="new-thread__controls">
+                  <div className="composer__hint new-thread__hint">
                     <div className="new-thread__environment-group">
                       <button
                         className={`new-thread__environment ${environment === "local" ? "new-thread__environment--active" : ""}`}
@@ -194,16 +194,15 @@ export function NewThreadView({
                         <span>Worktree</span>
                       </button>
                     </div>
-                    <div className="new-thread__meta">
-                      <ModelSelector
-                        runtime={runtime}
-                        provider={provider}
-                        modelId={modelId}
-                        thinkingLevel={thinkingLevel}
-                        onSetModel={onSetModel}
-                        onSetThinking={onSetThinking}
-                      />
-                    </div>
+                    <span className="new-thread__hint-separator">·</span>
+                    <ModelSelector
+                      runtime={runtime}
+                      provider={provider}
+                      modelId={modelId}
+                      thinkingLevel={thinkingLevel}
+                      onSetModel={onSetModel}
+                      onSetThinking={onSetThinking}
+                    />
                   </div>
 
                   <div className="composer__actions">

@@ -2,13 +2,17 @@ import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
-  desktopShortcut,
+  getApplicationMenuItemInfo,
   getDesktopState,
+  getOpenDialogInvocationCount,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  stubNextOpenDialog,
+  stubNextOpenDialogResult,
+  triggerApplicationMenuItem,
+  triggerNativeOpenFolderShortcut,
 } from "../helpers/electron-app";
-import { acceptOpenFolderDialog, cancelOpenDialog, clickMenuItem } from "../helpers/macos-ui";
 
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 
@@ -25,10 +29,8 @@ test("opens the native folder picker from the empty state button and adds the se
     await expect(window.getByTestId("empty-state")).toBeVisible();
     await harness.focusWindow();
 
-    await Promise.all([
-      acceptOpenFolderDialog(workspacePath),
-      window.getByRole("button", { name: "Open first folder" }).click(),
-    ]);
+    await stubNextOpenDialog(harness, [workspacePath]);
+    await window.getByRole("button", { name: "Open first folder" }).click();
 
     await expect
       .poll(async () => {
@@ -64,10 +66,8 @@ test("opens a folder from Cmd+O even when the composer is focused", async () => 
     await composer.click();
     await expect(composer).toBeFocused();
 
-    await Promise.all([
-      acceptOpenFolderDialog(openedWorkspacePath),
-      window.keyboard.press(desktopShortcut("O")),
-    ]);
+    await stubNextOpenDialog(harness, [openedWorkspacePath]);
+    await triggerNativeOpenFolderShortcut(harness);
 
     await expect
       .poll(async () => {
@@ -90,7 +90,7 @@ test("opens a folder from Cmd+O even when the composer is focused", async () => 
   }
 });
 
-test("opens a folder from the File menu and exposes the expected macOS accelerator", async () => {
+test("exposes File > Open Folder… with Command+O and reuses the same open-folder action", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("native-open-folder-menu-workspace");
@@ -101,34 +101,7 @@ test("opens a folder from the File menu and exposes the expected macOS accelerat
     await expect(window.getByTestId("empty-state")).toBeVisible();
     await harness.focusWindow();
 
-    const menuItem = await harness.electronApp.evaluate(({ Menu }, targetId) => {
-      const menu = Menu.getApplicationMenu();
-      if (!menu) {
-        return null;
-      }
-
-      const stack = menu.items.map((item) => ({ item, parentLabel: item.label ?? null }));
-      while (stack.length > 0) {
-        const entry = stack.shift();
-        if (!entry) {
-          continue;
-        }
-        const { item, parentLabel } = entry;
-        if (item.id === targetId) {
-          return {
-            id: item.id,
-            label: item.label,
-            accelerator: item.accelerator ? String(item.accelerator) : "",
-            parentLabel,
-          };
-        }
-        for (const child of item.submenu?.items ?? []) {
-          stack.push({ item: child, parentLabel: item.label || parentLabel });
-        }
-      }
-
-      return null;
-    }, OPEN_FOLDER_MENU_ITEM_ID);
+    const menuItem = await getApplicationMenuItemInfo(harness, OPEN_FOLDER_MENU_ITEM_ID);
 
     expect(menuItem).toEqual({
       id: OPEN_FOLDER_MENU_ITEM_ID,
@@ -137,10 +110,9 @@ test("opens a folder from the File menu and exposes the expected macOS accelerat
       parentLabel: "File",
     });
 
-    await Promise.all([
-      acceptOpenFolderDialog(workspacePath),
-      clickMenuItem("File", "Open Folder…"),
-    ]);
+    await stubNextOpenDialog(harness, [workspacePath]);
+    const triggered = await triggerApplicationMenuItem(harness, OPEN_FOLDER_MENU_ITEM_ID);
+    expect(triggered).toBe(true);
 
     await expect
       .poll(async () => {
@@ -156,7 +128,7 @@ test("opens a folder from the File menu and exposes the expected macOS accelerat
   }
 });
 
-test("canceling the native folder picker leaves workspace state unchanged", async () => {
+test("canceling the open-folder dialog from Cmd+O leaves workspace state unchanged", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("native-open-folder-cancel-workspace");
@@ -177,11 +149,10 @@ test("canceling the native folder picker leaves workspace state unchanged", asyn
     const before = await getDesktopState(window);
     const selectedBefore = before.workspaces.find((workspace) => workspace.id === before.selectedWorkspaceId);
 
-    await Promise.all([
-      cancelOpenDialog(),
-      window.keyboard.press(desktopShortcut("O")),
-    ]);
+    await stubNextOpenDialogResult(harness, { canceled: true, filePaths: [] });
+    await triggerNativeOpenFolderShortcut(harness);
 
+    await expect.poll(() => getOpenDialogInvocationCount(harness)).toBe(1);
     await expect
       .poll(async () => {
         const state = await getDesktopState(window);

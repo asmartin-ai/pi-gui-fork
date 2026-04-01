@@ -82,12 +82,35 @@ export async function launchDesktop(
         window?.focus();
       });
       await (await getWindow()).bringToFront();
+      await expect
+        .poll(
+          () =>
+            electronApp.evaluate(({ BrowserWindow }) => {
+              const window = BrowserWindow.getAllWindows()[0];
+              return (window?.isFocused() ?? false) || (window?.webContents.isFocused() ?? false);
+            }),
+          { timeout: 5_000 },
+        )
+        .toBe(true);
     },
     backgroundWindow: async () => {
       await electronApp.evaluate(({ BrowserWindow }) => {
         const window = BrowserWindow.getAllWindows()[0];
         window?.hide();
       });
+      await expect
+        .poll(
+          () =>
+            electronApp.evaluate(({ BrowserWindow }) => {
+              const window = BrowserWindow.getAllWindows()[0];
+              return {
+                focused: window?.isFocused() ?? false,
+                visible: window?.isVisible() ?? false,
+              };
+            }),
+          { timeout: 5_000 },
+        )
+        .toEqual({ focused: false, visible: false });
     },
     close: async () => {
       await electronApp.close();
@@ -179,17 +202,88 @@ export async function pasteTinyPng(
   }, { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId });
 }
 
+export async function stubNextOpenDialogResult(
+  harness: DesktopHarness,
+  result: { readonly canceled: boolean; readonly filePaths: readonly string[] },
+): Promise<void> {
+  await harness.electronApp.evaluate(({ dialog }, nextResult) => {
+    const original = dialog.showOpenDialog;
+    (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT = 0;
+    dialog.showOpenDialog = async (...args: Parameters<typeof dialog.showOpenDialog>) => {
+      dialog.showOpenDialog = original;
+      const globals = globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number };
+      globals.__PI_TEST_OPEN_DIALOG_COUNT = (globals.__PI_TEST_OPEN_DIALOG_COUNT ?? 0) + 1;
+      return { canceled: nextResult.canceled, filePaths: [...nextResult.filePaths] };
+    };
+  }, result);
+}
+
 export async function stubNextOpenDialog(
   harness: DesktopHarness,
   filePaths: readonly string[],
 ): Promise<void> {
-  await harness.electronApp.evaluate(({ dialog }, paths) => {
-    const original = dialog.showOpenDialog;
-    dialog.showOpenDialog = async (...args: Parameters<typeof dialog.showOpenDialog>) => {
-      dialog.showOpenDialog = original;
-      return { canceled: false, filePaths: paths as string[] };
-    };
-  }, filePaths);
+  await stubNextOpenDialogResult(harness, { canceled: false, filePaths });
+}
+
+export async function getOpenDialogInvocationCount(harness: DesktopHarness): Promise<number> {
+  return harness.electronApp.evaluate(() => {
+    return (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT ?? 0;
+  });
+}
+
+export async function triggerNativeOpenFolderShortcut(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: "o",
+      modifiers: ["meta"],
+    });
+  });
+}
+
+export async function getApplicationMenuItemInfo(
+  harness: DesktopHarness,
+  menuItemId: string,
+): Promise<{ id: string; label: string; accelerator: string; parentLabel: string | null } | null> {
+  return harness.electronApp.evaluate(({ Menu }, targetId) => {
+    const menu = Menu.getApplicationMenu();
+    if (!menu) {
+      return null;
+    }
+
+    const stack = menu.items.map((item) => ({ item, parentLabel: item.label ?? null }));
+    while (stack.length > 0) {
+      const entry = stack.shift();
+      if (!entry) {
+        continue;
+      }
+      const { item, parentLabel } = entry;
+      if (item.id === targetId) {
+        return {
+          id: item.id,
+          label: item.label,
+          accelerator: item.accelerator ? String(item.accelerator) : "",
+          parentLabel,
+        };
+      }
+      for (const child of item.submenu?.items ?? []) {
+        stack.push({ item: child, parentLabel: item.label || parentLabel });
+      }
+    }
+
+    return null;
+  }, menuItemId);
+}
+
+export async function triggerApplicationMenuItem(harness: DesktopHarness, menuItemId: string): Promise<boolean> {
+  return harness.electronApp.evaluate(({ BrowserWindow, Menu }, targetId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(targetId);
+    if (!item?.click) {
+      return false;
+    }
+    item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as never);
+    return true;
+  }, menuItemId);
 }
 
 export async function getDesktopState(window: Page): Promise<DesktopAppState> {

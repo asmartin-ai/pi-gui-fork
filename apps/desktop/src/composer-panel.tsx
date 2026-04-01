@@ -21,6 +21,7 @@ interface ComposerPanelProps {
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
+  readonly composerShellRef: RefObject<HTMLElement | null>;
   readonly runningLabel: string;
   readonly attachments: readonly ComposerImageAttachment[];
   readonly slashSections: readonly ComposerSlashCommandSection[];
@@ -59,6 +60,7 @@ export function ComposerPanel({
   composerDraft,
   setComposerDraft,
   composerRef,
+  composerShellRef,
   runningLabel,
   attachments,
   slashSections,

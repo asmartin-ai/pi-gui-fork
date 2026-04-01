@@ -118,19 +118,13 @@ function attachStatePublisher(window: BrowserWindow): void {
       window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
     }
   });
-  const markViewedOnFocus = () => {
-    void store.markSelectedSessionViewedOnWindowFocus();
-  };
-  window.on("focus", markViewedOnFocus);
   window.webContents.once("render-process-gone", () => {
-    window.off("focus", markViewedOnFocus);
     stopPublishingState?.();
     stopPublishingState = undefined;
     stopPublishingSelectedTranscript?.();
     stopPublishingSelectedTranscript = undefined;
   });
   window.once("closed", () => {
-    window.off("focus", markViewedOnFocus);
     stopPublishingState?.();
     stopPublishingState = undefined;
     stopPublishingSelectedTranscript?.();

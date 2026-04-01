@@ -19,5 +19,5 @@ export function isSessionActivelyViewed(
   if (!window || window.isDestroyed() || window.isMinimized() || !window.isVisible()) {
     return false;
   }
-  return window.isFocused();
+  return window.isFocused() || window.webContents.isFocused();
 }

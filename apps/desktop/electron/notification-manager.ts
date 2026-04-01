@@ -98,6 +98,13 @@ export class NotificationManager {
       return false;
     }
 
+    if (event.type === "runCompleted" || event.type === "runFailed") {
+      const session = this.sessionFromLatestState(event.sessionRef);
+      if (session && !session.hasUnseenUpdate) {
+        return false;
+      }
+    }
+
     const window = this.getWindow();
     if (!window || window.isDestroyed()) {
       return true;
@@ -159,11 +166,14 @@ export class NotificationManager {
     this.activeBySession.delete(key);
   }
 
-  private titleForSession(sessionRef: SessionRef): string {
+  private sessionFromLatestState(sessionRef: SessionRef) {
     const state = this.latestState;
     const workspace = state?.workspaces.find((entry) => entry.id === sessionRef.workspaceId);
-    const session = workspace?.sessions.find((entry) => entry.id === sessionRef.sessionId);
-    return session?.title ?? "pi session";
+    return workspace?.sessions.find((entry) => entry.id === sessionRef.sessionId);
+  }
+
+  private titleForSession(sessionRef: SessionRef): string {
+    return this.sessionFromLatestState(sessionRef)?.title ?? "pi session";
   }
 }
 

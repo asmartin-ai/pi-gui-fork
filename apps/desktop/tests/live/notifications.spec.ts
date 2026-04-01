@@ -71,11 +71,11 @@ test("does not log a notification or blue dot for a focused selected session com
   }
 });
 
-test("logs a notification and blue dot when the selected session completes in the background", async () => {
+test("logs a notification and blue dot when the selected session completes after the window is backgrounded", async () => {
   test.setTimeout(180_000);
   const userDataDir = await makeUserDataDir();
   const notificationLogPath = join(userDataDir, "notifications.jsonl");
-  const workspacePath = await makeWorkspace("notifications-background-workspace");
+  const workspacePath = await makeWorkspace("notifications-backgrounded-workspace");
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     notificationLogPath,
@@ -108,7 +108,6 @@ test("logs a notification and blue dot when the selected session completes in th
       }, { timeout: 120_000 })
       .toBe("idle");
 
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Backgrounded Session");
     console.log(
       JSON.stringify(
         (await getDesktopState(window)).workspaces[0]?.sessions.find((session) => session.title === "Backgrounded Session"),
@@ -117,8 +116,10 @@ test("logs a notification and blue dot when the selected session completes in th
       ),
     );
     await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
+    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Backgrounded Session");
 
     await harness.focusWindow();
+    await selectSession(window, "Backgrounded Session");
     await expect(row).toHaveAttribute("data-sidebar-indicator", "none");
   } finally {
     await harness.close();

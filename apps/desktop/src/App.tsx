@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -141,9 +141,11 @@ export default function App() {
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerShellRef = useRef<HTMLElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
+  const previousComposerShellHeightRef = useRef<number | null>(null);
   const previousActiveViewRef = useRef<AppView | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
@@ -286,6 +288,16 @@ export default function App() {
       newThreadComposerRef.current?.focus();
     });
   };
+  const scrollTimelineToBottom = useCallback(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      return;
+    }
+
+    pane.scrollTop = pane.scrollHeight;
+    pinnedToBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -486,6 +498,7 @@ export default function App() {
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = true;
+    previousComposerShellHeightRef.current = null;
   }, [selectedSessionKey]);
 
   useEffect(() => {
@@ -525,7 +538,7 @@ export default function App() {
     };
   }, [api, composerDraft, persistedComposerDraft, setSnapshot]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const composer = composerRef.current;
     if (!composer) {
       return undefined;
@@ -534,6 +547,44 @@ export default function App() {
     composer.style.height = "0px";
     composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
   }, [composerDraft]);
+
+  useLayoutEffect(() => {
+    const composerShell = composerShellRef.current;
+    if (!composerShell || !selectedSession) {
+      previousComposerShellHeightRef.current = null;
+      return undefined;
+    }
+
+    const updateMeasuredHeight = (nextHeight: number) => {
+      const previousHeight = previousComposerShellHeightRef.current;
+      previousComposerShellHeightRef.current = nextHeight;
+      if (previousHeight == null || Math.abs(nextHeight - previousHeight) < 1 || !pinnedToBottomRef.current) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        if (pinnedToBottomRef.current) {
+          scrollTimelineToBottom();
+        }
+      });
+    };
+
+    updateMeasuredHeight(composerShell.getBoundingClientRect().height);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      updateMeasuredHeight(entry.contentRect.height);
+    });
+
+    resizeObserver.observe(composerShell);
+    return () => {
+      resizeObserver.disconnect();
+      previousComposerShellHeightRef.current = null;
+    };
+  }, [scrollTimelineToBottom, selectedSessionKey]);
 
   useEffect(() => {
     const pane = timelinePaneRef.current;
@@ -548,13 +599,12 @@ export default function App() {
     lastTranscriptMarkerRef.current = marker;
 
     if (pinnedToBottomRef.current) {
-      pane.scrollTop = pane.scrollHeight;
-      setShowJumpToLatest(false);
+      scrollTimelineToBottom();
       return;
     }
 
     setShowJumpToLatest(true);
-  }, [activeTranscript, selectedSession, selectedSessionKey]);
+  }, [activeTranscript, scrollTimelineToBottom, selectedSession, selectedSessionKey]);
 
   if (!api || !snapshot) {
     return (
@@ -952,14 +1002,7 @@ export default function App() {
   };
 
   const jumpToLatest = () => {
-    const pane = timelinePaneRef.current;
-    if (!pane) {
-      return;
-    }
-
-    pane.scrollTop = pane.scrollHeight;
-    pinnedToBottomRef.current = true;
-    setShowJumpToLatest(false);
+    scrollTimelineToBottom();
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1240,8 +1283,8 @@ export default function App() {
           )
         ) : selectedWorkspace && selectedSession ? (
           <>
-            <section className="canvas">
-              <div className="conversation">
+            <section className="canvas canvas--thread">
+              <div className="conversation conversation--thread">
                 <div className="chat-header">
                   <div className="chat-header__eyebrow">
                     {selectedWorkspace.kind === "worktree"
@@ -1256,7 +1299,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
+                <div className="timeline-pane timeline-pane--thread" data-testid="timeline-pane" ref={timelinePaneRef} onScroll={handleTimelineScroll}>
                   {threadSearch.isOpen ? (
                     <ThreadSearchBar
                       query={threadSearch.query}
@@ -1281,7 +1324,7 @@ export default function App() {
                     )}
                   </div>
                   {showJumpToLatest ? (
-                    <button className="timeline-jump" type="button" onClick={jumpToLatest}>
+                    <button className="timeline-jump" data-testid="timeline-jump" type="button" onClick={jumpToLatest}>
                       New activity below
                     </button>
                   ) : null}
@@ -1295,6 +1338,7 @@ export default function App() {
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
+              composerShellRef={composerShellRef}
               runtime={selectedModelRuntime}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}

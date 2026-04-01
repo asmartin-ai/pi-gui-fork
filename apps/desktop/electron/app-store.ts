@@ -1478,22 +1478,6 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  async markSelectedSessionViewedOnWindowFocus(): Promise<void> {
-    await this.initialize();
-    const sessionRef = this.selectedSessionRef();
-    if (!sessionRef) {
-      return;
-    }
-
-    const didChange = this.markSessionViewedIfActivelyViewed(sessionRef);
-    if (!didChange) {
-      return;
-    }
-
-    await this.persistUiState();
-    this.emit();
-  }
-
   private markSelectedSessionViewedIfVisible(): void {
     if (this.state.activeView !== "threads" || !this.state.selectedWorkspaceId || !this.state.selectedSessionId) {
       return;
@@ -1506,7 +1490,8 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {
-    if (!isSessionActivelyViewed(this.state, sessionRef, this.getWindow())) {
+    const active = isSessionActivelyViewed(this.state, sessionRef, this.getWindow());
+    if (!active) {
       return false;
     }
 
