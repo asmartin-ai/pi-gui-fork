@@ -42,7 +42,7 @@ interface SidebarProps {
   readonly onOpenSkills: (workspaceId?: string) => void;
   readonly onOpenExtensions: (workspaceId?: string) => void;
   readonly onOpenSettings: (workspaceId?: string) => void;
-  readonly onArchiveSession: (rootWorkspaceId: string, target: { workspaceId: string; sessionId: string }) => void;
+  readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
 }
@@ -268,7 +268,7 @@ interface WorkspaceGroupProps {
   readonly linkedWorktreeByWorkspaceId: Map<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
-  readonly onArchiveSession: (rootWorkspaceId: string, target: { workspaceId: string; sessionId: string }) => void;
+  readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
 }
@@ -463,7 +463,7 @@ function WorkspaceGroupContent(
                   active={active}
                   thread={thread}
                   onAction={() =>
-                    onArchiveSession(rootWorkspace.id, {
+                    onArchiveSession({
                       workspaceId: thread.workspaceId,
                       sessionId: thread.session.id,
                     })

@@ -31,8 +31,11 @@ test("archives a hovered thread into a restorable sidebar section", async () => 
     await activeRow.hover();
     await archiveButton.click();
     await expect(window.locator(".topbar__session")).toHaveText("Thread one");
-    await expect(window.locator(".archived-thread-group")).toContainText("Archived");
-    await expect(window.locator(".session-list--archived")).toContainText("Thread two");
+    const archivedGroup = window.locator(".archived-thread-group");
+    const archivedToggle = archivedGroup.locator(".archived-thread-group__toggle");
+    await expect(archivedGroup).toContainText("Archived");
+    await expect(archivedToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(window.locator(".session-list--archived")).toHaveCount(0);
 
     await expect
       .poll(async () => {
@@ -40,6 +43,10 @@ test("archives a hovered thread into a restorable sidebar section", async () => 
         return state.workspaces[0]?.sessions.find((session) => session.title === "Thread two")?.archivedAt ?? "";
       })
       .not.toBe("");
+
+    await archivedToggle.click();
+    await expect(archivedToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(window.locator(".session-list--archived")).toContainText("Thread two");
 
     const archivedRow = window.locator(".session-list--archived .session-row").filter({ hasText: "Thread two" }).first();
     const restoreButton = archivedRow.locator(".session-row__action");
