@@ -101,22 +101,8 @@ test("logs a notification and blue dot when the selected session completes after
 
     await harness.backgroundWindow();
 
-    await expect
-      .poll(async () => {
-        const state = await getDesktopState(window);
-        return state.workspaces[0]?.sessions.find((session) => session.title === "Backgrounded Session")?.status ?? "";
-      }, { timeout: 120_000 })
-      .toBe("idle");
-
-    console.log(
-      JSON.stringify(
-        (await getDesktopState(window)).workspaces[0]?.sessions.find((session) => session.title === "Backgrounded Session"),
-        null,
-        2,
-      ),
-    );
-    await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
     await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Backgrounded Session");
+    await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
 
     await harness.focusWindow();
     await selectSession(window, "Backgrounded Session");

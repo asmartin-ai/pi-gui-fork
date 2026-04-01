@@ -94,23 +94,35 @@ export async function launchDesktop(
         .toBe(true);
     },
     backgroundWindow: async () => {
-      await electronApp.evaluate(({ BrowserWindow }) => {
-        const window = BrowserWindow.getAllWindows()[0];
-        window?.hide();
+      await electronApp.evaluate(async ({ BrowserWindow }) => {
+        const mainWindow = BrowserWindow.getAllWindows()[0];
+        let helperWindow = BrowserWindow.getAllWindows().find((entry) => entry !== mainWindow);
+        if (!helperWindow) {
+          helperWindow = new BrowserWindow({
+            width: 240,
+            height: 160,
+            show: false,
+            title: "Pi Test Background Window",
+          });
+          await helperWindow.loadURL("data:text/html,<html><body>background</body></html>");
+        }
+        helperWindow.show();
+        helperWindow.focus();
       });
       await expect
         .poll(
           () =>
             electronApp.evaluate(({ BrowserWindow }) => {
-              const window = BrowserWindow.getAllWindows()[0];
+              const [mainWindow, helperWindow] = BrowserWindow.getAllWindows();
               return {
-                focused: window?.isFocused() ?? false,
-                visible: window?.isVisible() ?? false,
+                mainFocused: mainWindow?.isFocused() ?? false,
+                mainVisible: mainWindow?.isVisible() ?? false,
+                helperFocused: helperWindow?.isFocused() ?? false,
               };
             }),
           { timeout: 5_000 },
         )
-        .toEqual({ focused: false, visible: false });
+        .toEqual({ mainFocused: false, mainVisible: true, helperFocused: true });
     },
     close: async () => {
       await electronApp.close();
@@ -312,6 +324,51 @@ export async function getSelectedTranscript(window: Page): Promise<SelectedTrans
   });
 }
 
+export interface TimelineScrollMetrics {
+  readonly scrollTop: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+  readonly remainingFromBottom: number;
+}
+
+export async function getTimelineScrollMetrics(window: Page): Promise<TimelineScrollMetrics> {
+  return window.evaluate(() => {
+    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+    if (!pane) {
+      throw new Error("Timeline pane was unavailable");
+    }
+
+    return {
+      scrollTop: pane.scrollTop,
+      scrollHeight: pane.scrollHeight,
+      clientHeight: pane.clientHeight,
+      remainingFromBottom: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+    };
+  });
+}
+
+export async function jumpTimelineToBottom(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+    if (!pane) {
+      throw new Error("Timeline pane was unavailable");
+    }
+    pane.scrollTop = pane.scrollHeight;
+    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+}
+
+export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): Promise<void> {
+  await window.evaluate((distance) => {
+    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+    if (!pane) {
+      throw new Error("Timeline pane was unavailable");
+    }
+    pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight - distance);
+    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+  }, pixels);
+}
+
 export async function emitTestSessionEvent(
   harness: DesktopHarness,
   event: SessionDriverEvent,
@@ -325,6 +382,97 @@ export async function emitTestSessionEvent(
     }
     await hooks.emitSessionEvent(payload);
   }, event);
+}
+
+export async function seedTranscriptMessages(
+  harness: DesktopHarness,
+  window: Page,
+  options: {
+    readonly count: number;
+    readonly textFactory?: (index: number) => string;
+  },
+): Promise<{ readonly sessionRef: SessionRef; readonly messages: readonly string[] }> {
+  const state = await getDesktopState(window);
+  const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+  const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+  assertExists(selectedWorkspace, "Expected selected workspace while seeding transcript");
+  assertExists(selectedSession, "Expected selected session while seeding transcript");
+
+  const sessionRef = {
+    workspaceId: selectedWorkspace.id,
+    sessionId: selectedSession.id,
+  } satisfies SessionRef;
+  const workspace = {
+    workspaceId: selectedWorkspace.id,
+    path: selectedWorkspace.path,
+    displayName: selectedWorkspace.name,
+  };
+  const messages = Array.from({ length: options.count }, (_, index) =>
+    options.textFactory ? options.textFactory(index) : `seeded transcript row ${index}`,
+  );
+
+  for (const [index, text] of messages.entries()) {
+    const startedAt = new Date(Date.now() + index * 2_000).toISOString();
+    const completedAt = new Date(Date.now() + index * 2_000 + 1_000).toISOString();
+    const runId = `test-run-${index}`;
+
+    await emitTestSessionEvent(harness, {
+      type: "sessionUpdated",
+      sessionRef,
+      timestamp: startedAt,
+      runId,
+      snapshot: {
+        ref: sessionRef,
+        workspace,
+        title: selectedSession.title,
+        status: "running",
+        updatedAt: startedAt,
+        preview: text,
+        runningRunId: runId,
+      },
+    });
+    await emitTestSessionEvent(harness, {
+      type: "assistantDelta",
+      sessionRef,
+      timestamp: startedAt,
+      runId,
+      text,
+    });
+
+    if (index < messages.length - 1) {
+      await emitTestSessionEvent(harness, {
+        type: "runCompleted",
+        sessionRef,
+        timestamp: completedAt,
+        runId,
+        snapshot: {
+          ref: sessionRef,
+          workspace,
+          title: selectedSession.title,
+          status: "idle",
+          updatedAt: completedAt,
+          preview: text,
+        },
+      });
+      continue;
+    }
+
+    await emitTestSessionEvent(harness, {
+      type: "sessionUpdated",
+      sessionRef,
+      timestamp: completedAt,
+      snapshot: {
+        ref: sessionRef,
+        workspace,
+        title: selectedSession.title,
+        status: "idle",
+        updatedAt: completedAt,
+        preview: text,
+      },
+    });
+  }
+
+  return { sessionRef, messages };
 }
 
 export function persistedSessionDataPaths(
@@ -498,7 +646,7 @@ export async function createNamedThread(
 }
 
 export async function createSessionViaIpc(window: Page, workspaceIdOrPath: string, title: string): Promise<void> {
-  const workspaceId = await window.evaluate(async ({ workspaceTarget, targetTitle }) => {
+  await window.evaluate(async ({ workspaceTarget, targetTitle }) => {
     const app = (window as PiAppWindow).piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
@@ -510,7 +658,7 @@ export async function createSessionViaIpc(window: Page, workspaceIdOrPath: strin
       const workspace = state.workspaces.find((entry) => entry.id === workspaceTarget || entry.path === workspaceTarget);
       if (workspace) {
         await app.createSession({ workspaceId: workspace.id, title: targetTitle });
-        return workspace.id;
+        return;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 100));
     }
@@ -518,10 +666,5 @@ export async function createSessionViaIpc(window: Page, workspaceIdOrPath: strin
     throw new Error(`Workspace not found: ${workspaceTarget}`);
   }, { workspaceTarget: workspaceIdOrPath, targetTitle: title });
 
-  await expect
-    .poll(async () => {
-      const state = await getDesktopState(window);
-      return state.workspaces.find((workspace) => workspace.id === workspaceId)?.sessions.some((session) => session.title === title) ?? false;
-    })
-    .toBe(true);
+  await expect(window.locator(".session-row__select", { hasText: title })).toBeVisible({ timeout: 15_000 });
 }

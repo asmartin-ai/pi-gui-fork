@@ -695,7 +695,9 @@ export class DesktopAppStore implements AppStoreInternals {
       revision: this.state.revision + 1,
     };
 
-    this.markSelectedSessionViewedIfVisible();
+    if (options.markSelectedSessionViewed ?? true) {
+      this.markSelectedSessionViewedIfVisible();
+    }
 
     await this.persistUiState();
     const snapshot = this.emit();
@@ -1483,10 +1485,13 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    this.markSessionViewed({
-      workspaceId: this.state.selectedWorkspaceId,
-      sessionId: this.state.selectedSessionId,
-    }, new Date().toISOString());
+    this.markSessionViewed(
+      {
+        workspaceId: this.state.selectedWorkspaceId,
+        sessionId: this.state.selectedSessionId,
+      },
+      new Date().toISOString(),
+    );
   }
 
   private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {

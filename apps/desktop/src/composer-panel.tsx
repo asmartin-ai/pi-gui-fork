@@ -21,7 +21,6 @@ interface ComposerPanelProps {
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
-  readonly composerShellRef: RefObject<HTMLElement | null>;
   readonly runningLabel: string;
   readonly attachments: readonly ComposerImageAttachment[];
   readonly slashSections: readonly ComposerSlashCommandSection[];
@@ -60,7 +59,6 @@ export function ComposerPanel({
   composerDraft,
   setComposerDraft,
   composerRef,
-  composerShellRef,
   runningLabel,
   attachments,
   slashSections,
@@ -90,7 +88,7 @@ export function ComposerPanel({
   onToggleExtensionDock,
 }: ComposerPanelProps) {
   return (
-    <footer className="composer" ref={composerShellRef}>
+    <footer className="composer">
       <div className="conversation conversation--composer">
         <ComposerSurface
           lastError={lastError}

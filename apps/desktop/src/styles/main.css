@@ -120,9 +120,25 @@
   overflow: auto;
 }
 
+.canvas--thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .conversation {
   width: min(920px, 100%);
   margin: 0 auto;
+}
+
+.conversation--thread {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .conversation--composer {
@@ -206,6 +222,12 @@
   max-height: calc(100vh - 320px);
   overflow: auto;
   scroll-behavior: smooth;
+}
+
+.timeline-pane--thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 
 .timeline-empty {

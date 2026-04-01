@@ -258,9 +258,9 @@ async function expectNewThreadModelState(
   },
 ): Promise<void> {
   await expect(window.getByRole("button", { name: expectations.activeModel }).first()).toBeVisible();
-  const badge = window.locator(".new-thread__meta .model-selector__badge").first();
+  const badge = window.locator(".new-thread__hint .model-selector__badge").first();
   await badge.click();
-  const dropdown = window.locator(".new-thread__meta .model-selector__dropdown").first();
+  const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
   await expect(dropdown).toBeVisible();
   for (const label of expectations.visibleModelLabels) {
     await expect(dropdown).toContainText(label);

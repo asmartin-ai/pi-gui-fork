@@ -153,6 +153,7 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
     }
     return store.refreshState({
       clearLastError: !runtimeCommandOutcome?.blockedMessage,
+      markSelectedSessionViewed: false,
     });
   } catch (error) {
     if (resolvedRuntimeSlashCommand) {

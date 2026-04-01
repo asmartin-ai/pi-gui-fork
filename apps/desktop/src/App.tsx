@@ -141,11 +141,11 @@ export default function App() {
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
-  const composerShellRef = useRef<HTMLElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
-  const previousComposerShellHeightRef = useRef<number | null>(null);
+  const previousTimelinePaneHeightRef = useRef<number | null>(null);
+  const preserveBottomOnNextPaneResizeRef = useRef(false);
   const previousActiveViewRef = useRef<AppView | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
@@ -498,7 +498,8 @@ export default function App() {
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = true;
-    previousComposerShellHeightRef.current = null;
+    previousTimelinePaneHeightRef.current = null;
+    preserveBottomOnNextPaneResizeRef.current = false;
   }, [selectedSessionKey]);
 
   useEffect(() => {
@@ -544,32 +545,52 @@ export default function App() {
       return undefined;
     }
 
+    const pane = timelinePaneRef.current;
+    const previousHeight = composer.getBoundingClientRect().height;
+    const shouldPreserveBottom = pane ? isNearBottom(pane) : false;
+
     composer.style.height = "0px";
     composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
+
+    const nextHeight = composer.getBoundingClientRect().height;
+    if (Math.abs(nextHeight - previousHeight) >= 1 && shouldPreserveBottom) {
+      preserveBottomOnNextPaneResizeRef.current = true;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          preserveBottomOnNextPaneResizeRef.current = false;
+        });
+      });
+    }
   }, [composerDraft]);
 
   useLayoutEffect(() => {
-    const composerShell = composerShellRef.current;
-    if (!composerShell || !selectedSession) {
-      previousComposerShellHeightRef.current = null;
+    const pane = timelinePaneRef.current;
+    if (!pane || !selectedSession) {
+      previousTimelinePaneHeightRef.current = null;
       return undefined;
     }
 
     const updateMeasuredHeight = (nextHeight: number) => {
-      const previousHeight = previousComposerShellHeightRef.current;
-      previousComposerShellHeightRef.current = nextHeight;
-      if (previousHeight == null || Math.abs(nextHeight - previousHeight) < 1 || !pinnedToBottomRef.current) {
+      const previousHeight = previousTimelinePaneHeightRef.current;
+      previousTimelinePaneHeightRef.current = nextHeight;
+      const shouldStickToBottom = preserveBottomOnNextPaneResizeRef.current || pinnedToBottomRef.current;
+      if (previousHeight == null || Math.abs(nextHeight - previousHeight) < 1 || !shouldStickToBottom) {
         return;
       }
 
+      preserveBottomOnNextPaneResizeRef.current = false;
+      pinnedToBottomRef.current = true;
       window.requestAnimationFrame(() => {
-        if (pinnedToBottomRef.current) {
-          scrollTimelineToBottom();
-        }
+        scrollTimelineToBottom();
+        window.requestAnimationFrame(() => {
+          if (pinnedToBottomRef.current) {
+            scrollTimelineToBottom();
+          }
+        });
       });
     };
 
-    updateMeasuredHeight(composerShell.getBoundingClientRect().height);
+    updateMeasuredHeight(pane.getBoundingClientRect().height);
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -579,12 +600,12 @@ export default function App() {
       updateMeasuredHeight(entry.contentRect.height);
     });
 
-    resizeObserver.observe(composerShell);
+    resizeObserver.observe(pane);
     return () => {
       resizeObserver.disconnect();
-      previousComposerShellHeightRef.current = null;
+      previousTimelinePaneHeightRef.current = null;
     };
-  }, [scrollTimelineToBottom, selectedSessionKey]);
+  }, [scrollTimelineToBottom, selectedSessionKey, showDiffPanel]);
 
   useEffect(() => {
     const pane = timelinePaneRef.current;
@@ -995,6 +1016,10 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
+    if (preserveBottomOnNextPaneResizeRef.current && !pinned) {
+      return;
+    }
+
     pinnedToBottomRef.current = pinned;
     if (pinned) {
       setShowJumpToLatest(false);
@@ -1338,7 +1363,6 @@ export default function App() {
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
-              composerShellRef={composerShellRef}
               runtime={selectedModelRuntime}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}

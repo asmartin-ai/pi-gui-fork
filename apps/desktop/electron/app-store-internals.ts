@@ -72,4 +72,5 @@ export interface RefreshStateOptions {
   readonly clearLastError?: boolean;
   readonly refreshWorktrees?: boolean;
   readonly activeView?: AppView;
+  readonly markSelectedSessionViewed?: boolean;
 }
