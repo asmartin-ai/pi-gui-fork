@@ -210,7 +210,9 @@ export async function createSession(store: AppStoreInternals, input: CreateSessi
   }
 
   return store.withErrorHandling(async () => {
+    const createOptions = await store.buildCreateSessionOptions(input.workspaceId);
     const snapshot = await store.driver.createSession(ws, {
+      ...createOptions,
       title: input.title?.trim() || "New thread",
     });
     const key = sessionKey(snapshot.ref);

@@ -1,5 +1,5 @@
 import type { HostUiRequest, SessionConfig } from "@pi-gui/session-driver";
-import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
@@ -9,6 +9,7 @@ export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
 export type NewThreadEnvironment = "local" | "worktree";
 export type ThemeMode = "system" | "light" | "dark";
+export type ModelSettingsScopeMode = "app-global" | "per-repo";
 
 export interface NotificationPreferences {
   readonly backgroundCompletion: boolean;
@@ -129,6 +130,8 @@ export interface DesktopAppState {
   readonly notificationPreferences: NotificationPreferences;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
   readonly workspaceOrder: readonly string[];
+  readonly modelSettingsScopeMode: ModelSettingsScopeMode;
+  readonly globalModelSettings: ModelSettingsSnapshot;
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -163,6 +166,10 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     },
     lastViewedAtBySession: {},
     workspaceOrder: [],
+    modelSettingsScopeMode: "app-global",
+    globalModelSettings: {
+      enabledModelPatterns: [],
+    },
     revision: 0,
   };
 }

@@ -1,5 +1,5 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { NotificationPreferences, WorkspaceRecord } from "./desktop-state";
+import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import { RefreshIcon } from "./icons";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
@@ -15,8 +15,10 @@ interface SettingsViewProps {
   readonly runtime?: RuntimeSnapshot;
   readonly section: SettingsSection;
   readonly notificationPreferences: NotificationPreferences;
+  readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly themeMode: "system" | "light" | "dark";
   readonly onRefresh: () => void;
+  readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
@@ -32,8 +34,10 @@ export function SettingsView({
   runtime,
   section,
   notificationPreferences,
+  modelSettingsScopeMode,
   themeMode,
   onRefresh,
+  onSetModelSettingsScopeMode,
   onSetDefaultModel,
   onSetThinkingLevel,
   onToggleSkillCommands,
@@ -49,7 +53,7 @@ export function SettingsView({
         <div className="empty-panel">
           <div className="session-header__eyebrow">Settings</div>
           <h1>Select a workspace</h1>
-          <p>Model, auth, and skill settings are scoped to the selected workspace.</p>
+          <p>Provider and skill settings need a selected workspace.</p>
         </div>
       </section>
     );
@@ -83,6 +87,8 @@ export function SettingsView({
           {section === "general" ? (
             <SettingsGeneralSection
               runtime={runtime}
+              modelSettingsScopeMode={modelSettingsScopeMode}
+              onSetModelSettingsScopeMode={onSetModelSettingsScopeMode}
               onToggleSkillCommands={onToggleSkillCommands}
             />
           ) : null}

@@ -1,8 +1,14 @@
-import type { AppView, ExtensionCommandCompatibilityRecord, NotificationPreferences } from "../src/desktop-state";
+import type {
+  AppView,
+  ExtensionCommandCompatibilityRecord,
+  ModelSettingsScopeMode,
+  NotificationPreferences,
+} from "../src/desktop-state";
+import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -12,6 +18,8 @@ export interface PersistedUiState {
   readonly notificationPreferences?: NotificationPreferences;
   readonly lastViewedAtBySession?: Record<string, string>;
   readonly workspaceOrder?: readonly string[];
+  readonly modelSettingsScopeMode?: ModelSettingsScopeMode;
+  readonly appGlobalModelSettings?: ModelSettingsSnapshot;
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -25,7 +33,19 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 5 ? 5 : parsed.version === 4 ? 4 : parsed.version === 3 ? 3 : parsed.version === 2 ? 2 : undefined,
+        parsed.version === 6
+          ? 6
+          : parsed.version === 7
+            ? 7
+          : parsed.version === 5
+            ? 5
+            : parsed.version === 4
+              ? 4
+              : parsed.version === 3
+                ? 3
+                : parsed.version === 2
+                  ? 2
+                  : undefined,
       selectedWorkspaceId: parsed.selectedWorkspaceId,
       selectedSessionId: parsed.selectedSessionId,
       activeView: parsed.activeView,
@@ -35,6 +55,11 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       notificationPreferences: parsed.notificationPreferences,
       lastViewedAtBySession: parsed.lastViewedAtBySession,
       workspaceOrder: Array.isArray(parsed.workspaceOrder) ? parsed.workspaceOrder : undefined,
+      modelSettingsScopeMode:
+        parsed.modelSettingsScopeMode === "per-repo" || parsed.modelSettingsScopeMode === "app-global"
+          ? parsed.modelSettingsScopeMode
+          : undefined,
+      appGlobalModelSettings: toPersistedModelSettingsSnapshot(parsed.appGlobalModelSettings),
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
@@ -52,7 +77,7 @@ export async function writePersistedUiState(
     uiStateFilePath,
     `${JSON.stringify(
       {
-        version: 5,
+        version: 7,
         ...payload,
       } satisfies PersistedUiState,
       null,
@@ -60,4 +85,22 @@ export async function writePersistedUiState(
     )}\n`,
     "utf8",
   );
+}
+
+function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const enabledModelPatterns = Array.isArray(candidate.enabledModelPatterns)
+    ? candidate.enabledModelPatterns.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  return {
+    ...(typeof candidate.defaultProvider === "string" ? { defaultProvider: candidate.defaultProvider } : {}),
+    ...(typeof candidate.defaultModelId === "string" ? { defaultModelId: candidate.defaultModelId } : {}),
+    ...(typeof candidate.defaultThinkingLevel === "string"
+      ? { defaultThinkingLevel: candidate.defaultThinkingLevel as ModelSettingsSnapshot["defaultThinkingLevel"] }
+      : {}),
+    enabledModelPatterns,
+  };
 }

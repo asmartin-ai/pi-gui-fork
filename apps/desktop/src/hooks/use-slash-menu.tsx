@@ -32,6 +32,7 @@ interface UseSlashMenuParams {
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly selectedRuntime: RuntimeSnapshot | undefined;
+  readonly selectedModelRuntime: RuntimeSnapshot | undefined;
   readonly sessionCommands: readonly RuntimeCommandRecord[];
   readonly commandCompatibility: readonly ExtensionCommandCompatibilityRecord[];
   readonly selectedSessionKey: string;
@@ -72,6 +73,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     composerDraft,
     setComposerDraft,
     selectedRuntime,
+    selectedModelRuntime,
     sessionCommands,
     commandCompatibility,
     selectedSessionKey,
@@ -110,9 +112,12 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const selectedSlashCommand = showSlashMenu ? slashSuggestions[slashIndex % slashSuggestions.length] : undefined;
   const slashOptions =
     activeSlashOptionCommand?.kind === "model"
-      ? buildModelOptions(selectedRuntime)
+      ? buildModelOptions(selectedModelRuntime)
       : slashOptionsForCommand(activeSlashOptionCommand, selectedRuntime);
-  const activeSlashOptionEmptyState = slashOptionEmptyState(activeSlashOptionCommand, selectedRuntime);
+  const activeSlashOptionEmptyState = slashOptionEmptyState(
+    activeSlashOptionCommand,
+    activeSlashOptionCommand?.kind === "model" ? selectedModelRuntime : selectedRuntime,
+  );
   const showSlashOptionMenu =
     !isRunning &&
     Boolean(activeSlashOptionCommand) &&

@@ -130,3 +130,5 @@ contextBridge.exposeInMainWorld("piApp", {
     };
   },
 });
+  setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>
+    ipcRenderer.invoke(desktopIpc.setModelSettingsScopeMode, mode) as Promise<DesktopAppState>,

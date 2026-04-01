@@ -43,7 +43,7 @@ export function sectionDescription(section: SettingsSection, workspaceName: stri
     case "providers":
       return `Connect providers and manage auth for ${workspaceName}.`;
     case "models":
-      return `Choose defaults and quick-switch models for ${workspaceName}.`;
+      return "Choose the default model and which models appear in pickers.";
     case "notifications":
       return "Only background sessions should notify by default.";
     default:

@@ -5,6 +5,7 @@ import type {
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
+  ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
   StartThreadInput,
@@ -35,6 +36,7 @@ export const desktopIpc = {
   cancelCurrentRun: "pi-gui:cancel-current-run",
   setActiveView: "pi-gui:set-active-view",
   refreshRuntime: "pi-gui:refresh-runtime",
+  setModelSettingsScopeMode: "pi-gui:set-model-settings-scope-mode",
   setDefaultModel: "pi-gui:set-default-model",
   setDefaultThinkingLevel: "pi-gui:set-default-thinking-level",
   setSessionModel: "pi-gui:set-session-model",
@@ -127,6 +129,7 @@ export interface PiDesktopApi {
   cancelCurrentRun(): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
   refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
+  setModelSettingsScopeMode(mode: ModelSettingsScopeMode): Promise<DesktopAppState>;
   setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState>;
   setDefaultThinkingLevel(
     workspaceId: string,

@@ -1,5 +1,5 @@
 import type { PiSdkDriver, JsonCatalogStore } from "@pi-gui/pi-sdk-driver";
-import type { SessionConfig, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
+import type { CreateSessionOptions, SessionConfig, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   AppView,
@@ -59,6 +59,7 @@ export interface AppStoreInternals {
   schedulePersistUiState(): void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
   reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void>;
+  buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
 }
 
 export interface RefreshStateOptions {

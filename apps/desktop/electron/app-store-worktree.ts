@@ -89,20 +89,17 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
     }
 
     const prompt = input.prompt?.trim() ?? "";
+    const createOptions = (await store.buildCreateSessionOptions(targetWorkspace.workspaceId)) ?? {};
     const session = await store.driver.createSession(targetWorkspace, {
+      ...createOptions,
       title: initialThreadTitle(prompt),
+      ...(input.provider && input.modelId ? { initialModel: { provider: input.provider, modelId: input.modelId } } : {}),
+      ...(input.thinkingLevel ? { initialThinkingLevel: input.thinkingLevel } : {}),
     });
     const key = sessionKey(session.ref);
     store.sessionState.transcriptCache.set(key, []);
     store.sessionState.loadedTranscriptKeys.add(key);
     store.updateSessionConfig(session.ref, session.config);
-
-    if (input.provider && input.modelId) {
-      await store.driver.setSessionModel(session.ref, { provider: input.provider, modelId: input.modelId });
-    }
-    if (input.thinkingLevel) {
-      await store.driver.setSessionThinkingLevel(session.ref, input.thinkingLevel);
-    }
 
     // Navigate to thread view immediately so streaming deltas render live.
     // Set selection eagerly so that any subscription replay events
@@ -136,7 +133,13 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
 
 export async function syncAndListWorktrees(
   store: AppStoreInternals,
-  workspaces: readonly { workspaceId: string; path: string; displayName: string }[],
+  workspaces: readonly {
+    workspaceId: string;
+    path: string;
+    displayName: string;
+    sortOrder: number;
+    lastOpenedAt: string;
+  }[],
 ): Promise<readonly WorktreeCatalogEntry[]> {
   const existing = await store.catalogStore.worktrees.listWorktrees();
   const existingPrimaryByWorkspaceId = new Set(
@@ -173,18 +176,28 @@ export async function syncAndListWorktrees(
   const syncRoots = [...groups.values()]
     .map((group) =>
       [...group].sort((left, right) => {
-        if (left.canonicalPath.length !== right.canonicalPath.length) {
-          return left.canonicalPath.length - right.canonicalPath.length;
-        }
         const leftIsExistingPrimary = existingPrimaryByWorkspaceId.has(left.workspace.workspaceId);
         const rightIsExistingPrimary = existingPrimaryByWorkspaceId.has(right.workspace.workspaceId);
         if (leftIsExistingPrimary !== rightIsExistingPrimary) {
           return leftIsExistingPrimary ? -1 : 1;
         }
+        if (left.workspace.sortOrder !== right.workspace.sortOrder) {
+          return left.workspace.sortOrder - right.workspace.sortOrder;
+        }
+        if (left.workspace.lastOpenedAt !== right.workspace.lastOpenedAt) {
+          return left.workspace.lastOpenedAt.localeCompare(right.workspace.lastOpenedAt);
+        }
+        if (left.canonicalPath.length !== right.canonicalPath.length) {
+          return left.canonicalPath.length - right.canonicalPath.length;
+        }
         return left.workspace.displayName.localeCompare(right.workspace.displayName);
       })[0],
     )
     .filter((entry): entry is (typeof inspected)[number] => Boolean(entry));
+  const syncRootWorkspaceIds = new Set(syncRoots.map((entry) => entry.workspace.workspaceId));
+  const staleWorkspaceIds = inspected
+    .map((entry) => entry.workspace.workspaceId)
+    .filter((workspaceId) => !syncRootWorkspaceIds.has(workspaceId));
 
   await Promise.all(
     syncRoots.map((entry) =>
@@ -195,6 +208,11 @@ export async function syncAndListWorktrees(
           displayName: entry.workspace.displayName,
         })
         .catch(() => undefined),
+    ),
+  );
+  await Promise.all(
+    staleWorkspaceIds.map((workspaceId) =>
+      store.catalogStore.worktrees.replaceWorkspaceWorktrees(workspaceId, []).catch(() => undefined),
     ),
   );
 

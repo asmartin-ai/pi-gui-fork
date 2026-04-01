@@ -1,3 +1,4 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   applyHostUiRequestToExtensionUiState,
@@ -8,11 +9,25 @@ import {
   sessionKey,
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
-import type { HostUiResponse, SessionConfig, SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
-import type { RuntimeCommandRecord, RuntimeLoginCallbacks, RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type {
+  CreateSessionOptions,
+  HostUiResponse,
+  SessionConfig,
+  SessionDriverEvent,
+  SessionRef,
+  WorkspaceRef,
+} from "@pi-gui/session-driver";
+import type {
+  ModelSettingsSnapshot,
+  RuntimeCommandRecord,
+  RuntimeLoginCallbacks,
+  RuntimeSettingsSnapshot,
+  RuntimeSnapshot,
+} from "@pi-gui/session-driver/runtime-types";
 import {
   type AppView,
   type ExtensionCommandCompatibilityRecord,
+  type ModelSettingsScopeMode,
   createEmptyDesktopAppState,
   type ComposerImageAttachment,
   type CreateSessionInput,
@@ -55,6 +70,7 @@ import {
   mapToRecord,
   toSessionRef,
 } from "./app-store-utils";
+import { resolveRepoWorkspaceId } from "../src/workspace-roots";
 import { SessionStateMap } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
@@ -274,6 +290,24 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setModelSettingsScopeMode(modelSettingsScopeMode: ModelSettingsScopeMode): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.modelSettingsScopeMode === modelSettingsScopeMode) {
+      return this.emit();
+    }
+    if (modelSettingsScopeMode === "app-global") {
+      await this.restoreGlobalModelSettings(this.state.globalModelSettings);
+    }
+    this.state = {
+      ...this.state,
+      modelSettingsScopeMode,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.refreshState({ clearLastError: true });
+  }
+
   /* ── Runtime / model / provider settings ───────────────── */
 
   async refreshRuntime(workspaceId?: string): Promise<DesktopAppState> {
@@ -299,18 +333,49 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState> {
-    return this.withRuntimeUpdate(workspaceId, (ws) =>
-      this.driver.runtimeSupervisor.setDefaultModel(ws, { provider, modelId }),
-    );
+    const targetWorkspaceId = this.resolveModelSettingsWorkspaceId(workspaceId);
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return this.withRuntimeUpdate(targetWorkspaceId, (ws) =>
+        this.driver.runtimeSupervisor.setDefaultModel(ws, { provider, modelId }),
+      );
+    }
+    await this.initialize();
+    const ws = this.workspaceRefFromState(targetWorkspaceId);
+    if (!ws) {
+      return this.withError(`Unknown workspace: ${targetWorkspaceId}`);
+    }
+    return this.withErrorHandling(async () => {
+      await updateProjectModelSettingsFile(ws.path, (settings) => ({
+        ...settings,
+        defaultProvider: provider,
+        defaultModel: modelId,
+      }));
+      return this.refreshState({ clearLastError: true });
+    });
   }
 
   async setDefaultThinkingLevel(
     workspaceId: string,
     thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
   ): Promise<DesktopAppState> {
-    return this.withRuntimeUpdate(workspaceId, (ws) =>
-      this.driver.runtimeSupervisor.setDefaultThinkingLevel(ws, thinkingLevel),
-    );
+    const targetWorkspaceId = this.resolveModelSettingsWorkspaceId(workspaceId);
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return this.withRuntimeUpdate(targetWorkspaceId, (ws) =>
+        this.driver.runtimeSupervisor.setDefaultThinkingLevel(ws, thinkingLevel),
+      );
+    }
+    await this.initialize();
+    const ws = this.workspaceRefFromState(targetWorkspaceId);
+    if (!ws) {
+      return this.withError(`Unknown workspace: ${targetWorkspaceId}`);
+    }
+    return this.withErrorHandling(async () => {
+      await updateProjectModelSettingsFile(ws.path, (settings) => ({
+        ...settings,
+        ...(thinkingLevel ? { defaultThinkingLevel: thinkingLevel } : {}),
+      }));
+      return this.refreshState({ clearLastError: true });
+    });
   }
 
   async setSessionThinkingLevel(
@@ -340,9 +405,24 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState> {
-    return this.withRuntimeUpdate(workspaceId, (ws) =>
-      this.driver.runtimeSupervisor.setScopedModelPatterns(ws, patterns),
-    );
+    const targetWorkspaceId = this.resolveModelSettingsWorkspaceId(workspaceId);
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return this.withRuntimeUpdate(targetWorkspaceId, (ws) =>
+        this.driver.runtimeSupervisor.setScopedModelPatterns(ws, patterns),
+      );
+    }
+    await this.initialize();
+    const ws = this.workspaceRefFromState(targetWorkspaceId);
+    if (!ws) {
+      return this.withError(`Unknown workspace: ${targetWorkspaceId}`);
+    }
+    return this.withErrorHandling(async () => {
+      await updateProjectModelSettingsFile(ws.path, (settings) => ({
+        ...settings,
+        enabledModels: patterns.length > 0 ? [...patterns] : undefined,
+      }));
+      return this.refreshState({ clearLastError: true });
+    });
   }
 
   async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
@@ -392,6 +472,8 @@ export class DesktopAppStore implements AppStoreInternals {
       this.state = {
         ...this.state,
         activeView: persisted.activeView ?? this.state.activeView,
+        modelSettingsScopeMode: persisted.modelSettingsScopeMode ?? this.state.modelSettingsScopeMode,
+        globalModelSettings: persisted.appGlobalModelSettings ?? this.state.globalModelSettings,
         notificationPreferences: {
           ...this.state.notificationPreferences,
           ...persisted.notificationPreferences,
@@ -533,11 +615,31 @@ export class DesktopAppStore implements AppStoreInternals {
     }
 
     if (selectedWorkspaceId) {
-      await this.ensureRuntimeLoaded(selectedWorkspaceId);
+      await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
     }
     for (const runtime of this.runtimeByWorkspace.values()) {
       pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
     }
+    const liveGlobalModelSettings = await this.loadLiveGlobalModelSettings(
+      workspacesSnapshot.workspaces,
+      selectedWorkspaceId || workspacesSnapshot.workspaces[0]?.workspaceId,
+    );
+    const globalModelSettings =
+      this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
+        ? this.state.globalModelSettings
+        : liveGlobalModelSettings;
+    if (
+      this.state.modelSettingsScopeMode === "per-repo" &&
+      hasStoredModelSettings(globalModelSettings) &&
+      !modelSettingsEqual(globalModelSettings, liveGlobalModelSettings)
+    ) {
+      await this.restoreGlobalModelSettings(globalModelSettings, workspacesSnapshot.workspaces, selectedWorkspaceId);
+    }
+    const scopedModelSettingsByWorkspace =
+      this.state.modelSettingsScopeMode === "per-repo"
+        ? await this.loadScopedModelSettingsByWorkspace(workspaces, workspacesSnapshot.workspaces, globalModelSettings)
+        : undefined;
+    const runtimeByWorkspace = this.serializeEffectiveRuntimeState(workspaces, scopedModelSettingsByWorkspace);
 
     const activeView = options.activeView ?? this.state.activeView;
     this.state = {
@@ -547,12 +649,14 @@ export class DesktopAppStore implements AppStoreInternals {
       selectedWorkspaceId,
       selectedSessionId,
       activeView,
-      runtimeByWorkspace: this.serializeRuntimeState(),
+      runtimeByWorkspace,
       sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
       sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
       extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder,
+      modelSettingsScopeMode: this.state.modelSettingsScopeMode,
+      globalModelSettings,
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
@@ -621,17 +725,26 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  private async ensureRuntimeLoaded(workspaceId: string): Promise<void> {
+  private async ensureRuntimeLoaded(
+    workspaceId: string,
+    workspaces?: readonly { workspaceId: string; path: string; displayName: string }[],
+  ): Promise<void> {
     if (this.runtimeByWorkspace.has(workspaceId)) {
       return;
     }
 
-    const ws = this.workspaceRefFromState(workspaceId);
+    const ws =
+      this.workspaceRefFromState(workspaceId) ??
+      workspaces?.find((entry) => entry.workspaceId === workspaceId);
     if (!ws) {
       return;
     }
 
-    const snapshot = await this.driver.runtimeSupervisor.getRuntimeSnapshot(ws);
+    const snapshot = await this.driver.runtimeSupervisor.getRuntimeSnapshot({
+      workspaceId: ws.workspaceId,
+      path: ws.path,
+      displayName: ws.displayName,
+    });
     this.runtimeByWorkspace.set(workspaceId, snapshot);
   }
 
@@ -993,8 +1106,92 @@ export class DesktopAppStore implements AppStoreInternals {
     };
   }
 
+  private resolveModelSettingsWorkspaceId(workspaceId: string): string {
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return workspaceId;
+    }
+    return resolveRepoWorkspaceId(this.state.workspaces, workspaceId) ?? workspaceId;
+  }
+
+  private async loadLiveGlobalModelSettings(
+    workspaces: readonly { workspaceId: string; path: string; displayName: string }[],
+    preferredWorkspaceId?: string,
+  ): Promise<ModelSettingsSnapshot> {
+    const fallbackWorkspace =
+      (preferredWorkspaceId ? workspaces.find((entry) => entry.workspaceId === preferredWorkspaceId) : undefined) ?? workspaces[0];
+    if (!fallbackWorkspace) {
+      return this.state.globalModelSettings;
+    }
+    return this.driver.runtimeSupervisor.getGlobalModelSettings({
+      workspaceId: fallbackWorkspace.workspaceId,
+      path: fallbackWorkspace.path,
+      displayName: fallbackWorkspace.displayName,
+    });
+  }
+
+  async buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined> {
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return undefined;
+    }
+    const effectiveSettings = await this.loadEffectiveModelSettingsForWorkspace(workspaceId);
+    if (!effectiveSettings) {
+      return undefined;
+    }
+    return {
+      ...(effectiveSettings.defaultProvider && effectiveSettings.defaultModelId
+        ? { initialModel: { provider: effectiveSettings.defaultProvider, modelId: effectiveSettings.defaultModelId } }
+        : {}),
+      ...(effectiveSettings.defaultThinkingLevel ? { initialThinkingLevel: effectiveSettings.defaultThinkingLevel } : {}),
+    };
+  }
+
   private serializeRuntimeState(): Record<string, RuntimeSnapshot> {
     return mapToRecord(this.runtimeByWorkspace);
+  }
+
+  private async loadScopedModelSettingsByWorkspace(
+    workspaces: DesktopAppState["workspaces"],
+    workspaceRefs: readonly { workspaceId: string; path: string; displayName: string }[],
+    globalModelSettings: ModelSettingsSnapshot,
+  ): Promise<Record<string, ModelSettingsSnapshot>> {
+    const uniqueOwnerIds = [...new Set(workspaces.map((workspace) => resolveRepoWorkspaceId(workspaces, workspace.id) ?? workspace.id))];
+    const refsByWorkspaceId = new Map(workspaceRefs.map((workspace) => [workspace.workspaceId, workspace] as const));
+    const ownerSettings = await Promise.all(
+      uniqueOwnerIds.map(async (workspaceId) => {
+        const workspace = refsByWorkspaceId.get(workspaceId);
+        if (!workspace) {
+          return undefined;
+        }
+        return [
+          workspaceId,
+          mergeModelSettingsSnapshot(globalModelSettings, await readProjectModelSettingsFile(workspace.path)),
+        ] as const;
+      }),
+    );
+
+    return Object.fromEntries(ownerSettings.filter((entry): entry is readonly [string, ModelSettingsSnapshot] => Boolean(entry)));
+  }
+
+  private serializeEffectiveRuntimeState(
+    workspaces: DesktopAppState["workspaces"],
+    scopedModelSettingsByWorkspace?: Record<string, ModelSettingsSnapshot>,
+  ): Record<string, RuntimeSnapshot> {
+    const runtimeByWorkspace = this.serializeRuntimeState();
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      return runtimeByWorkspace;
+    }
+
+    for (const workspace of workspaces) {
+      const ownerWorkspaceId = resolveRepoWorkspaceId(workspaces, workspace.id);
+      const workspaceRuntime = runtimeByWorkspace[workspace.id];
+      const modelSettings = ownerWorkspaceId ? scopedModelSettingsByWorkspace?.[ownerWorkspaceId] : undefined;
+      if (!workspaceRuntime || !modelSettings) {
+        continue;
+      }
+      runtimeByWorkspace[workspace.id] = applyModelSettingsSnapshot(workspaceRuntime, modelSettings);
+    }
+
+    return runtimeByWorkspace;
   }
 
   private serializeSessionExtensionUiState() {
@@ -1046,6 +1243,67 @@ export class DesktopAppStore implements AppStoreInternals {
       ?.sessions.find((s) => s.id === sessionRef.sessionId);
   }
 
+  private async loadEffectiveModelSettingsForWorkspace(workspaceId: string): Promise<ModelSettingsSnapshot | undefined> {
+    const ownerWorkspaceId = this.resolveModelSettingsWorkspaceId(workspaceId);
+    const ownerWorkspace = this.workspaceRefFromState(ownerWorkspaceId);
+    if (!ownerWorkspace) {
+      return undefined;
+    }
+    const globalModelSettings =
+      this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
+        ? this.state.globalModelSettings
+        : await this.loadLiveGlobalModelSettings(
+            this.state.workspaces.map((workspace) => ({
+              workspaceId: workspace.id,
+              path: workspace.path,
+              displayName: workspace.name,
+            })),
+            ownerWorkspaceId,
+          );
+    return mergeModelSettingsSnapshot(globalModelSettings, await readProjectModelSettingsFile(ownerWorkspace.path));
+  }
+
+  private async restoreGlobalModelSettings(
+    settings: ModelSettingsSnapshot,
+    workspaces?: readonly { workspaceId: string; path: string; displayName: string }[],
+    preferredWorkspaceId?: string,
+  ): Promise<void> {
+    if (!hasStoredModelSettings(settings)) {
+      return;
+    }
+    const workspaceRefs =
+      workspaces ??
+      this.state.workspaces.map((workspace) => ({
+        workspaceId: workspace.id,
+        path: workspace.path,
+        displayName: workspace.name,
+      }));
+    const fallbackWorkspace =
+      (preferredWorkspaceId ? workspaceRefs.find((entry) => entry.workspaceId === preferredWorkspaceId) : undefined) ??
+      workspaceRefs[0];
+    if (!fallbackWorkspace) {
+      return;
+    }
+    const workspaceRef = {
+      workspaceId: fallbackWorkspace.workspaceId,
+      path: fallbackWorkspace.path,
+      displayName: fallbackWorkspace.displayName,
+    };
+    await this.driver.runtimeSupervisor.setScopedModelPatterns(workspaceRef, settings.enabledModelPatterns);
+    if (settings.defaultThinkingLevel) {
+      await this.driver.runtimeSupervisor.setDefaultThinkingLevel(workspaceRef, settings.defaultThinkingLevel);
+    }
+    if (settings.defaultProvider && settings.defaultModelId) {
+      await this.driver.runtimeSupervisor.setDefaultModel(workspaceRef, {
+        provider: settings.defaultProvider,
+        modelId: settings.defaultModelId,
+      });
+    }
+    if (this.runtimeByWorkspace.has(workspaceRef.workspaceId)) {
+      this.runtimeByWorkspace.set(workspaceRef.workspaceId, await this.driver.runtimeSupervisor.refreshRuntime(workspaceRef));
+    }
+  }
+
   private async readUiState(): Promise<LegacyPersistedUiState> {
     return readPersistedUiState(this.uiStateFilePath);
   }
@@ -1065,6 +1323,8 @@ export class DesktopAppStore implements AppStoreInternals {
       notificationPreferences: this.state.notificationPreferences,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
+      modelSettingsScopeMode: this.state.modelSettingsScopeMode,
+      appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -1285,6 +1545,96 @@ function updateRecordValue<T>(
     ...record,
     [key]: value,
   };
+}
+
+function applyModelSettingsSnapshot(
+  runtime: RuntimeSnapshot,
+  settings: ModelSettingsSnapshot,
+): RuntimeSnapshot {
+  return {
+    ...runtime,
+    settings: {
+      ...runtime.settings,
+      ...(settings.defaultProvider ? { defaultProvider: settings.defaultProvider } : { defaultProvider: undefined }),
+      ...(settings.defaultModelId ? { defaultModelId: settings.defaultModelId } : { defaultModelId: undefined }),
+      ...(settings.defaultThinkingLevel
+        ? { defaultThinkingLevel: settings.defaultThinkingLevel }
+        : { defaultThinkingLevel: undefined }),
+      enabledModelPatterns: [...settings.enabledModelPatterns],
+    },
+  };
+}
+
+async function readProjectModelSettingsFile(workspacePath: string): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(join(workspacePath, ".pi", "settings.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function updateProjectModelSettingsFile(
+  workspacePath: string,
+  updater: (settings: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const current = await readProjectModelSettingsFile(workspacePath);
+  const next = updater({ ...current });
+  const configDir = join(workspacePath, ".pi");
+  await mkdir(configDir, { recursive: true });
+  await writeFile(join(configDir, "settings.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+function mergeModelSettingsSnapshot(
+  globalSettings: ModelSettingsSnapshot,
+  projectSettings: Record<string, unknown>,
+): ModelSettingsSnapshot {
+  const merged: ModelSettingsSnapshot = {
+    enabledModelPatterns: Array.isArray(projectSettings.enabledModels)
+      ? projectSettings.enabledModels.filter((value): value is string => typeof value === "string")
+      : [...globalSettings.enabledModelPatterns],
+  };
+
+  if (typeof projectSettings.defaultProvider === "string") {
+    merged.defaultProvider = projectSettings.defaultProvider;
+  } else if (globalSettings.defaultProvider) {
+    merged.defaultProvider = globalSettings.defaultProvider;
+  }
+
+  if (typeof projectSettings.defaultModel === "string") {
+    merged.defaultModelId = projectSettings.defaultModel;
+  } else if (globalSettings.defaultModelId) {
+    merged.defaultModelId = globalSettings.defaultModelId;
+  }
+
+  if (typeof projectSettings.defaultThinkingLevel === "string") {
+    merged.defaultThinkingLevel = projectSettings.defaultThinkingLevel as RuntimeSettingsSnapshot["defaultThinkingLevel"];
+  } else if (globalSettings.defaultThinkingLevel) {
+    merged.defaultThinkingLevel = globalSettings.defaultThinkingLevel;
+  }
+
+  return merged;
+}
+
+function hasStoredModelSettings(settings: ModelSettingsSnapshot | undefined): settings is ModelSettingsSnapshot {
+  return Boolean(
+    settings &&
+      (settings.enabledModelPatterns.length > 0 ||
+        settings.defaultProvider ||
+        settings.defaultModelId ||
+        settings.defaultThinkingLevel),
+  );
+}
+
+function modelSettingsEqual(left: ModelSettingsSnapshot, right: ModelSettingsSnapshot): boolean {
+  return (
+    left.defaultProvider === right.defaultProvider &&
+    left.defaultModelId === right.defaultModelId &&
+    left.defaultThinkingLevel === right.defaultThinkingLevel &&
+    left.enabledModelPatterns.length === right.enabledModelPatterns.length &&
+    left.enabledModelPatterns.every((pattern, index) => pattern === right.enabledModelPatterns[index])
+  );
 }
 
 function formatCapabilityLabel(capability: string): string {

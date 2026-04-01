@@ -86,7 +86,7 @@ export function SettingsModelsSection({
             ))}
           </select>
         </SettingsRow>
-        <SettingsRow title="Reasoning" description="Set the workspace default reasoning level.">
+        <SettingsRow title="Reasoning" description="Set the default reasoning level for new sessions.">
           <div className="settings-pill-row">
             {THINKING_LEVELS.map((level) => (
               <button

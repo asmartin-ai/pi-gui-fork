@@ -92,6 +92,13 @@ export interface RuntimeSettingsSnapshot {
   readonly enabledModelPatterns: readonly string[];
 }
 
+export interface ModelSettingsSnapshot {
+  readonly defaultProvider?: string;
+  readonly defaultModelId?: string;
+  readonly defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  readonly enabledModelPatterns: readonly string[];
+}
+
 export interface RuntimeSnapshot {
   readonly workspace: WorkspaceRef;
   readonly providers: readonly RuntimeProviderRecord[];

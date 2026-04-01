@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { basename, dirname, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   DefaultPackageManager,
   DefaultResourceLoader,
@@ -27,11 +27,23 @@ import { createRuntimeDependencies } from "./runtime-deps.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 
+interface ModelSettingsSnapshot {
+  readonly defaultProvider?: string;
+  readonly defaultModelId?: string;
+  readonly defaultThinkingLevel?: RuntimeSettingsSnapshot["defaultThinkingLevel"];
+  readonly enabledModelPatterns: readonly string[];
+}
+
 interface RuntimeContext {
   readonly workspace: WorkspaceRef;
   readonly settingsManager: SettingsManager;
   readonly packageManager: DefaultPackageManager;
   readonly resourceLoader: DefaultResourceLoader;
+}
+
+interface ProjectWritableSettingsManager {
+  markProjectModified(field: string, nestedKey?: string): void;
+  saveProjectSettings(settings: Record<string, unknown>): void;
 }
 
 export interface RuntimeSupervisorOptions {
@@ -99,6 +111,26 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     return this.buildSnapshot(context);
   }
 
+  async setProjectDefaultModel(
+    workspace: WorkspaceRef,
+    selection: {
+      readonly provider: string;
+      readonly modelId: string;
+    },
+  ): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
+    const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
+    projectSettings.defaultProvider = selection.provider;
+    projectSettings.defaultModel = selection.modelId;
+    settingsManager.markProjectModified("defaultProvider");
+    settingsManager.markProjectModified("defaultModel");
+    settingsManager.saveProjectSettings(projectSettings);
+    await context.settingsManager.flush();
+    context.settingsManager.reload();
+    return this.buildSnapshot(context);
+  }
+
   async setDefaultThinkingLevel(
     workspace: WorkspaceRef,
     thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
@@ -109,6 +141,24 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     }
     context.settingsManager.setDefaultThinkingLevel(thinkingLevel);
     await context.settingsManager.flush();
+    return this.buildSnapshot(context);
+  }
+
+  async setProjectDefaultThinkingLevel(
+    workspace: WorkspaceRef,
+    thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
+  ): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    if (!thinkingLevel) {
+      throw new Error("Thinking level is required.");
+    }
+    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
+    const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
+    projectSettings.defaultThinkingLevel = thinkingLevel;
+    settingsManager.markProjectModified("defaultThinkingLevel");
+    settingsManager.saveProjectSettings(projectSettings);
+    await context.settingsManager.flush();
+    context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -125,6 +175,66 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     context.settingsManager.setEnabledModels(patterns.length > 0 ? [...patterns] : undefined);
     await context.settingsManager.flush();
     return this.buildSnapshot(context);
+  }
+
+  async setProjectScopedModelPatterns(workspace: WorkspaceRef, patterns: readonly string[]): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
+    const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
+    projectSettings.enabledModels = patterns.length > 0 ? [...patterns] : undefined;
+    settingsManager.markProjectModified("enabledModels");
+    settingsManager.saveProjectSettings(projectSettings);
+    await context.settingsManager.flush();
+    context.settingsManager.reload();
+    return this.buildSnapshot(context);
+  }
+
+  async getGlobalModelSettings(workspace: WorkspaceRef): Promise<ModelSettingsSnapshot> {
+    const context = await this.ensureContext(workspace);
+    return toModelSettingsSnapshot(context.settingsManager.getGlobalSettings() as Record<string, unknown>);
+  }
+
+  async getCurrentModelSettings(workspace: WorkspaceRef): Promise<ModelSettingsSnapshot> {
+    const globalSettings = await readSettingsRecord(join(this.agentDir, "settings.json"));
+    const projectSettings = await readSettingsRecord(join(workspace.path, ".pi", "settings.json"));
+    const globalModelSettings = toModelSettingsSnapshot(globalSettings);
+    const projectModelSettings = toModelSettingsSnapshot(projectSettings);
+    const snapshot: {
+      defaultProvider?: string;
+      defaultModelId?: string;
+      defaultThinkingLevel?: ModelSettingsSnapshot["defaultThinkingLevel"];
+      enabledModelPatterns: readonly string[];
+    } = {
+      enabledModelPatterns: Array.isArray(projectSettings.enabledModels)
+        ? projectModelSettings.enabledModelPatterns
+        : globalModelSettings.enabledModelPatterns,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(projectSettings, "defaultProvider")) {
+      if (projectModelSettings.defaultProvider) {
+        snapshot.defaultProvider = projectModelSettings.defaultProvider;
+      }
+    } else if (globalModelSettings.defaultProvider) {
+      snapshot.defaultProvider = globalModelSettings.defaultProvider;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(projectSettings, "defaultModel")) {
+      if (projectModelSettings.defaultModelId) {
+        snapshot.defaultModelId = projectModelSettings.defaultModelId;
+      }
+    } else if (globalModelSettings.defaultModelId) {
+      snapshot.defaultModelId = globalModelSettings.defaultModelId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(projectSettings, "defaultThinkingLevel")) {
+      if (projectModelSettings.defaultThinkingLevel) {
+        snapshot.defaultThinkingLevel = projectModelSettings.defaultThinkingLevel;
+      }
+    } else if (globalModelSettings.defaultThinkingLevel) {
+      snapshot.defaultThinkingLevel = globalModelSettings.defaultThinkingLevel;
+    }
+
+    return snapshot;
   }
 
   async setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot> {
@@ -445,6 +555,16 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   }
 }
 
+async function readSettingsRecord(filePath: string): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function replaceResourcePattern(patterns: readonly string[], resourcePattern: string, enabled: boolean): string[] {
   const next = patterns.filter((pattern) => stripPrefix(pattern) !== resourcePattern);
   next.push(`${enabled ? "+" : "-"}${resourcePattern}`);
@@ -509,6 +629,19 @@ function toRuntimeSourceInfo(path: string, metadata: PathMetadata): RuntimeSourc
 
 function titleForResourceKind(kind: ToggleableResourceKind): string {
   return kind === "skill" ? "Skill" : "Extension";
+}
+
+function toModelSettingsSnapshot(settings: Record<string, unknown>): ModelSettingsSnapshot {
+  return {
+    enabledModelPatterns: Array.isArray(settings.enabledModels)
+      ? settings.enabledModels.filter((value): value is string => typeof value === "string")
+      : [],
+    ...(typeof settings.defaultProvider === "string" ? { defaultProvider: settings.defaultProvider } : {}),
+    ...(typeof settings.defaultModel === "string" ? { defaultModelId: settings.defaultModel } : {}),
+    ...(typeof settings.defaultThinkingLevel === "string"
+      ? { defaultThinkingLevel: settings.defaultThinkingLevel as ModelSettingsSnapshot["defaultThinkingLevel"] }
+      : {}),
+  } satisfies ModelSettingsSnapshot;
 }
 
 function firstNonEmptyLine(value: string): string | undefined {

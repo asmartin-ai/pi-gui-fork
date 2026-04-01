@@ -400,3 +400,4 @@ async function promptForText(message: string, placeholder = ""): Promise<string>
   }
   return result.trim();
 }
+  ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));

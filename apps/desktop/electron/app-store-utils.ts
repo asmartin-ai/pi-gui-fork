@@ -26,27 +26,21 @@ export function buildWorkspaceRecords(
   sessionConfigBySession: Map<string, SessionConfig>,
   lastViewedAtBySession: Map<string, string>,
 ): WorkspaceRecord[] {
-  const linkedWorktreesByPath = new Map(
-    worktrees
-      .filter((worktree) => worktree.kind === "linked")
-      .map((worktree) => [worktree.path, worktree] as const),
-  );
+  const workspaceRoots = resolveWorkspaceRoots(workspaces, worktrees);
 
   return workspaces.map((workspace) => {
-    const linkedWorktree = linkedWorktreesByPath.get(workspace.path);
-    const isValidLinkedWorktree =
-      linkedWorktree !== undefined && linkedWorktree.workspaceId !== workspace.workspaceId;
+    const rootWorkspaceId = workspaceRoots.get(workspace.workspaceId);
 
     return {
       id: workspace.workspaceId,
       name: workspace.displayName,
       path: workspace.path,
       lastOpenedAt: workspace.lastOpenedAt,
-      kind: isValidLinkedWorktree ? "worktree" : "primary",
-      ...(isValidLinkedWorktree
+      kind: rootWorkspaceId ? "worktree" : "primary",
+      ...(rootWorkspaceId
         ? {
-            rootWorkspaceId: linkedWorktree?.workspaceId,
-            branchName: linkedWorktree?.branchName,
+            rootWorkspaceId,
+            branchName: linkedWorktreeBranchName(workspace, worktrees, rootWorkspaceId),
           }
         : {}),
       sessions: sessions
@@ -68,6 +62,7 @@ export function buildWorktreeRecords(
   workspaces: readonly WorkspaceCatalogEntry[],
   worktrees: readonly WorktreeCatalogEntry[],
 ): Record<string, readonly WorktreeRecord[]> {
+  const workspaceRoots = resolveWorkspaceRoots(workspaces, worktrees);
   const linkedWorkspaceIdsByPath = new Map(workspaces.map((workspace) => [workspace.path, workspace.workspaceId] as const));
   const groups = new Map<string, WorktreeRecord[]>();
 
@@ -76,12 +71,15 @@ export function buildWorktreeRecords(
       continue;
     }
     const linkedWorkspaceId = linkedWorkspaceIdsByPath.get(worktree.path);
-    if (linkedWorkspaceId === worktree.workspaceId) {
-      continue;
+    const resolvedRootWorkspaceId = linkedWorkspaceId ? workspaceRoots.get(linkedWorkspaceId) : undefined;
+    if (linkedWorkspaceId) {
+      if (!resolvedRootWorkspaceId || resolvedRootWorkspaceId !== worktree.workspaceId) {
+        continue;
+      }
     }
     const entry: WorktreeRecord = {
       id: worktree.worktreeId,
-      rootWorkspaceId: worktree.workspaceId,
+      rootWorkspaceId: resolvedRootWorkspaceId ?? worktree.workspaceId,
       linkedWorkspaceId,
       name: worktree.displayName,
       path: worktree.path,
@@ -107,6 +105,96 @@ export function buildWorktreeRecords(
   }
 
   return mapToRecord(groups);
+}
+
+function resolveWorkspaceRoots(
+  workspaces: readonly WorkspaceCatalogEntry[],
+  worktrees: readonly WorktreeCatalogEntry[],
+): Map<string, string | undefined> {
+  const workspacesById = new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
+  const linkedEntriesByPath = new Map<string, WorktreeCatalogEntry[]>();
+  for (const worktree of worktrees) {
+    if (worktree.kind !== "linked") {
+      continue;
+    }
+    const existing = linkedEntriesByPath.get(worktree.path);
+    if (existing) {
+      existing.push(worktree);
+    } else {
+      linkedEntriesByPath.set(worktree.path, [worktree]);
+    }
+  }
+
+  const candidateRootByWorkspaceId = new Map<string, string | undefined>();
+  for (const workspace of workspaces) {
+    const candidates = (linkedEntriesByPath.get(workspace.path) ?? []).filter(
+      (worktree) => worktree.workspaceId !== workspace.workspaceId,
+    );
+    const owner = pickPreferredWorkspaceId(
+      candidates.map((candidate) => candidate.workspaceId),
+      workspacesById,
+    );
+    candidateRootByWorkspaceId.set(workspace.workspaceId, owner);
+  }
+
+  const resolvedRoots = new Map<string, string | undefined>();
+  for (const workspace of workspaces) {
+    const candidateRootId = candidateRootByWorkspaceId.get(workspace.workspaceId);
+    if (!candidateRootId) {
+      resolvedRoots.set(workspace.workspaceId, undefined);
+      continue;
+    }
+    const reciprocalRootId = candidateRootByWorkspaceId.get(candidateRootId);
+    if (reciprocalRootId === workspace.workspaceId) {
+      const primaryId = pickPreferredWorkspaceId([workspace.workspaceId, candidateRootId], workspacesById);
+      resolvedRoots.set(workspace.workspaceId, primaryId === workspace.workspaceId ? undefined : primaryId);
+      continue;
+    }
+    resolvedRoots.set(workspace.workspaceId, candidateRootId);
+  }
+
+  return resolvedRoots;
+}
+
+function pickPreferredWorkspaceId(
+  workspaceIds: readonly string[],
+  workspacesById: ReadonlyMap<string, WorkspaceCatalogEntry>,
+): string | undefined {
+  return [...workspaceIds]
+    .filter((workspaceId, index, values) => values.indexOf(workspaceId) === index)
+    .sort((left, right) => {
+      const leftWorkspace = workspacesById.get(left);
+      const rightWorkspace = workspacesById.get(right);
+      const leftSortOrder = leftWorkspace?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightSortOrder = rightWorkspace?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      if (leftSortOrder !== rightSortOrder) {
+        return leftSortOrder - rightSortOrder;
+      }
+      const leftLastOpenedAt = leftWorkspace?.lastOpenedAt ?? "";
+      const rightLastOpenedAt = rightWorkspace?.lastOpenedAt ?? "";
+      if (leftLastOpenedAt !== rightLastOpenedAt) {
+        return leftLastOpenedAt.localeCompare(rightLastOpenedAt);
+      }
+      const leftPath = workspacesById.get(left)?.path ?? left;
+      const rightPath = workspacesById.get(right)?.path ?? right;
+      if (leftPath.length !== rightPath.length) {
+        return leftPath.length - rightPath.length;
+      }
+      return leftPath.localeCompare(rightPath);
+    })[0];
+}
+
+function linkedWorktreeBranchName(
+  workspace: WorkspaceCatalogEntry,
+  worktrees: readonly WorktreeCatalogEntry[],
+  rootWorkspaceId: string,
+): string | undefined {
+  return worktrees.find(
+    (worktree) =>
+      worktree.kind === "linked" &&
+      worktree.path === workspace.path &&
+      worktree.workspaceId === rootWorkspaceId,
+  )?.branchName;
 }
 
 function buildSessionRecord(

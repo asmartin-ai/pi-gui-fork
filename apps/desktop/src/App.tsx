@@ -30,6 +30,8 @@ import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } from "./extension-session-ui";
+import { getEffectiveModelRuntime } from "./model-settings";
+import { resolveRepoWorkspaceId } from "./workspace-roots";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -186,23 +188,24 @@ export default function App() {
         .filter((worktree) => Boolean(worktree.linkedWorkspaceId))
         .map((worktree) => [worktree.linkedWorkspaceId as string, worktree] as const),
     );
+    const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace?.id);
     const nextRootWorkspace =
-      selectedWorkspace?.kind === "worktree"
-        ? snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspace.rootWorkspaceId) ?? selectedWorkspace
-        : selectedWorkspace;
+      (nextRootWorkspaceId ? snapshot.workspaces.find((workspace) => workspace.id === nextRootWorkspaceId) : undefined)
+      ?? selectedWorkspace;
+    const nextRootWorkspaceOptions = [...new Set(snapshot.workspaces.map((workspace) => resolveRepoWorkspaceId(snapshot.workspaces, workspace.id) ?? workspace.id))]
+      .map((workspaceId) => snapshot.workspaces.find((workspace) => workspace.id === workspaceId))
+      .filter((workspace): workspace is WorkspaceRecord => Boolean(workspace));
 
     return {
       activeWorktrees: nextRootWorkspace ? snapshot.worktreesByWorkspace[nextRootWorkspace.id] ?? [] : [],
       linkedWorktreeByWorkspaceId: nextLinkedWorktreeByWorkspaceId,
       rootWorkspace: nextRootWorkspace,
-      rootWorkspaceOptions:
-        primaryWorkspaces.length > 0
-          ? primaryWorkspaces
-          : nextVisibleWorkspaces.filter((workspace) => workspace.kind !== "worktree"),
+      rootWorkspaceOptions: nextRootWorkspaceOptions,
       visibleWorkspaces: nextVisibleWorkspaces,
     };
   }, [selectedWorkspace, snapshot]);
   const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
+  const selectedModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, selectedWorkspace) : undefined;
   const selectedWorktree = selectedWorkspace ? linkedWorktreeByWorkspaceId.get(selectedWorkspace.id) : undefined;
   const settingsWorkspace = settingsWorkspaceId
     ? rootWorkspaceOptions.find((workspace) => workspace.id === settingsWorkspaceId)
@@ -214,6 +217,7 @@ export default function App() {
     ? rootWorkspaceOptions.find((workspace) => workspace.id === extensionsWorkspaceId)
     : undefined;
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
+  const settingsModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, settingsWorkspace) : undefined;
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
   const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
   const extensionsCommandCompatibility = extensionsWorkspace
@@ -221,7 +225,7 @@ export default function App() {
     : [];
   const newThreadWorkspace =
     rootWorkspaceOptions.find((entry) => entry.id === newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
-  const newThreadRuntime = newThreadWorkspace ? snapshot?.runtimeByWorkspace[newThreadWorkspace.id] : undefined;
+  const newThreadRuntime = snapshot ? getEffectiveModelRuntime(snapshot, newThreadWorkspace) : undefined;
   const newThreadDefaultEnabled = buildModelOptions(newThreadRuntime).some(
     (m) => m.providerId === newThreadRuntime?.settings.defaultProvider && m.modelId === newThreadRuntime?.settings.defaultModelId,
   );
@@ -246,7 +250,6 @@ export default function App() {
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace, snapshot?.workspaceOrder],
   );
-
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
       composerRef.current?.focus();
@@ -274,6 +277,7 @@ export default function App() {
     composerDraft,
     setComposerDraft,
     selectedRuntime,
+    selectedModelRuntime,
     sessionCommands: selectedSessionCommands,
     commandCompatibility: selectedWorkspaceCommandCompatibility,
     selectedSessionKey,
@@ -411,6 +415,13 @@ export default function App() {
   useEffect(() => {
     if (!snapshot) {
       return;
+    }
+
+    if (snapshot.activeView === "new-thread" && previousActiveViewRef.current !== "new-thread") {
+      const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace?.id);
+      if (nextRootWorkspaceId) {
+        setNewThreadRootWorkspaceId(nextRootWorkspaceId);
+      }
     }
 
     if (
@@ -670,6 +681,13 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(settingsWorkspace.id, patterns));
   };
 
+  const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
+    if (!api) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setModelSettingsScopeMode(mode));
+  };
+
   const handleLoginProvider = (providerId: string) => {
     if (!settingsWorkspace) {
       return;
@@ -727,8 +745,7 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 
-  const handleArchiveSession = (rootWorkspaceId: string, target: { workspaceId: string; sessionId: string }) => {
-    wsMenu.toggleArchived(rootWorkspaceId, true);
+  const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
 
@@ -866,7 +883,7 @@ export default function App() {
         testId="settings-surface"
         title="Settings"
       >
-        {settingsSection === "providers" || settingsSection === "models" ? (
+        {settingsSection === "providers" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
           <div className="surface-toolbar">
             <label className="surface-toolbar__field">
               <span>Workspace</span>
@@ -885,13 +902,15 @@ export default function App() {
         ) : null}
         <SettingsView
           workspace={settingsWorkspace}
-          runtime={settingsRuntime}
+          runtime={settingsSection === "models" ? settingsModelRuntime : settingsRuntime}
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
+          modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           themeMode={themeMode}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onRefresh={handleRefreshRuntime}
+          onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
@@ -992,7 +1011,7 @@ export default function App() {
         api={api}
         setSnapshot={setSnapshot}
         updateSnapshot={updateSnapshot}
-        onNewThread={() => openNewThreadSurface()}
+        onNewThread={() => openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
         onSetActiveView={setActiveView}
         onOpenSkills={openSkills}
         onOpenExtensions={openExtensions}
@@ -1096,12 +1115,13 @@ export default function App() {
               </div>
             </section>
             <ComposerPanel
+              key={selectedSessionKey}
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
               attachments={composerAttachments}
               composerDraft={composerDraft}
               composerRef={composerRef}
-              runtime={selectedRuntime}
+              runtime={selectedModelRuntime}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
               onComposerPaste={handleComposerPaste}
@@ -1150,7 +1170,7 @@ export default function App() {
                 <button
                   className="button button--primary"
                   type="button"
-                  onClick={() => openNewThreadSurface()}
+                  onClick={() => openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
                 >
                   New thread
                 </button>
