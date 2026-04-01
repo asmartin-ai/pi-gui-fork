@@ -65,6 +65,8 @@ declare module "@pi-gui/session-driver" {
 
   export interface CreateSessionOptions {
     readonly title?: string;
+    readonly initialModel?: SessionModelSelection;
+    readonly initialThinkingLevel?: string;
   }
 
   export interface SessionErrorInfo {

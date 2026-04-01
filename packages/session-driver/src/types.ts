@@ -53,6 +53,8 @@ export interface SessionMessageInput {
 
 export interface CreateSessionOptions {
   readonly title?: string;
+  readonly initialModel?: SessionModelSelection;
+  readonly initialThinkingLevel?: string;
 }
 
 export interface SessionEventBase {

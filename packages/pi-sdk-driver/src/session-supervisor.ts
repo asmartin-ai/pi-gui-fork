@@ -273,11 +273,22 @@ export class SessionSupervisor {
   async createSession(workspace: WorkspaceRef, options?: CreateSessionOptions): Promise<SessionSnapshot> {
     await this.touchWorkspace(workspace);
 
-    const { session } = await this.createAgentSessionImpl({
+    const initialModel = options?.initialModel
+      ? this.resolveModel(options.initialModel.provider, options.initialModel.modelId)
+      : undefined;
+    const createOptions: CreateAgentSessionOptions = {
       cwd: workspace.path,
       sessionManager: SessionManager.create(workspace.path),
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
-    });
+    };
+    if (initialModel) {
+      createOptions.model = initialModel;
+    }
+    if (options?.initialThinkingLevel) {
+      createOptions.thinkingLevel = options.initialThinkingLevel as NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
+    }
+
+    const { session } = await this.createAgentSessionImpl(createOptions);
 
     const record = this.createRecord(workspace, session, options?.title ?? deriveWorkspaceTitle(workspace));
     session.sessionManager.appendSessionInfo(record.title);
@@ -392,7 +403,22 @@ export class SessionSupervisor {
       throw new Error(`Session ${sessionKey(record.ref)} is not active.`);
     }
 
-    await session.setModel(this.resolveModel(selection.provider, selection.modelId));
+    const model = this.resolveModel(selection.provider, selection.modelId);
+    const apiKey = await session.modelRegistry.getApiKey(model);
+    if (!apiKey) {
+      throw new Error(`No API key for ${model.provider}/${model.id}`);
+    }
+
+    const previousModel = session.model;
+    const previousThinkingLevel = session.supportsThinking()
+      ? session.thinkingLevel
+      : (session.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_SESSION_THINKING_LEVEL);
+
+    session.agent.setModel(model);
+    session.sessionManager.appendModelChange(model.provider, model.id);
+    this.applySessionThinkingLevel(session, previousThinkingLevel);
+    await this.emitModelSelection(session, model, previousModel);
+    forcePersistSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -400,10 +426,10 @@ export class SessionSupervisor {
 
   async setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
-    const sessionManager = this.getWritableSessionManager(record);
-    sessionManager.appendThinkingLevelChange(thinkingLevel);
-    forcePersistSession(sessionManager);
-    record.config = deriveSessionConfig(sessionManager);
+    const session = this.requireSession(record);
+    this.applySessionThinkingLevel(session, thinkingLevel);
+    forcePersistSession(session.sessionManager);
+    record.config = deriveSessionConfig(session.sessionManager);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -838,6 +864,33 @@ export class SessionSupervisor {
       throw new Error(`Unknown model ${provider}:${modelId}`);
     }
     return model;
+  }
+
+  private applySessionThinkingLevel(session: AgentSession, thinkingLevel: string): void {
+    const availableLevels = session.getAvailableThinkingLevels();
+    const effectiveLevel = clampThinkingLevel(thinkingLevel, availableLevels) as Parameters<
+      AgentSession["agent"]["setThinkingLevel"]
+    >[0];
+    if (effectiveLevel !== session.agent.state.thinkingLevel) {
+      session.agent.setThinkingLevel(effectiveLevel);
+      session.sessionManager.appendThinkingLevelChange(effectiveLevel);
+      return;
+    }
+    session.agent.setThinkingLevel(effectiveLevel);
+  }
+
+  private async emitModelSelection(
+    session: AgentSession,
+    model: ReturnType<SessionSupervisor["resolveModel"]>,
+    previousModel: AgentSession["model"],
+  ): Promise<void> {
+    const emitModelSelect = (session as unknown as {
+      _emitModelSelect?: (nextModel: unknown, previousModel: unknown, source: string) => Promise<void>;
+    })._emitModelSelect;
+    if (!emitModelSelect) {
+      return;
+    }
+    await emitModelSelect.call(session, model, previousModel, "set");
   }
 
   private emitHostUiRequest(
@@ -1293,6 +1346,36 @@ export class SessionSupervisor {
 
     await this.catalogs.sessions.upsertSession(nextEntry);
   }
+}
+
+const DEFAULT_SESSION_THINKING_LEVEL = "medium";
+const THINKING_LEVEL_ORDER = ["off", "low", "medium", "high", "xhigh"] as const;
+
+function clampThinkingLevel(level: string, availableLevels: readonly string[]): string {
+  const available = new Set(availableLevels);
+  const requestedIndex = THINKING_LEVEL_ORDER.indexOf(level as (typeof THINKING_LEVEL_ORDER)[number]);
+  if (requestedIndex === -1) {
+    return availableLevels[0] ?? "off";
+  }
+  for (let index = requestedIndex; index < THINKING_LEVEL_ORDER.length; index += 1) {
+    const candidate = THINKING_LEVEL_ORDER[index];
+    if (!candidate) {
+      continue;
+    }
+    if (available.has(candidate)) {
+      return candidate;
+    }
+  }
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = THINKING_LEVEL_ORDER[index];
+    if (!candidate) {
+      continue;
+    }
+    if (available.has(candidate)) {
+      return candidate;
+    }
+  }
+  return availableLevels[0] ?? "off";
 }
 
 async function createCanonicalWorkspaceRef(path: string, displayName?: string): Promise<WorkspaceRef> {
