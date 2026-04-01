@@ -105,6 +105,7 @@ export type StartThreadInput = {
   readonly rootWorkspaceId: string;
   readonly environment: NewThreadEnvironment;
   readonly prompt?: string;
+  readonly attachments?: readonly ComposerImageAttachment[];
   readonly provider?: string;
   readonly modelId?: string;
   readonly thinkingLevel?: string;

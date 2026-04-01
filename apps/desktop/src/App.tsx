@@ -4,6 +4,7 @@ import {
   getSelectedSession,
   getSelectedWorkspace,
   type AppView,
+  type ComposerImageAttachment,
   type DesktopAppState,
   type NewThreadEnvironment,
   type StartThreadInput,
@@ -13,7 +14,7 @@ import {
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
 import { DiffPanel } from "./diff-panel";
-import { buildModelOptions, type ComposerSlashCommand } from "./composer-commands";
+import { buildModelOptions } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
 import { SkillsView } from "./skills-view";
 import { ExtensionsView } from "./extensions-view";
@@ -122,12 +123,14 @@ export default function App() {
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<NewThreadEnvironment>("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
+  const [newThreadAttachments, setNewThreadAttachments] = useState<readonly ComposerImageAttachment[]>([]);
   const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
@@ -255,6 +258,11 @@ export default function App() {
       composerRef.current?.focus();
     });
   };
+  const focusNewThreadComposer = () => {
+    window.requestAnimationFrame(() => {
+      newThreadComposerRef.current?.focus();
+    });
+  };
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -296,6 +304,50 @@ export default function App() {
     setComposerDraft,
     composerRef,
     workspaceId: selectedWorkspace?.id,
+    api,
+  });
+
+  const newThreadSlashMenu = useSlashMenu({
+    composerDraft: newThreadPrompt,
+    setComposerDraft: setNewThreadPrompt,
+    selectedRuntime: newThreadRuntime,
+    selectedModelRuntime: newThreadRuntime,
+    sessionCommands: [],
+    commandCompatibility: [],
+    selectedSessionKey: `new-thread:${newThreadWorkspace?.id ?? ""}`,
+    selectedSession: undefined,
+    selectedWorkspace: newThreadWorkspace,
+    isRunning: false,
+    api,
+    setSnapshot,
+    focusComposer: focusNewThreadComposer,
+    openSettings,
+    updateSnapshot,
+    immediateCommandMode: "prefill",
+    onSelectModelOption: (provider, modelId) => {
+      setNewThreadProvider(provider);
+      setNewThreadModelId(modelId);
+    },
+    onSelectThinkingOption: setNewThreadThinkingLevel,
+    onSelectLoginProvider: (providerId) => {
+      if (!api || !newThreadWorkspace) {
+        return;
+      }
+      void updateSnapshot(api, setSnapshot, () => api.loginProvider(newThreadWorkspace.id, providerId));
+    },
+    onSelectLogoutProvider: (providerId) => {
+      if (!api || !newThreadWorkspace) {
+        return;
+      }
+      void updateSnapshot(api, setSnapshot, () => api.logoutProvider(newThreadWorkspace.id, providerId));
+    },
+  });
+
+  const newThreadMentionMenu = useMentionMenu({
+    composerDraft: newThreadPrompt,
+    setComposerDraft: setNewThreadPrompt,
+    composerRef: newThreadComposerRef,
+    workspaceId: newThreadWorkspace?.id,
     api,
   });
 
@@ -344,6 +396,7 @@ export default function App() {
       setExtensionsWorkspaceId("");
       setNewThreadRootWorkspaceId("");
       setNewThreadEnvironment("local");
+      setNewThreadAttachments([]);
       return;
     }
     setSettingsWorkspaceId((current) =>
@@ -528,11 +581,16 @@ export default function App() {
     }
     setNewThreadEnvironment("local");
     setNewThreadPrompt("");
+    setNewThreadAttachments([]);
+    setNewThreadProvider(undefined);
+    setNewThreadModelId(undefined);
+    setNewThreadThinkingLevel(undefined);
     setActiveView("new-thread");
   };
 
   const handleSelectNewThreadWorkspace = (workspaceId: string) => {
     setNewThreadRootWorkspaceId(workspaceId);
+    setNewThreadAttachments([]);
     setNewThreadProvider(undefined);
     setNewThreadModelId(undefined);
     setNewThreadThinkingLevel(undefined);
@@ -573,6 +631,19 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerImage(attachmentId));
   };
 
+  const handleNewThreadAddImages = (files: File[]) => {
+    void readComposerAttachmentsFromFiles(files).then((attachments) => {
+      if (attachments.length === 0) {
+        return;
+      }
+      setNewThreadAttachments((current) => [...current, ...attachments]);
+    });
+  };
+
+  const handleNewThreadRemoveImage = (attachmentId: string) => {
+    setNewThreadAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+  };
+
   const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const items = event.clipboardData?.items;
     if (!items) {
@@ -583,7 +654,20 @@ export default function App() {
       return;
     }
     event.preventDefault();
-    void addImagesFromFiles(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+    void addImagesToSessionComposer(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
+  };
+
+  const handleNewThreadComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items) {
+      return;
+    }
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    handleNewThreadAddImages(imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[]);
   };
 
   const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -592,17 +676,23 @@ export default function App() {
     if (files.length === 0) {
       return;
     }
-    void addImagesFromFiles(files);
+    void addImagesToSessionComposer(files);
   };
 
-  async function addImagesFromFiles(files: File[]) {
-    if (!api) {
+  const handleNewThreadComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
       return;
     }
+    handleNewThreadAddImages(files);
+  };
+
+  async function readComposerAttachmentsFromFiles(files: File[]): Promise<ComposerImageAttachment[]> {
     const attachments = await Promise.all(
       files.map(
         (file) =>
-          new Promise<{ id: string; name: string; mimeType: string; data: string } | null>((resolve) => {
+          new Promise<ComposerImageAttachment | null>((resolve) => {
             const reader = new FileReader();
             reader.onload = () => {
               const dataUrl = reader.result as string;
@@ -619,8 +709,17 @@ export default function App() {
           }),
       ),
     );
-    const valid = attachments.filter(Boolean) as { id: string; name: string; mimeType: string; data: string }[];
-    if (valid.length === 0) return;
+    return attachments.filter(Boolean) as ComposerImageAttachment[];
+  }
+
+  async function addImagesToSessionComposer(files: File[]) {
+    if (!api) {
+      return;
+    }
+    const valid = await readComposerAttachmentsFromFiles(files);
+    if (valid.length === 0) {
+      return;
+    }
     void updateSnapshot(api, setSnapshot, () => api.addComposerImages(valid));
   }
 
@@ -788,11 +887,12 @@ export default function App() {
   };
 
   const handleStartThread = () => {
-    if (!newThreadRootWorkspaceId || !newThreadPrompt.trim()) {
+    if (!newThreadRootWorkspaceId || (!newThreadPrompt.trim() && newThreadAttachments.length === 0)) {
       return;
     }
     const modelConfig = {
       prompt: newThreadPrompt,
+      attachments: newThreadAttachments,
       provider: resolvedNewThreadProvider,
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
@@ -807,6 +907,7 @@ export default function App() {
       api.startThread(input),
     ).then(() => {
       setNewThreadPrompt("");
+      setNewThreadAttachments([]);
       setNewThreadProvider(undefined);
       setNewThreadModelId(undefined);
       setNewThreadThinkingLevel(undefined);
@@ -863,6 +964,27 @@ export default function App() {
     }
 
     submitComposerDraft();
+  };
+
+  const handleNewThreadComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (newThreadMentionMenu.handleMentionKeyDown(event)) {
+      return;
+    }
+
+    if (newThreadSlashMenu.handleSlashKeyDown(event)) {
+      return;
+    }
+
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!newThreadPrompt.trim() && newThreadAttachments.length === 0) {
+      return;
+    }
+
+    handleStartThread();
   };
 
   const settingsNav = [
@@ -1047,14 +1169,41 @@ export default function App() {
               runtime={newThreadRuntime}
               environment={newThreadEnvironment}
               prompt={newThreadPrompt}
+              attachments={newThreadAttachments}
               provider={resolvedNewThreadProvider}
               modelId={resolvedNewThreadModelId}
               thinkingLevel={resolvedNewThreadThinkingLevel}
+              composerRef={newThreadComposerRef}
+              activeSlashCommand={newThreadSlashMenu.activeSlashFlow?.command}
+              activeSlashCommandMeta={newThreadSlashMenu.activeSlashFlow?.command?.description}
+              slashSections={newThreadSlashMenu.slashSections}
+              slashOptions={newThreadSlashMenu.slashOptions}
+              selectedSlashCommand={newThreadSlashMenu.activeSlashOptionCommand ?? newThreadSlashMenu.selectedSlashCommand}
+              selectedSlashOption={newThreadSlashMenu.selectedSlashOption}
+              showSlashMenu={newThreadSlashMenu.showSlashMenu}
+              showSlashOptionMenu={newThreadSlashMenu.showSlashOptionMenu}
+              slashOptionEmptyState={newThreadSlashMenu.slashOptionEmptyState}
+              showMentionMenu={newThreadMentionMenu.showMentionMenu}
+              mentionOptions={newThreadMentionMenu.mentionOptions}
+              selectedMentionIndex={newThreadMentionMenu.selectedIndex}
               onChangePrompt={setNewThreadPrompt}
               onSelectEnvironment={setNewThreadEnvironment}
               onSelectWorkspace={handleSelectNewThreadWorkspace}
               onSetModel={(provider, modelId) => { setNewThreadProvider(provider); setNewThreadModelId(modelId); }}
               onSetThinking={setNewThreadThinkingLevel}
+              onComposerKeyDown={handleNewThreadComposerKeyDown}
+              onComposerPaste={handleNewThreadComposerPaste}
+              onComposerDrop={handleNewThreadComposerDrop}
+              onClearSlashCommand={newThreadSlashMenu.resetSlashUi}
+              onSelectSlashCommand={(command) => {
+                newThreadSlashMenu.applySlashCommandSelection(command, "click");
+              }}
+              onSelectSlashOption={(option) => {
+                newThreadSlashMenu.applySlashOptionSelection(option);
+              }}
+              onSelectMention={newThreadMentionMenu.insertMention}
+              onAddImages={handleNewThreadAddImages}
+              onRemoveImage={handleNewThreadRemoveImage}
               onSubmit={handleStartThread}
             />
           ) : (

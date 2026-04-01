@@ -111,6 +111,32 @@ export function SparkIcon() {
   );
 }
 
+export function PiLogoMark() {
+  return (
+    <Icon>
+      <path
+        d="M5 5.25h10"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M8 5.25v9.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M8 10.5c0-1.55 1.15-2.8 2.6-2.8 1.05 0 1.95.5 2.45 1.45"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </Icon>
+  );
+}
+
 export function SettingsIcon() {
   return (
     <Icon>
