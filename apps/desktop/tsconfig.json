@@ -17,6 +17,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "vite.config.ts"],
-  "exclude": ["electron", "dist", "dist-electron", "node_modules"]
+  "include": ["src"],
+  "exclude": ["electron", "dist", "dist-electron", "out", "node_modules"]
 }

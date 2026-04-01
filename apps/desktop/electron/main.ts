@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
+import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
@@ -20,8 +21,9 @@ import type {
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 
-const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowTestMode = resolveWindowTestMode();
+const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 let store: DesktopAppStore;
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
@@ -49,7 +51,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 18, y: 18 },
     show: false,
     webPreferences: {
-      preload: path.join(app.getAppPath(), "dist-electron", "preload.js"),
+      preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -81,12 +83,12 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDev) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
+    void window.loadURL(process.env.ELECTRON_RENDERER_URL as string);
     if (process.env.PI_APP_OPEN_DEVTOOLS !== "0") {
       window.webContents.openDevTools({ mode: "detach" });
     }
   } else {
-    const indexPath = path.join(app.getAppPath(), "dist", "index.html");
+    const indexPath = path.join(__dirname, "..", "renderer", "index.html");
     void window.loadURL(pathToFileURL(indexPath).toString());
   }
 
@@ -123,7 +125,9 @@ app.whenReady().then(async () => {
     stopUpdateChecker = initUpdateChecker();
   }
 
-  ipcMain.handle(desktopIpc.ping, () => "pi desktop ready");
+  ipcMain.handle(desktopIpc.ping, () =>
+    devReloadMarkersEnabled ? `pi desktop ready:${MAIN_DEV_RELOAD_MARKER}` : "pi desktop ready",
+  );
   ipcMain.handle(desktopIpc.getThemeMode, () => themeManager.getMode());
   ipcMain.handle(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
   ipcMain.handle(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
@@ -180,6 +184,7 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.setActiveView, (_event, activeView) => store.setActiveView(activeView));
   ipcMain.handle(desktopIpc.refreshRuntime, (_event, workspaceId?: string) => store.refreshRuntime(workspaceId));
+  ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));
   ipcMain.handle(desktopIpc.setSessionModel, (_event, workspaceId: string, sessionId: string, provider: string, modelId: string) =>
     store.setSessionModel({ workspaceId, sessionId }, provider, modelId),
   );
@@ -400,4 +405,3 @@ async function promptForText(message: string, placeholder = ""): Promise<string>
   }
   return result.trim();
 }
-  ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));

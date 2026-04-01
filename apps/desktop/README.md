@@ -24,6 +24,14 @@ Run the app in development:
 pnpm --filter @pi-gui/desktop dev
 ```
 
+`dev` now runs through `electron-vite`, so renderer edits hot-update in place and Electron `main` / `preload` changes trigger the appropriate reload or restart behavior automatically. The desktop dev launcher also rebuilds the shared workspace packages up front and keeps them in watch mode so Node-side package changes can be picked up without manual rebuilds.
+
+Run the built app locally without packaging:
+
+```bash
+pnpm --filter @pi-gui/desktop preview
+```
+
 Live agent tests use your existing `pi` runtime and provider auth. If local `pi` runs do not work, the `live` lane will not be meaningful either.
 
 ## Test Lanes
@@ -85,6 +93,14 @@ pnpm --filter @pi-gui/desktop run test:native:paste
 pnpm --filter @pi-gui/desktop run test:native:open-folder
 pnpm --filter @pi-gui/desktop run test:native:attach-image
 ```
+
+For dev-loop verification, use:
+
+```bash
+pnpm --filter @pi-gui/desktop run test:dev:reload
+```
+
+That spec launches the app in development mode, edits isolated probe modules for renderer/Electron/shared-package wiring, and proves the running window picks up the changes.
 
 ## Test Conventions
 

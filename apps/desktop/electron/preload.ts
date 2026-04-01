@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { PRELOAD_DEV_RELOAD_MARKER } from "./dev-reload-preload-probe";
 import { desktopIpc, type PiDesktopCommand } from "../src/ipc";
 import type { HostUiResponse } from "@pi-gui/session-driver";
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
@@ -13,6 +14,24 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
+
+const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
+
+function resolveDevReloadMarkers() {
+  if (!devReloadMarkersEnabled) {
+    return undefined;
+  }
+
+  return {
+    preload: PRELOAD_DEV_RELOAD_MARKER,
+  };
+}
+
+const devReloadMarkers = resolveDevReloadMarkers();
+
+if (devReloadMarkers) {
+  contextBridge.exposeInMainWorld("__piDevReloadHost", devReloadMarkers);
+}
 
 contextBridge.exposeInMainWorld("piApp", {
   platform: process.platform,
@@ -75,6 +94,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
   refreshRuntime: (workspaceId?: string) =>
     ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<DesktopAppState>,
+  setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>
+    ipcRenderer.invoke(desktopIpc.setModelSettingsScopeMode, mode) as Promise<DesktopAppState>,
   setDefaultModel: (workspaceId: string, provider: string, modelId: string) =>
     ipcRenderer.invoke(desktopIpc.setDefaultModel, workspaceId, provider, modelId) as Promise<DesktopAppState>,
   setDefaultThinkingLevel: (workspaceId: string, thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) =>
@@ -130,5 +151,3 @@ contextBridge.exposeInMainWorld("piApp", {
     };
   },
 });
-  setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>
-    ipcRenderer.invoke(desktopIpc.setModelSettingsScopeMode, mode) as Promise<DesktopAppState>,

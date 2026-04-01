@@ -7,8 +7,7 @@ directories:
   buildResources: resources
 
 files:
-  - dist/**/*
-  - dist-electron/**/*
+  - out/**/*
   - package.json
 
 asar: true
