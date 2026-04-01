@@ -28,6 +28,7 @@ export interface DesktopHarness {
   electronApp: ElectronApplication;
   firstWindow(): Promise<Page>;
   focusWindow(): Promise<void>;
+  backgroundWindow(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -76,10 +77,17 @@ export async function launchDesktop(
     focusWindow: async () => {
       await electronApp.evaluate(({ BrowserWindow }) => {
         const window = BrowserWindow.getAllWindows()[0];
+        window?.restore();
         window?.show();
         window?.focus();
       });
       await (await getWindow()).bringToFront();
+    },
+    backgroundWindow: async () => {
+      await electronApp.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window?.hide();
+      });
     },
     close: async () => {
       await electronApp.close();

@@ -6,6 +6,7 @@ import type { DesktopAppState } from "../src/desktop-state";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import { getSelectedSession } from "../src/desktop-state";
+import { isSessionActivelyViewed } from "./session-visibility";
 
 export class NotificationManager {
   private readonly completedRunKeys = new Set<string>();
@@ -21,7 +22,18 @@ export class NotificationManager {
     const stopState = this.store.subscribe((state) => {
       this.latestState = state;
       const selectedSession = getSelectedSession(state);
-      if (selectedSession) {
+      const window = this.getWindow();
+      if (
+        selectedSession &&
+        isSessionActivelyViewed(
+          state,
+          {
+            workspaceId: state.selectedWorkspaceId,
+            sessionId: state.selectedSessionId,
+          },
+          window,
+        )
+      ) {
         this.dismissForSession({
           workspaceId: state.selectedWorkspaceId,
           sessionId: state.selectedSessionId,
@@ -91,19 +103,7 @@ export class NotificationManager {
       return true;
     }
 
-    const selected = this.latestState
-      ? {
-          workspaceId: this.latestState.selectedWorkspaceId,
-          sessionId: this.latestState.selectedSessionId,
-        }
-      : undefined;
-
-    const isFocusedSession =
-      selected &&
-      selected.workspaceId === event.sessionRef.workspaceId &&
-      selected.sessionId === event.sessionRef.sessionId;
-
-    return !(window.isFocused() && isFocusedSession);
+    return !isSessionActivelyViewed(this.latestState, event.sessionRef, window);
   }
 
   private async showNotification(sessionRef: SessionRef, title: string, body: string): Promise<void> {

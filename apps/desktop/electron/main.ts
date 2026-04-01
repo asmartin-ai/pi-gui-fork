@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -10,7 +10,7 @@ import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
-import type { ThemeMode } from "../src/desktop-state";
+import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import type {
   ComposerImageAttachment,
@@ -40,6 +40,7 @@ const SUPPORTED_IMAGE_TYPES = [
   { extension: "gif", mimeType: "image/gif" },
   { extension: "webp", mimeType: "image/webp" },
 ] as const;
+const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
@@ -69,6 +70,13 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") {
+      return;
+    }
+
+    const lowerKey = input.key.toLowerCase();
+    if (process.platform === "darwin" && input.meta && !input.shift && lowerKey === "o") {
+      event.preventDefault();
+      void pickWorkspaceViaDialog();
       return;
     }
 
@@ -110,13 +118,19 @@ function attachStatePublisher(window: BrowserWindow): void {
       window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
     }
   });
+  const markViewedOnFocus = () => {
+    void store.markSelectedSessionViewedOnWindowFocus();
+  };
+  window.on("focus", markViewedOnFocus);
   window.webContents.once("render-process-gone", () => {
+    window.off("focus", markViewedOnFocus);
     stopPublishingState?.();
     stopPublishingState = undefined;
     stopPublishingSelectedTranscript?.();
     stopPublishingSelectedTranscript = undefined;
   });
   window.once("closed", () => {
+    window.off("focus", markViewedOnFocus);
     stopPublishingState?.();
     stopPublishingState = undefined;
     stopPublishingSelectedTranscript?.();
@@ -131,6 +145,53 @@ function canPublishToWindow(window: BrowserWindow): boolean {
   return !window.isDestroyed() && !window.webContents.isDestroyed() && !window.webContents.isCrashed();
 }
 
+async function pickWorkspaceViaDialog(): Promise<DesktopAppState> {
+  const window = mainWindow && canPublishToWindow(mainWindow) ? mainWindow : undefined;
+  const result = window
+    ? await dialog.showOpenDialog(window, {
+        properties: ["openDirectory"],
+        title: "Open workspace folder",
+      })
+    : await dialog.showOpenDialog({
+        properties: ["openDirectory"],
+        title: "Open workspace folder",
+      });
+  if (result.canceled || result.filePaths.length === 0) {
+    return store.getState();
+  }
+  return store.addWorkspace(result.filePaths[0] as string);
+}
+
+function installApplicationMenu(): void {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const template: MenuItemConstructorOptions[] = [
+    { role: "appMenu" },
+    {
+      label: "File",
+      submenu: [
+        {
+          id: OPEN_FOLDER_MENU_ITEM_ID,
+          label: "Open Folder…",
+          accelerator: "Command+O",
+          click: () => {
+            void pickWorkspaceViaDialog();
+          },
+        },
+        { type: "separator" },
+        { role: "close" },
+      ],
+    },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.setName("pi");
 
 app.whenReady().then(async () => {
@@ -138,8 +199,10 @@ app.whenReady().then(async () => {
   store = new DesktopAppStore({
     userDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
+    getWindow: () => mainWindow,
   });
   await store.initialize();
+  installApplicationMenu();
   if (process.env.PI_APP_TEST_MODE) {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
@@ -171,16 +234,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.stateRequest, () => store.getState());
   ipcMain.handle(desktopIpc.selectedTranscriptRequest, () => store.getSelectedTranscript());
   ipcMain.handle(desktopIpc.addWorkspacePath, (_event, workspacePath: string) => store.addWorkspace(workspacePath));
-  ipcMain.handle(desktopIpc.pickWorkspace, async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openDirectory"],
-      title: "Open workspace folder",
-    });
-    if (result.canceled || result.filePaths.length === 0) {
-      return store.getState();
-    }
-    return store.addWorkspace(result.filePaths[0] as string);
-  });
+  ipcMain.handle(desktopIpc.pickWorkspace, () => pickWorkspaceViaDialog());
   ipcMain.handle(desktopIpc.selectWorkspace, (_event, workspaceId: string) => store.selectWorkspace(workspaceId));
   ipcMain.handle(desktopIpc.renameWorkspace, (_event, workspaceId: string, displayName: string) =>
     store.renameWorkspace(workspaceId, displayName),

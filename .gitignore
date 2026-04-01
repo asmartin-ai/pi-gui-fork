@@ -13,3 +13,13 @@ test-results/
 tmp-chat-parity.png
 tmp-latest-design.png
 tmp-sample-design.png
+
+# Vite dev build artifacts
+*.js
+*.css
+!/apps/**/*.js
+!/apps/**/*.css
+!/packages/**/*.js
+!/packages/**/*.css
+index.html
+!apps/**/index.html

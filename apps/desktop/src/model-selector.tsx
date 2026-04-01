@@ -19,6 +19,7 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
+  const hasModelControl = Boolean(provider && modelId) || groupedModels.length > 0;
 
   useEffect(() => {
     if (open === "none") return undefined;
@@ -43,13 +44,13 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
     };
   }, [open]);
 
-  if (!provider && !modelId && !thinkingLevel) {
+  if (!hasModelControl && !thinkingLevel) {
     return null;
   }
 
   return (
     <span className="model-selector" ref={containerRef}>
-      {provider && modelId ? (
+      {hasModelControl ? (
         <span className="model-selector__anchor">
           <button
             className="model-selector__badge"
@@ -57,7 +58,7 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
             disabled={disabled}
             onClick={() => setOpen(open === "model" ? "none" : "model")}
           >
-            {provider}:{modelId}
+            {provider && modelId ? `${provider}:${modelId}` : "Choose model"}
           </button>
           {open === "model" ? (
             <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>

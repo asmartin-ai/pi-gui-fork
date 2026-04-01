@@ -1,3 +1,4 @@
+import type { BrowserWindow } from "electron";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -78,6 +79,7 @@ import { GitWorktreeManager } from "./worktree-manager";
 import * as workspace from "./app-store-workspace";
 import * as worktree from "./app-store-worktree";
 import * as composer from "./app-store-composer";
+import { isSessionActivelyViewed } from "./session-visibility";
 
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
@@ -86,6 +88,7 @@ type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) 
 export interface DesktopAppStoreOptions {
   readonly userDataDir: string;
   readonly initialWorkspacePaths: readonly string[];
+  readonly getWindow?: () => BrowserWindow | null;
 }
 
 export class DesktopAppStore implements AppStoreInternals {
@@ -105,6 +108,7 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly pendingRuntimeCommandsBySession = new Map<string, PendingRuntimeCommandExecution>();
   private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
   private readonly initialWorkspacePaths: readonly string[];
+  private readonly getWindow: () => BrowserWindow | null;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
@@ -122,6 +126,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.transcriptStore = new JsonFileStore<TranscriptMessage[]>(options.userDataDir, "transcripts");
     this.attachmentStore = new JsonFileStore<ComposerImageAttachment[]>(options.userDataDir, "attachments");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
+    this.getWindow = options.getWindow ?? (() => null);
   }
 
   /* ── Lifecycle ──────────────────────────────────────────── */
@@ -1108,7 +1113,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.sessionState.runningSinceBySession,
       this.sessionState.lastViewedAtBySession,
     );
-    this.markSessionViewedIfVisible(event.sessionRef);
+    this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
     if (event.type !== "hostUiRequest") {
       this.persistTranscriptCacheForSession(event.sessionRef);
@@ -1473,34 +1478,46 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
+  async markSelectedSessionViewedOnWindowFocus(): Promise<void> {
+    await this.initialize();
+    const sessionRef = this.selectedSessionRef();
+    if (!sessionRef) {
+      return;
+    }
+
+    const didChange = this.markSessionViewedIfActivelyViewed(sessionRef);
+    if (!didChange) {
+      return;
+    }
+
+    await this.persistUiState();
+    this.emit();
+  }
+
   private markSelectedSessionViewedIfVisible(): void {
     if (this.state.activeView !== "threads" || !this.state.selectedWorkspaceId || !this.state.selectedSessionId) {
       return;
     }
 
-    this.markSessionViewedIfVisible({
+    this.markSessionViewed({
       workspaceId: this.state.selectedWorkspaceId,
       sessionId: this.state.selectedSessionId,
-    });
+    }, new Date().toISOString());
   }
 
-  private markSessionViewedIfVisible(sessionRef: SessionRef): void {
-    if (
-      this.state.activeView !== "threads" ||
-      this.state.selectedWorkspaceId !== sessionRef.workspaceId ||
-      this.state.selectedSessionId !== sessionRef.sessionId
-    ) {
-      return;
+  private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {
+    if (!isSessionActivelyViewed(this.state, sessionRef, this.getWindow())) {
+      return false;
     }
 
-    this.markSessionViewed(sessionRef, new Date().toISOString());
+    return this.markSessionViewed(sessionRef, new Date().toISOString());
   }
 
-  private markSessionViewed(sessionRef: SessionRef, viewedAt: string): void {
+  private markSessionViewed(sessionRef: SessionRef, viewedAt: string): boolean {
     const key = sessionKey(sessionRef);
     const current = this.sessionState.lastViewedAtBySession.get(key);
     if (current && current >= viewedAt) {
-      return;
+      return false;
     }
 
     this.sessionState.lastViewedAtBySession.set(key, viewedAt);
@@ -1524,6 +1541,7 @@ export class DesktopAppStore implements AppStoreInternals {
       ),
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
     };
+    return true;
   }
 
   private resolveComposerDraft(

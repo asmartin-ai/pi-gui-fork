@@ -209,7 +209,7 @@ export function NewThreadView({
                   <div className="composer__actions">
                     <input
                       ref={fileInputRef}
-                      className="sr-only"
+                      hidden
                       type="file"
                       accept="image/*"
                       multiple
