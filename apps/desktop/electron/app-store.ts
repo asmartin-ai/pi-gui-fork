@@ -107,7 +107,6 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly initialWorkspacePaths: readonly string[];
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
-  private selectedTranscriptRevision = 0;
   private initPromise: Promise<void> | undefined;
 
   constructor(options: DesktopAppStoreOptions) {
@@ -146,7 +145,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return null;
     }
     await this.ensureTranscriptLoaded(sessionRef);
-    return this.buildSelectedTranscriptRecord(sessionRef, this.selectedTranscriptRevision);
+    return this.buildSelectedTranscriptRecord(sessionRef);
   }
 
   async emitTestSessionEvent(event: SessionDriverEvent): Promise<void> {
@@ -1032,14 +1031,7 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "runCompleted" ||
         event.type === "hostUiRequest")
     ) {
-      const selectedKey =
-        this.state.selectedWorkspaceId && this.state.selectedSessionId
-          ? sessionKey({
-              workspaceId: this.state.selectedWorkspaceId,
-              sessionId: this.state.selectedSessionId,
-            })
-          : undefined;
-      const shouldFollowSessionMutation = subscriptionKey !== key && selectedKey === subscriptionKey;
+      const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
       await this.refreshState({
         selectedWorkspaceId:
           this.state.selectedWorkspaceId === event.sessionRef.workspaceId
@@ -1413,21 +1405,19 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private isSelectedSession(sessionRef: SessionRef): boolean {
-    return (
-      this.state.selectedWorkspaceId === sessionRef.workspaceId &&
-      this.state.selectedSessionId === sessionRef.sessionId
+    const selected = this.selectedSessionRef();
+    return Boolean(
+      selected &&
+      selected.workspaceId === sessionRef.workspaceId &&
+      selected.sessionId === sessionRef.sessionId,
     );
   }
 
-  private buildSelectedTranscriptRecord(
-    sessionRef: SessionRef,
-    revision: number,
-  ): SelectedTranscriptRecord {
+  private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
     return {
       workspaceId: sessionRef.workspaceId,
       sessionId: sessionRef.sessionId,
       transcript: (this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? []).map(cloneTranscriptMessage),
-      revision,
     };
   }
 
@@ -1441,7 +1431,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   publishSelectedTranscript(): void {
     const sessionRef = this.selectedSessionRef();
-    const payload = sessionRef ? this.buildSelectedTranscriptRecord(sessionRef, ++this.selectedTranscriptRevision) : null;
+    const payload = sessionRef ? this.buildSelectedTranscriptRecord(sessionRef) : null;
     for (const listener of this.selectedTranscriptListeners) {
       listener(payload);
     }

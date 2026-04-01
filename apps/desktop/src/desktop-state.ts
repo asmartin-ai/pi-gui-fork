@@ -41,7 +41,6 @@ export interface SelectedTranscriptRecord {
   readonly workspaceId: string;
   readonly sessionId: string;
   readonly transcript: readonly TranscriptMessage[];
-  readonly revision: number;
 }
 
 export interface WorktreeRecord {

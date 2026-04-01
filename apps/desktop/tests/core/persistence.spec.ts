@@ -9,6 +9,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   pasteTinyPng,
+  persistedSessionDataPaths,
 } from "../helpers/electron-app";
 
 test("pastes an image into the composer surface and clears the attachment chip on submit", async () => {
@@ -156,9 +157,10 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
     const state = await getDesktopState(window);
     workspaceId = state.selectedWorkspaceId;
     sessionId = state.selectedSessionId;
-    const encodedSessionKey = encodeURIComponent(`${workspaceId}:${sessionId}`);
-    const transcriptPath = join(userDataDir, "transcripts", `${encodedSessionKey}.json`);
-    const attachmentPath = join(userDataDir, "attachments", `${encodedSessionKey}.json`);
+    const { transcriptPath, attachmentPath } = persistedSessionDataPaths(userDataDir, {
+      workspaceId,
+      sessionId,
+    });
     await expect
       .poll(async () => {
         try {
@@ -181,10 +183,10 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
     await firstRun.close();
   }
 
-  const sessionKey = `${workspaceId}:${sessionId}`;
-  const encodedSessionKey = encodeURIComponent(sessionKey);
-  const transcriptPath = join(userDataDir, "transcripts", `${encodedSessionKey}.json`);
-  const attachmentPath = join(userDataDir, "attachments", `${encodedSessionKey}.json`);
+  const { rawSessionKey, transcriptPath, attachmentPath } = persistedSessionDataPaths(userDataDir, {
+    workspaceId,
+    sessionId,
+  });
   const [transcriptRaw, attachmentRaw, uiStateRaw] = await Promise.all([
     readFile(transcriptPath, "utf8"),
     readFile(attachmentPath, "utf8"),
@@ -199,10 +201,10 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
       {
         ...uiState,
         transcripts: {
-          [sessionKey]: JSON.parse(transcriptRaw),
+          [rawSessionKey]: JSON.parse(transcriptRaw),
         },
         composerAttachmentsBySession: {
-          [sessionKey]: JSON.parse(attachmentRaw),
+          [rawSessionKey]: JSON.parse(attachmentRaw),
         },
       },
       null,

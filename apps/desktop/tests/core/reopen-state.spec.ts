@@ -9,6 +9,7 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  persistedSessionDataPaths,
 } from "../helpers/electron-app";
 
 test("reopens persisted folders and thread state while a saved running session keeps streaming updates", async () => {
@@ -36,7 +37,10 @@ test("reopens persisted folders and thread state while a saved running session k
     workspaceId = state.selectedWorkspaceId;
     sessionId = state.selectedSessionId;
 
-    const transcriptPath = join(userDataDir, "transcripts", `${encodeURIComponent(`${workspaceId}:${sessionId}`)}.json`);
+    const { transcriptPath } = persistedSessionDataPaths(userDataDir, {
+      workspaceId,
+      sessionId,
+    });
     await expect
       .poll(async () => {
         try {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
+import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import type { PiDesktopApi } from "../../src/ipc";
 import type {
   DesktopAppState,
@@ -13,7 +14,6 @@ import type {
   SessionRecord,
   WorkspaceRecord,
 } from "../../src/desktop-state";
-import type { SessionDriverEvent } from "@pi-gui/session-driver";
 
 const desktopDir = resolve(__dirname, "..", "..");
 const execFileAsync = promisify(execFile);
@@ -223,6 +223,25 @@ export async function emitTestSessionEvent(
     }
     await hooks.emitSessionEvent(payload);
   }, event);
+}
+
+export function persistedSessionDataPaths(
+  userDataDir: string,
+  sessionRef: SessionRef,
+): {
+  transcriptPath: string;
+  attachmentPath: string;
+  encodedSessionKey: string;
+  rawSessionKey: string;
+} {
+  const rawSessionKey = `${sessionRef.workspaceId}:${sessionRef.sessionId}`;
+  const encodedSessionKey = encodeURIComponent(rawSessionKey);
+  return {
+    transcriptPath: join(userDataDir, "transcripts", `${encodedSessionKey}.json`),
+    attachmentPath: join(userDataDir, "attachments", `${encodedSessionKey}.json`),
+    encodedSessionKey,
+    rawSessionKey,
+  };
 }
 
 export function assertExists<T>(value: T | undefined | null, message: string): asserts value is T {
