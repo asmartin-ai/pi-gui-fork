@@ -66,7 +66,6 @@ export function updateSessionRecord(
     runningSince: options.runningSince,
     hasUnseenUpdate: hasUnseenSessionUpdate(nextStatus, updatedAt, options.lastViewedAt, options.transcript),
     config: options.snapshot?.config ?? session.config,
-    transcript: options.transcript,
   };
 }
 

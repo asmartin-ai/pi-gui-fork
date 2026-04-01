@@ -1545,7 +1545,7 @@ export class DesktopAppStore implements AppStoreInternals {
       lastError: undefined,
       revision: this.state.revision + 1,
     };
-    this.markSessionViewedIfVisible(sessionRef);
+    this.markSessionViewed(sessionRef, new Date().toISOString());
     this.schedulePersistUiState();
     return this.emit();
   }
@@ -1567,7 +1567,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    this.markSessionViewedIfVisible(sessionRef);
+    this.markSessionViewed(sessionRef, new Date().toISOString());
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
     this.schedulePersistUiState();
