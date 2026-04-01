@@ -90,7 +90,7 @@ export function ComposerPanel({
   onToggleExtensionDock,
 }: ComposerPanelProps) {
   return (
-    <footer className="composer">
+    <footer className="composer" ref={composerShellRef}>
       <div className="conversation conversation--composer">
         <ComposerSurface
           lastError={lastError}

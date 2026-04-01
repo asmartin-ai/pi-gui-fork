@@ -19,7 +19,7 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await expect(window.getByRole("heading", { name: "Let's build" })).toBeVisible();
     await expect(composer).toBeFocused();
 
-    const modelBadge = window.locator(".new-thread__meta .model-selector__badge").first();
+    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
     await expect(modelBadge).toBeVisible();
     await expect(window.locator('.new-thread input[type="file"]')).toBeHidden();
 
