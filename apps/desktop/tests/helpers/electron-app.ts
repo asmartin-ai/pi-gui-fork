@@ -138,11 +138,15 @@ export async function pasteTinyPngViaClipboard(harness: DesktopHarness, window: 
   await expect(window.locator(".composer-attachment")).toBeVisible();
 }
 
-export async function pasteTinyPng(window: Page, fileName = "screenshot.png"): Promise<void> {
-  await window.evaluate(({ encodedPng, name }) => {
-    const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='composer']");
+export async function pasteTinyPng(
+  window: Page,
+  fileName = "screenshot.png",
+  composerTestId = "composer",
+): Promise<void> {
+  await window.evaluate(({ encodedPng, name, testId }) => {
+    const composer = document.querySelector<HTMLTextAreaElement>(`[data-testid='${testId}']`);
     if (!composer) {
-      throw new Error("Composer was unavailable");
+      throw new Error(`Composer was unavailable for test id: ${testId}`);
     }
 
     const bytes = Uint8Array.from(atob(encodedPng), (char) => char.charCodeAt(0));
@@ -157,7 +161,7 @@ export async function pasteTinyPng(window: Page, fileName = "screenshot.png"): P
       value: transfer,
     });
     composer.dispatchEvent(event);
-  }, { encodedPng: TINY_PNG_BASE64, name: fileName });
+  }, { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId });
 }
 
 export async function stubNextOpenDialog(
