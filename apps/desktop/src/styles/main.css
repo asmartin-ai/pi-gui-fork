@@ -1304,6 +1304,19 @@
   text-align: center;
 }
 
+.new-thread__logo {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+}
+
+.new-thread__logo svg {
+  width: 64px;
+  height: 64px;
+  display: block;
+}
+
 .new-thread__eyebrow {
   color: var(--muted-soft);
   font-size: 13px;
