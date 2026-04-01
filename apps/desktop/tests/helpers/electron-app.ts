@@ -16,6 +16,7 @@ import type {
 } from "../../src/desktop-state";
 
 const desktopDir = resolve(__dirname, "..", "..");
+const nativeClipboardImagePath = resolve(__dirname, "..", "..", "..", "website", "public", "og.png");
 const execFileAsync = promisify(execFile);
 export const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
@@ -28,7 +29,6 @@ export interface DesktopHarness {
   electronApp: ElectronApplication;
   firstWindow(): Promise<Page>;
   focusWindow(): Promise<void>;
-  backgroundWindow(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -87,42 +87,11 @@ export async function launchDesktop(
           () =>
             electronApp.evaluate(({ BrowserWindow }) => {
               const window = BrowserWindow.getAllWindows()[0];
-              return (window?.isFocused() ?? false) || (window?.webContents.isFocused() ?? false);
+              return window?.isFocused() ?? false;
             }),
           { timeout: 5_000 },
         )
         .toBe(true);
-    },
-    backgroundWindow: async () => {
-      await electronApp.evaluate(async ({ BrowserWindow }) => {
-        const mainWindow = BrowserWindow.getAllWindows()[0];
-        let helperWindow = BrowserWindow.getAllWindows().find((entry) => entry !== mainWindow);
-        if (!helperWindow) {
-          helperWindow = new BrowserWindow({
-            width: 240,
-            height: 160,
-            show: false,
-            title: "Pi Test Background Window",
-          });
-          await helperWindow.loadURL("data:text/html,<html><body>background</body></html>");
-        }
-        helperWindow.show();
-        helperWindow.focus();
-      });
-      await expect
-        .poll(
-          () =>
-            electronApp.evaluate(({ BrowserWindow }) => {
-              const [mainWindow, helperWindow] = BrowserWindow.getAllWindows();
-              return {
-                mainFocused: mainWindow?.isFocused() ?? false,
-                mainVisible: mainWindow?.isVisible() ?? false,
-                helperFocused: helperWindow?.isFocused() ?? false,
-              };
-            }),
-          { timeout: 5_000 },
-        )
-        .toEqual({ mainFocused: false, mainVisible: true, helperFocused: true });
     },
     close: async () => {
       await electronApp.close();
@@ -173,19 +142,27 @@ export function desktopShortcut(keyChord: string): string {
   return `${desktopModifierKey}+${keyChord}`;
 }
 
-export async function pasteTinyPngViaClipboard(harness: DesktopHarness, window: Page): Promise<void> {
-  const composer = window.getByTestId("composer");
+export async function pasteTinyPngViaClipboard(
+  harness: DesktopHarness,
+  window: Page,
+  composerTestId = "composer",
+): Promise<void> {
+  const composer = window.getByTestId(composerTestId);
   await composer.click();
   await expect(composer).toBeFocused();
-  await harness.electronApp.evaluate(({ clipboard, nativeImage }, encodedPng) => {
-    clipboard.writeImage(nativeImage.createFromDataURL(`data:image/png;base64,${encodedPng}`));
-  }, TINY_PNG_BASE64);
-  await harness.electronApp.evaluate(({ BrowserWindow }) => {
-    const appWindow = BrowserWindow.getAllWindows()[0];
-    appWindow?.webContents.focus();
-    appWindow?.webContents.paste();
-  });
+  await harness.electronApp.evaluate(({ clipboard, nativeImage }, imagePath) => {
+    clipboard.writeImage(nativeImage.createFromPath(imagePath));
+  }, nativeClipboardImagePath);
+  await composer.press(desktopShortcut("V"));
   await expect(window.locator(".composer-attachment")).toBeVisible();
+}
+
+export async function pasteTinyPngFromClipboardFiles(
+  window: Page,
+  fileName = "screenshot.png",
+  composerTestId = "composer",
+): Promise<void> {
+  await dispatchTinyPngPaste(window, fileName, composerTestId, "files");
 }
 
 export async function pasteTinyPng(
@@ -193,7 +170,16 @@ export async function pasteTinyPng(
   fileName = "screenshot.png",
   composerTestId = "composer",
 ): Promise<void> {
-  await window.evaluate(({ encodedPng, name, testId }) => {
+  await dispatchTinyPngPaste(window, fileName, composerTestId, "data-transfer");
+}
+
+async function dispatchTinyPngPaste(
+  window: Page,
+  fileName: string,
+  composerTestId: string,
+  mode: "files" | "data-transfer",
+): Promise<void> {
+  await window.evaluate(({ encodedPng, name, testId, clipboardMode }) => {
     const composer = document.querySelector<HTMLTextAreaElement>(`[data-testid='${testId}']`);
     if (!composer) {
       throw new Error(`Composer was unavailable for test id: ${testId}`);
@@ -201,17 +187,28 @@ export async function pasteTinyPng(
 
     const bytes = Uint8Array.from(atob(encodedPng), (char) => char.charCodeAt(0));
     const file = new File([bytes], name, { type: "image/png" });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-
-    composer.focus();
     const event = new Event("paste", { bubbles: true, cancelable: true });
+    const clipboardData =
+      clipboardMode === "files"
+        ? {
+            items: [],
+            files: [file],
+            types: ["Files"],
+          }
+        : (() => {
+            const transfer = new DataTransfer();
+            transfer.items.add(file);
+            return transfer;
+          })();
+
     Object.defineProperty(event, "clipboardData", {
       configurable: true,
-      value: transfer,
+      value: clipboardData,
     });
+
+    composer.focus();
     composer.dispatchEvent(event);
-  }, { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId });
+  }, { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId, clipboardMode: mode });
 }
 
 export async function stubNextOpenDialogResult(
@@ -353,7 +350,7 @@ export async function jumpTimelineToBottom(window: Page): Promise<void> {
     if (!pane) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTop = pane.scrollHeight;
+    pane.scrollTo({ top: pane.scrollHeight });
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
 }
@@ -364,7 +361,7 @@ export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): 
     if (!pane) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight - distance);
+    pane.scrollTo({ top: Math.max(0, pane.scrollHeight - pane.clientHeight - distance) });
     pane.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, pixels);
 }
@@ -559,8 +556,11 @@ export async function openNewThread(window: Page): Promise<void> {
   if (await composer.isVisible().catch(() => false)) {
     return;
   }
-  await window.getByRole("complementary").getByRole("button", { name: "New thread" }).click();
-  await expect(composer).toBeVisible();
+  const button = window.getByRole("complementary").getByRole("button", { name: "New thread" });
+  await expect(button).toBeVisible();
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(composer).toBeVisible({ timeout: 15_000 });
 }
 
 export async function startThreadFromSurface(

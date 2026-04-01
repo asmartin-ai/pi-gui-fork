@@ -58,7 +58,7 @@ function updateSessionRecord(
     preview: preview ?? snapshot?.preview ?? session.preview,
     status: nextStatus,
     runningSince,
-    hasUnseenUpdate: nextStatus !== "running" && Boolean(lastViewedAt && updatedAt > lastViewedAt),
+    hasUnseenUpdate: nextStatus !== "running" && (!lastViewedAt || updatedAt > lastViewedAt),
     config: snapshot?.config ?? session.config,
   };
 }

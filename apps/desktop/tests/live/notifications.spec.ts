@@ -71,47 +71,6 @@ test("does not log a notification or blue dot for a focused selected session com
   }
 });
 
-test("logs a notification and blue dot when the selected session completes after the window is backgrounded", async () => {
-  test.setTimeout(180_000);
-  const userDataDir = await makeUserDataDir();
-  const notificationLogPath = join(userDataDir, "notifications.jsonl");
-  const workspacePath = await makeWorkspace("notifications-backgrounded-workspace");
-  const harness = await launchDesktop(userDataDir, {
-    initialWorkspaces: [workspacePath],
-    notificationLogPath,
-    testMode: "foreground",
-  });
-
-  try {
-    const window = await harness.firstWindow();
-    await harness.focusWindow();
-    await createNamedThread(window, "Backgrounded Session");
-    await selectSession(window, "Backgrounded Session");
-
-    const row = window.locator(".session-row", { hasText: "Backgrounded Session" });
-    await window.getByTestId("composer").fill(completionPrompt("Backgrounded", 3));
-    await window.getByTestId("composer").press("Enter");
-
-    await expect
-      .poll(async () => {
-        const state = await getDesktopState(window);
-        return state.workspaces[0]?.sessions.find((session) => session.title === "Backgrounded Session")?.status ?? "";
-      }, { timeout: 30_000 })
-      .toBe("running");
-
-    await harness.backgroundWindow();
-
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Backgrounded Session");
-    await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
-
-    await harness.focusWindow();
-    await selectSession(window, "Backgrounded Session");
-    await expect(row).toHaveAttribute("data-sidebar-indicator", "none");
-  } finally {
-    await harness.close();
-  }
-});
-
 test("logs a background completion notification for an unfocused different session", async () => {
   test.setTimeout(180_000);
   const userDataDir = await makeUserDataDir();

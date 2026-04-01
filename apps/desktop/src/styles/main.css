@@ -873,6 +873,13 @@
   padding: 4px;
 }
 
+.model-selector__dropdown--below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 4px;
+}
+
 .model-selector__group-title {
   padding: 6px 10px 4px;
   font-size: 11px;
@@ -1446,12 +1453,6 @@
   color: var(--muted-soft);
 }
 
-.new-thread__composer .model-selector__dropdown {
-  bottom: auto;
-  top: 100%;
-  margin-bottom: 0;
-  margin-top: 4px;
-}
 
 .settings-disclosure {
   border-top: 1px solid #edf0f6;

@@ -1485,13 +1485,15 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    this.markSessionViewed(
-      {
-        workspaceId: this.state.selectedWorkspaceId,
-        sessionId: this.state.selectedSessionId,
-      },
-      new Date().toISOString(),
-    );
+    const sessionRef = {
+      workspaceId: this.state.selectedWorkspaceId,
+      sessionId: this.state.selectedSessionId,
+    } satisfies SessionRef;
+    if (!isSessionActivelyViewed(this.state, sessionRef, this.getWindow())) {
+      return;
+    }
+
+    this.markSessionViewed(sessionRef, new Date().toISOString());
   }
 
   private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {

@@ -225,7 +225,7 @@ async function expectComposerModelState(
   },
 ): Promise<void> {
   await expect(window.getByRole("button", { name: expectations.activeModel }).first()).toBeVisible();
-  await expectComposerModelOptions(window, expectations);
+  await expectModelOptions(window, ".composer__bar", expectations);
 }
 
 async function expectComposerModelOptions(
@@ -235,18 +235,7 @@ async function expectComposerModelOptions(
     readonly hiddenModelLabels: readonly string[];
   },
 ): Promise<void> {
-  const badge = window.locator(".composer__bar .model-selector__badge").first();
-  await badge.click();
-  const dropdown = window.locator(".composer__bar .model-selector__dropdown").first();
-  await expect(dropdown).toBeVisible();
-  for (const label of expectations.visibleModelLabels) {
-    await expect(dropdown).toContainText(label);
-  }
-  for (const label of expectations.hiddenModelLabels) {
-    await expect(dropdown).not.toContainText(label);
-  }
-  await window.keyboard.press("Escape");
-  await expect(dropdown).toHaveCount(0);
+  await expectModelOptions(window, ".composer__bar", expectations);
 }
 
 async function expectNewThreadModelState(
@@ -258,9 +247,21 @@ async function expectNewThreadModelState(
   },
 ): Promise<void> {
   await expect(window.getByRole("button", { name: expectations.activeModel }).first()).toBeVisible();
-  const badge = window.locator(".new-thread__hint .model-selector__badge").first();
+  await expectModelOptions(window, ".new-thread__hint", expectations);
+}
+
+async function expectModelOptions(
+  window: Page,
+  scopeSelector: string,
+  expectations: {
+    readonly visibleModelLabels: readonly string[];
+    readonly hiddenModelLabels: readonly string[];
+  },
+): Promise<void> {
+  const scope = window.locator(scopeSelector).first();
+  const badge = scope.locator(".model-selector__badge").first();
   await badge.click();
-  const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
+  const dropdown = scope.locator(".model-selector__dropdown").first();
   await expect(dropdown).toBeVisible();
   for (const label of expectations.visibleModelLabels) {
     await expect(dropdown).toContainText(label);

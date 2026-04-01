@@ -68,6 +68,15 @@ contextBridge.exposeInMainWorld("piApp", {
       ipcRenderer.removeListener(desktopIpc.appCommand, handle);
     };
   },
+  onClipboardImagePasted: (listener: (attachment: ComposerImageAttachment) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, attachment: ComposerImageAttachment) => {
+      listener(attachment);
+    };
+    ipcRenderer.on(desktopIpc.clipboardImagePasted, handle);
+    return () => {
+      ipcRenderer.removeListener(desktopIpc.clipboardImagePasted, handle);
+    };
+  },
   addWorkspacePath: (workspacePath: string) =>
     ipcRenderer.invoke(desktopIpc.addWorkspacePath, workspacePath) as Promise<DesktopAppState>,
   pickWorkspace: () => ipcRenderer.invoke(desktopIpc.pickWorkspace) as Promise<DesktopAppState>,
@@ -133,6 +142,7 @@ contextBridge.exposeInMainWorld("piApp", {
   setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>
     ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
   pickComposerImages: () => ipcRenderer.invoke(desktopIpc.pickComposerImages) as Promise<DesktopAppState>,
+  readClipboardImage: () => ipcRenderer.sendSync(desktopIpc.readClipboardImage) as ComposerImageAttachment | null,
   addComposerImages: (attachments: readonly ComposerImageAttachment[]) =>
     ipcRenderer.invoke(desktopIpc.addComposerImages, attachments) as Promise<DesktopAppState>,
   removeComposerImage: (attachmentId: string) =>

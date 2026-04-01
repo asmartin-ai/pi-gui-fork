@@ -8,13 +8,23 @@ interface ModelSelectorProps {
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
   readonly disabled?: boolean;
+  readonly dropdownPlacement?: "above" | "below";
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
 }
 
 type OpenDropdown = "none" | "model" | "thinking";
 
-export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disabled, onSetModel, onSetThinking }: ModelSelectorProps) {
+export function ModelSelector({
+  runtime,
+  provider,
+  modelId,
+  thinkingLevel,
+  disabled,
+  dropdownPlacement = "above",
+  onSetModel,
+  onSetThinking,
+}: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -61,7 +71,10 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
             {provider && modelId ? `${provider}:${modelId}` : "Choose model"}
           </button>
           {open === "model" ? (
-            <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
+            <div
+              className={`model-selector__dropdown ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
+              onWheel={(event) => event.stopPropagation()}
+            >
               {groupedModels.map((group) => (
                 <div key={group.provider}>
                   <div className="model-selector__group-title">{group.provider}</div>
@@ -73,7 +86,9 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
                         key={`${option.providerId}:${option.modelId}`}
                         type="button"
                         onClick={() => {
-                          onSetModel(option.providerId, option.modelId);
+                          if (!isActive) {
+                            onSetModel(option.providerId, option.modelId);
+                          }
                           setOpen("none");
                         }}
                       >
@@ -102,7 +117,10 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
             {thinkingLevel}
           </button>
           {open === "thinking" ? (
-            <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
+            <div
+              className={`model-selector__dropdown ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
+              onWheel={(event) => event.stopPropagation()}
+            >
               <div className="model-selector__group-title">Thinking Level</div>
               {THINKING_OPTIONS.map((option) => {
                 const isActive = option.value === thinkingLevel;
@@ -112,7 +130,9 @@ export function ModelSelector({ runtime, provider, modelId, thinkingLevel, disab
                     key={option.value}
                     type="button"
                     onClick={() => {
-                      onSetThinking(option.value);
+                      if (!isActive) {
+                        onSetThinking(option.value);
+                      }
                       setOpen("none");
                     }}
                   >

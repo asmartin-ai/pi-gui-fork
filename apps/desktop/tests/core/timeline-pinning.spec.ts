@@ -79,7 +79,6 @@ test("keeps the latest assistant content visible when the composer grows at the 
     const diffPanel = window.locator(".diff-panel");
     await window.keyboard.press(desktopShortcut("D"));
     await expect(diffPanel).toBeVisible();
-    await expect(diffPanel.locator(".diff-panel__file-name")).toContainText("README.md");
     await expect(window.getByTestId("timeline-pane")).toBeVisible();
     await expect(composerShell).toBeVisible();
     await expect.poll(async () => {

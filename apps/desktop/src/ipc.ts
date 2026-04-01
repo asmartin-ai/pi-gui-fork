@@ -19,6 +19,7 @@ export const desktopIpc = {
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
   selectedTranscriptChanged: "pi-gui:selected-transcript-changed",
   appCommand: "pi-gui:app-command",
+  clipboardImagePasted: "pi-gui:clipboard-image-pasted",
   addWorkspacePath: "pi-gui:add-workspace-path",
   pickWorkspace: "pi-gui:pick-workspace",
   selectWorkspace: "pi-gui:select-workspace",
@@ -53,6 +54,7 @@ export const desktopIpc = {
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   pickComposerImages: "pi-gui:pick-composer-images",
+  readClipboardImage: "pi-gui:read-clipboard-image",
   addComposerImages: "pi-gui:add-composer-images",
   removeComposerImage: "pi-gui:remove-composer-image",
   updateComposerDraft: "pi-gui:update-composer-draft",
@@ -115,6 +117,7 @@ export interface PiDesktopApi {
   getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
   onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
+  onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
   addWorkspacePath(path: string): Promise<DesktopAppState>;
   pickWorkspace(): Promise<DesktopAppState>;
   selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
@@ -168,6 +171,7 @@ export interface PiDesktopApi {
   ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
   pickComposerImages(): Promise<DesktopAppState>;
+  readClipboardImage(): ComposerImageAttachment | null;
   addComposerImages(attachments: readonly ComposerImageAttachment[]): Promise<DesktopAppState>;
   removeComposerImage(attachmentId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;

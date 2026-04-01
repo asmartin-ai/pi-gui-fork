@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,6 +12,7 @@ import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
+import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-images";
 import type {
   ComposerImageAttachment,
   CreateSessionInput,
@@ -33,14 +34,34 @@ let stopPublishingSelectedTranscript: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
 
-const SUPPORTED_IMAGE_TYPES = [
-  { extension: "png", mimeType: "image/png" },
-  { extension: "jpg", mimeType: "image/jpeg" },
-  { extension: "jpeg", mimeType: "image/jpeg" },
-  { extension: "gif", mimeType: "image/gif" },
-  { extension: "webp", mimeType: "image/webp" },
-] as const;
+const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
+const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
+
+function readClipboardImageAttachment(): ComposerImageAttachment | null {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) {
+    return null;
+  }
+
+  const size = image.getSize();
+  if (size.width > MAX_CLIPBOARD_IMAGE_DIMENSION || size.height > MAX_CLIPBOARD_IMAGE_DIMENSION) {
+    return null;
+  }
+
+  const png = image.toPNG();
+  if (png.length === 0 || png.length > MAX_CLIPBOARD_IMAGE_BYTES) {
+    return null;
+  }
+
+  return {
+    id: randomUUID(),
+    name: "pasted-image.png",
+    mimeType: "image/png",
+    data: png.toString("base64"),
+  };
+}
 
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
@@ -78,6 +99,15 @@ function createWindow(): BrowserWindow {
       event.preventDefault();
       void pickWorkspaceViaDialog();
       return;
+    }
+
+    if ((process.platform === "darwin" ? input.meta : input.control) && !input.shift && lowerKey === "v") {
+      const clipboardImage = readClipboardImageAttachment();
+      if (clipboardImage) {
+        event.preventDefault();
+        window.webContents.send(desktopIpc.clipboardImagePasted, clipboardImage);
+        return;
+      }
     }
 
     const command = getDesktopCommandFromShortcut({
@@ -335,6 +365,9 @@ app.whenReady().then(async () => {
     }
     const attachments = await Promise.all(result.filePaths.map(readComposerImage));
     return store.addComposerImages(attachments);
+  });
+  ipcMain.on(desktopIpc.readClipboardImage, (event) => {
+    event.returnValue = readClipboardImageAttachment();
   });
   ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) => {
     const allowedMimeTypes: Set<string> = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));

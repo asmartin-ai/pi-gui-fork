@@ -2,13 +2,15 @@ import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEv
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerImageAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
 import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
-import type {
-  ComposerSlashCommand,
-  ComposerSlashCommandSection,
-  ComposerSlashOption,
-  ComposerSlashOptionEmptyState,
+import {
+  buildModelOptions,
+  type ComposerSlashCommand,
+  type ComposerSlashCommandSection,
+  type ComposerSlashOption,
+  type ComposerSlashOptionEmptyState,
 } from "./composer-commands";
 import { ComposerSurface } from "./composer-surface";
+import { COMPOSER_IMAGE_FILE_INPUT_ACCEPT } from "./composer-images";
 import { ModelSelector } from "./model-selector";
 
 interface NewThreadViewProps {
@@ -91,7 +93,7 @@ export function NewThreadView({
   onSubmit,
 }: NewThreadViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const workspace = workspaces.find((entry) => entry.id === selectedWorkspaceId) ?? workspaces[0];
+  const workspace = workspaces.find((entry) => entry.id === selectedWorkspaceId);
 
   useEffect(() => {
     composerRef.current?.focus();
@@ -176,74 +178,126 @@ export function NewThreadView({
               textareaClassName="new-thread__textarea"
               textareaPlaceholder="Ask pi anything, use / for commands, or $ for skills"
               footer={(
-                <>
-                  <div className="composer__hint new-thread__hint">
-                    <div className="new-thread__environment-group">
-                      <button
-                        className={`new-thread__environment ${environment === "local" ? "new-thread__environment--active" : ""}`}
-                        type="button"
-                        onClick={() => onSelectEnvironment("local")}
-                      >
-                        <span>Local</span>
-                      </button>
-                      <button
-                        className={`new-thread__environment ${environment === "worktree" ? "new-thread__environment--active" : ""}`}
-                        type="button"
-                        onClick={() => onSelectEnvironment("worktree")}
-                      >
-                        <span>Worktree</span>
-                      </button>
-                    </div>
-                    <span className="new-thread__hint-separator">·</span>
-                    <ModelSelector
-                      runtime={runtime}
-                      provider={provider}
-                      modelId={modelId}
-                      thinkingLevel={thinkingLevel}
-                      onSetModel={onSetModel}
-                      onSetThinking={onSetThinking}
-                    />
-                  </div>
-
-                  <div className="composer__actions">
-                    <input
-                      ref={fileInputRef}
-                      hidden
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(event) => {
-                        const files = Array.from(event.target.files ?? []);
-                        if (files.length > 0) {
-                          onAddImages(files);
-                        }
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                    <button
-                      aria-label="Attach image"
-                      className="icon-button composer__attach"
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <PlusIcon />
-                    </button>
-                    <button
-                      aria-label="Start thread"
-                      className="button button--primary button--cta-icon"
-                      type="button"
-                      disabled={!prompt.trim() && attachments.length === 0}
-                      onClick={onSubmit}
-                    >
-                      <ArrowUpIcon />
-                    </button>
-                  </div>
-                </>
+                <NewThreadComposerFooter
+                  runtime={runtime}
+                  environment={environment}
+                  provider={provider}
+                  modelId={modelId}
+                  thinkingLevel={thinkingLevel}
+                  hasContent={Boolean(prompt.trim() || attachments.length > 0)}
+                  fileInputRef={fileInputRef}
+                  onSelectEnvironment={onSelectEnvironment}
+                  onSetModel={onSetModel}
+                  onSetThinking={onSetThinking}
+                  onAddImages={onAddImages}
+                  onSubmit={onSubmit}
+                />
               )}
             />
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+interface NewThreadComposerFooterProps {
+  readonly runtime?: RuntimeSnapshot;
+  readonly environment: NewThreadEnvironment;
+  readonly provider: string | undefined;
+  readonly modelId: string | undefined;
+  readonly thinkingLevel: string | undefined;
+  readonly hasContent: boolean;
+  readonly fileInputRef: RefObject<HTMLInputElement | null>;
+  readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
+  readonly onSetModel: (provider: string, modelId: string) => void;
+  readonly onSetThinking: (level: string) => void;
+  readonly onAddImages: (files: File[]) => void;
+  readonly onSubmit: () => void;
+}
+
+function NewThreadComposerFooter({
+  runtime,
+  environment,
+  provider,
+  modelId,
+  thinkingLevel,
+  hasContent,
+  fileInputRef,
+  onSelectEnvironment,
+  onSetModel,
+  onSetThinking,
+  onAddImages,
+  onSubmit,
+}: NewThreadComposerFooterProps) {
+  const showModelSelector = Boolean(thinkingLevel) || Boolean(provider && modelId) || buildModelOptions(runtime).length > 0;
+
+  return (
+    <>
+      <div className="composer__hint new-thread__hint">
+        <div className="new-thread__environment-group">
+          <button
+            className={`new-thread__environment ${environment === "local" ? "new-thread__environment--active" : ""}`}
+            type="button"
+            onClick={() => onSelectEnvironment("local")}
+          >
+            <span>Local</span>
+          </button>
+          <button
+            className={`new-thread__environment ${environment === "worktree" ? "new-thread__environment--active" : ""}`}
+            type="button"
+            onClick={() => onSelectEnvironment("worktree")}
+          >
+            <span>Worktree</span>
+          </button>
+        </div>
+        {showModelSelector ? <span className="new-thread__hint-separator">·</span> : null}
+        {showModelSelector ? (
+          <ModelSelector
+            runtime={runtime}
+            provider={provider}
+            modelId={modelId}
+            thinkingLevel={thinkingLevel}
+            dropdownPlacement="below"
+            onSetModel={onSetModel}
+            onSetThinking={onSetThinking}
+          />
+        ) : null}
+      </div>
+
+      <div className="composer__actions">
+        <input
+          ref={fileInputRef}
+          hidden
+          type="file"
+          accept={COMPOSER_IMAGE_FILE_INPUT_ACCEPT}
+          multiple
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            if (files.length > 0) {
+              onAddImages(files);
+            }
+            event.currentTarget.value = "";
+          }}
+        />
+        <button
+          aria-label="Attach image"
+          className="icon-button composer__attach"
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <PlusIcon />
+        </button>
+        <button
+          aria-label="Start thread"
+          className="button button--primary button--cta-icon"
+          type="button"
+          disabled={!hasContent}
+          onClick={onSubmit}
+        >
+          <ArrowUpIcon />
+        </button>
+      </div>
+    </>
   );
 }
