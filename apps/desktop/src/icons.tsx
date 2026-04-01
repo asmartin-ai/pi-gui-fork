@@ -132,7 +132,7 @@ export function SparkIcon() {
   );
 }
 
-export function PiLogoMark() {
+export function PiGlyphIcon() {
   return (
     <Icon>
       <path
