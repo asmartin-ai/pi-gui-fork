@@ -1,7 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
-import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace, openNewThread, pasteTinyPng, seedAgentDir } from "../helpers/electron-app";
+import {
+  desktopShortcut,
+  getDesktopState,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  openNewThread,
+  pasteTinyPng,
+  seedAgentDir,
+} from "../helpers/electron-app";
 
 test("new thread reuses composer behaviors for slash commands, image previews, and branding", async () => {
   test.setTimeout(60_000);
@@ -82,7 +91,7 @@ test("new thread hides the onboarding notice after picking a thread model", asyn
 
     await window.getByTestId("new-thread-composer").fill("start a thread without a default");
     await expect(notice).toContainText("No default model set");
-    await expect(modelBadge).toHaveText("No default model");
+    await expect(modelBadge).toHaveText("Pick a model");
     await expect(startButton).toBeDisabled();
 
     await modelBadge.click();
@@ -146,7 +155,7 @@ test("new thread routes disabled-model recovery to settings models", async () =>
     const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
     await expect(dropdown).toBeVisible();
     await expect(dropdown).toContainText("No models available");
-    await expect(dropdown).toContainText("Open Settings > Models to enable a model and choose a default.");
+    await expect(dropdown).not.toContainText("Open Settings > Models");
 
     await window.getByTestId("model-onboarding-notice").getByRole("button", { name: "Open Settings > Models" }).click();
     await expect(window.getByTestId("settings-surface")).toBeVisible();
@@ -200,13 +209,54 @@ test("refreshing after a provider becomes available auto-enables that provider's
       await app.refreshRuntime(workspaceId);
     }, { workspaceId: selectedWorkspaceId });
 
-    await expect(modelBadge).toHaveText("No default model");
+    await expect(modelBadge).toHaveText("Pick a model");
     await expect(notice).toContainText("No default model set");
 
     await modelBadge.click();
     const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
     await expect(dropdown).toContainText("GPT-5");
     await expect(dropdown).toContainText("GPT-4o");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("settings do not show stale enabled-model pills when no providers are connected", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-no-provider-settings-workspace");
+  await seedAgentDir(agentDir, {
+    withOpenAiAuth: false,
+    withDefaultModel: false,
+    enabledModels: ["openai/gpt-5", "openai/gpt-4o"],
+  });
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+    scrubProviderEnv: true,
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    await window.getByTestId("new-thread-composer").fill("check no provider settings");
+    await expect(window.getByTestId("model-onboarding-notice")).toContainText("Open Settings > Providers");
+
+    await window.keyboard.press(desktopShortcut(","));
+    await expect(window.getByTestId("settings-surface")).toBeVisible();
+    await window.getByRole("button", { name: "Models", exact: true }).click();
+    await expect(window.locator(".view-header__title")).toHaveText("Models");
+
+    const enabledModelsSection = window.locator(".settings-section", {
+      has: window.locator(".settings-section__title", { hasText: "Enabled models" }),
+    });
+    await expect(enabledModelsSection).toContainText("No connected models available yet.");
+    await expect(enabledModelsSection).not.toContainText("openai/gpt-5");
+    await expect(enabledModelsSection).not.toContainText("openai/gpt-4o");
+    await expect(enabledModelsSection.locator(".settings-disclosure__summary")).toContainText("0");
   } finally {
     await harness.close();
   }

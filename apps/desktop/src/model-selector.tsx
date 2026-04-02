@@ -118,10 +118,7 @@ export function ModelSelector({
                 </div>
               ))}
               {groupedModels.length === 0 ? (
-                <>
-                  <div className="model-selector__group-title">{emptyModelTitle}</div>
-                  <div className="model-selector__empty">{emptyModelDescription}</div>
-                </>
+                <div className="model-selector__group-title">{emptyModelTitle}</div>
               ) : null}
             </div>
           ) : null}

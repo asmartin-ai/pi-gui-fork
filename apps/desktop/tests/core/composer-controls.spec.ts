@@ -121,7 +121,7 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await composer.fill("/model");
     await expect(optionsMenu).toBeVisible();
     await expect(optionsMenu).toContainText("No models available");
-    await expect(optionsMenu).toContainText("Open Settings > Models to enable a model and choose a default.");
+    await expect(optionsMenu).toContainText("Open Settings > Models to enable models.");
     await composer.fill("continue");
     await expect(optionsMenu).toHaveCount(0);
 

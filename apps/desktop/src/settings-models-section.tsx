@@ -40,6 +40,7 @@ export function SettingsModelsSection({
     if (allImplicitlyEnabled) return true;
     return activeScopedSet.has(`${model.providerId}/${model.modelId}`);
   });
+  const enabledAvailablePatterns = enabledAvailableModels.map((model) => `${model.providerId}/${model.modelId}`);
 
   const defaultProvider = runtime?.settings.defaultProvider;
   const defaultModelId = runtime?.settings.defaultModelId;
@@ -104,17 +105,25 @@ export function SettingsModelsSection({
 
       <SettingsGroup title="Enabled models" description="Choose which models appear in pickers throughout the app.">
         <div className="settings-row">
-          <div className="settings-pill-row">
-            {activeScopedPatterns.map((pattern) => (
-              <span className={settingsPill(true)} key={pattern}>
-                {pattern}
-              </span>
-            ))}
-          </div>
+          {enabledAvailablePatterns.length > 0 ? (
+            <div className="settings-pill-row">
+              {enabledAvailablePatterns.map((pattern) => (
+                <span className={settingsPill(true)} key={pattern}>
+                  {pattern}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="settings-hint">
+              {availableModels.length === 0
+                ? "No connected models available yet."
+                : "No available models are currently enabled."}
+            </span>
+          )}
         </div>
-        {allImplicitlyEnabled ? (
+        {allImplicitlyEnabled && availableModels.length > 0 ? (
           <div className="settings-row">
-            <span className="settings-hint">All models enabled by default.</span>
+            <span className="settings-hint">All available models enabled by default.</span>
           </div>
         ) : null}
         {!defaultIsEnabled && defaultProvider && defaultModelId ? (

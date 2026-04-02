@@ -49,12 +49,12 @@ export function deriveModelOnboardingState(
       emptyModelTitle: "No models available",
       emptyModelDescription:
         connectedProviderCount > 0
-          ? "Open Settings > Models to enable a model and choose a default."
+          ? "Open Settings > Models to enable models."
           : "Open Settings > Providers to connect a provider and make models available.",
       notice: connectedProviderCount > 0
         ? {
             title: "No models available",
-            description: "All available models are currently disabled. Open Settings > Models to enable a model and choose a default.",
+            description: "All available models are currently disabled. Open Settings > Models to enable models.",
             actionLabel: "Open Settings > Models",
             actionSection: "models",
           }
@@ -71,9 +71,9 @@ export function deriveModelOnboardingState(
     return {
       hasSelectableModels: true,
       requiresModelSelection: true,
-      unselectedModelLabel: "Model unavailable",
+      unselectedModelLabel: "Pick a model",
       emptyModelTitle: "No models available",
-      emptyModelDescription: "Choose another model for this thread or open Settings > Models to update your defaults.",
+      emptyModelDescription: "Pick a model.",
       notice: {
         title: "Selected model unavailable",
         description: hasDefaultModel
@@ -89,14 +89,14 @@ export function deriveModelOnboardingState(
     return {
       hasSelectableModels: true,
       requiresModelSelection: !currentSelectionUsable,
-      unselectedModelLabel: "No default model",
+      unselectedModelLabel: "Pick a model",
       emptyModelTitle: "No default model set",
-      emptyModelDescription: "Choose a model for this thread, then open Settings > Models to choose the app default.",
+      emptyModelDescription: "Pick a model.",
       notice: currentSelectionUsable
         ? undefined
         : {
             title: "No default model set",
-            description: "Choose a model for this thread, then open Settings > Models to choose the app default for new threads.",
+            description: "Set a default model in Settings > Models.",
             actionLabel: "Open Settings > Models",
             actionSection: "models",
           },
@@ -108,9 +108,9 @@ export function deriveModelOnboardingState(
     return {
       hasSelectableModels: true,
       requiresModelSelection: !currentSelectionUsable,
-      unselectedModelLabel: "Default unavailable",
+      unselectedModelLabel: "Pick a model",
       emptyModelTitle: "Default model unavailable",
-      emptyModelDescription: `Open Settings > Models to update the saved default (${defaultLabel}).`,
+      emptyModelDescription: "Pick a model.",
       notice: {
         title: "Default model unavailable",
         description: currentSelectionUsable
@@ -125,9 +125,9 @@ export function deriveModelOnboardingState(
   return {
     hasSelectableModels: true,
     requiresModelSelection: false,
-    unselectedModelLabel: "Choose model",
+    unselectedModelLabel: "Pick a model",
     emptyModelTitle: "No models available",
-    emptyModelDescription: "Open Settings to enable a model or connect a provider.",
+    emptyModelDescription: "Pick a model.",
   };
 }
 
