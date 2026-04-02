@@ -11,10 +11,18 @@ import type {
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 
-export const TRANSCRIPT_HISTORY_LIMIT = 180;
+export const LEGACY_TRANSCRIPT_HISTORY_LIMIT = 180;
 
 export function mapToRecord<V>(map: Map<string, V>): Record<string, V> {
   return Object.fromEntries(map.entries());
+}
+
+export function hasSessionUnseenUpdate(
+  status: SessionRecord["status"],
+  updatedAt: string,
+  lastViewedAt: string | undefined,
+): boolean {
+  return status !== "running" && (!lastViewedAt || updatedAt > lastViewedAt);
 }
 
 export function buildWorkspaceRecords(
@@ -217,7 +225,7 @@ function buildSessionRecord(
     preview,
     status: session.status,
     runningSince: runningSinceBySession.get(key),
-    hasUnseenUpdate: session.status !== "running" && Boolean(lastViewedAt && session.updatedAt > lastViewedAt),
+    hasUnseenUpdate: hasSessionUnseenUpdate(session.status, session.updatedAt, lastViewedAt),
     config: sessionConfigBySession.get(key),
   };
 }

@@ -65,6 +65,10 @@ export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
   readonly createAgentSessionImpl?: (options?: CreateAgentSessionOptions) => Promise<{ session: AgentSession }>;
   readonly modelRegistry?: ModelRegistry;
+  readonly generateThreadTitleOverride?: (
+    workspace: WorkspaceRef,
+    options: import("./thread-title-generator.js").GenerateThreadTitleOptions,
+  ) => Promise<string | null | undefined>;
 }
 
 export interface SyncWorkspaceResult {
@@ -1158,6 +1162,7 @@ export class SessionSupervisor {
         const runId = record.runningRunId;
         record.runningRunId = undefined;
         record.status = outcome.success ? "idle" : "failed";
+        record.updatedAt = timestamp;
         if (!outcome.success && outcome.error) {
           record.preview = outcome.error.message;
         }

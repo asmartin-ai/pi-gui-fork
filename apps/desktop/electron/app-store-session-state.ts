@@ -1,7 +1,7 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
-import { previewFromTranscript } from "./app-store-utils";
+import { hasSessionUnseenUpdate, previewFromTranscript } from "./app-store-utils";
 
 export function applySessionEventState(
   state: DesktopAppState,
@@ -58,7 +58,7 @@ function updateSessionRecord(
     preview: preview ?? snapshot?.preview ?? session.preview,
     status: nextStatus,
     runningSince,
-    hasUnseenUpdate: nextStatus !== "running" && (!lastViewedAt || updatedAt > lastViewedAt),
+    hasUnseenUpdate: hasSessionUnseenUpdate(nextStatus, updatedAt, lastViewedAt),
     config: snapshot?.config ?? session.config,
   };
 }
