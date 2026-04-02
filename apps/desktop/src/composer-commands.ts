@@ -443,13 +443,34 @@ function matchesCommand(command: ComposerSlashCommand, normalizedQuery: string):
     return true;
   }
 
-  return [
-    command.command,
-    command.title,
-    command.description,
-    command.sourceLabel ?? "",
+  const queryWithoutSlash = normalizedQuery.replace(/^\/+/, "").trim();
+  const rawSearchTerms = [command.command.toLowerCase()];
+  const aliasSearchTerms = buildSlashSearchAliases(command);
+  if (rawSearchTerms.some((value) => value.includes(normalizedQuery))) {
+    return true;
+  }
+
+  if (!queryWithoutSlash) {
+    return false;
+  }
+
+  return aliasSearchTerms.some((value) => value.includes(queryWithoutSlash));
+}
+
+function buildSlashSearchAliases(command: ComposerSlashCommand): readonly string[] {
+  const aliases = new Set<string>([
+    command.command.replace(/^\/+/, "").toLowerCase(),
+    command.title.toLowerCase(),
+    command.sourceLabel?.toLowerCase() ?? "",
     command.compatibility?.status === "terminal-only" ? "terminal-only" : "",
-  ].some((value) => value.toLowerCase().includes(normalizedQuery));
+  ]);
+
+  if (command.runtimeCommand) {
+    aliases.add(command.runtimeCommand.name.toLowerCase());
+    aliases.add(command.runtimeCommand.name.replace(/^skill:/, "").toLowerCase());
+  }
+
+  return [...aliases].filter(Boolean);
 }
 
 function describeProvider(provider: RuntimeProviderRecord): string {

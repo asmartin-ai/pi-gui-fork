@@ -66,3 +66,43 @@ Use this skill when the user wants a short demo workflow.
     await harness.close();
   }
 });
+
+test("matches skill slash commands by skill name aliases", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("skills-alias-workspace");
+  await mkdir(join(workspacePath, ".agents", "skills", "plan-loop"), { recursive: true });
+  await writeFile(
+    join(workspacePath, ".agents", "skills", "plan-loop", "SKILL.md"),
+    `# Plan Loop
+
+Use this skill for complex or high-risk implementation work that needs plan-first execution.
+`,
+    "utf8",
+  );
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Skill alias session");
+
+    const composer = window.getByTestId("composer");
+    const slashMenu = window.getByTestId("slash-menu");
+
+    await composer.fill("/plan");
+    await expect(slashMenu).toContainText("Plan Loop");
+    await expect(slashMenu).toContainText("/skill:plan-loop");
+
+    await composer.fill("/plan-loop");
+    await expect(slashMenu).toContainText("Plan Loop");
+
+    await composer.fill("/skill:plan-loop");
+    await expect(slashMenu).toContainText("Plan Loop");
+  } finally {
+    await harness.close();
+  }
+});
