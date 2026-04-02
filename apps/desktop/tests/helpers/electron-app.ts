@@ -51,12 +51,16 @@ export async function launchDesktop(
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const agentDir = normalized.agentDir ?? join(userDataDir, "agent");
+  if (!normalized.agentDir) {
+    await seedAgentDir(agentDir);
+  }
   const env = {
     ...process.env,
     PI_APP_USER_DATA_DIR: userDataDir,
     PI_APP_INITIAL_WORKSPACES: (normalized.initialWorkspaces ?? []).join(delimiter),
     PI_APP_TEST_MODE: normalized.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
-    ...(normalized.agentDir ? { PI_CODING_AGENT_DIR: normalized.agentDir } : {}),
+    PI_CODING_AGENT_DIR: agentDir,
     ...(normalized.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: normalized.notificationLogPath } : {}),
     PI_APP_OPEN_DEVTOOLS: "0",
   };
