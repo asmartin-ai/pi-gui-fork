@@ -27,13 +27,20 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await expect(modelBadge).toBeVisible();
     await expect(window.locator('.new-thread input[type="file"]')).toBeHidden();
 
-    await composer.fill("/st");
+    await composer.fill("/stat");
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toBeVisible();
     await expect(slashMenu).toContainText("Status");
     await composer.press("Tab");
     await expect(slashMenu).toHaveCount(0);
     await expect(composer).toHaveValue("/status");
+
+    await composer.fill("Outline next steps /stat");
+    await expect(slashMenu).toBeVisible();
+    await expect(slashMenu).toContainText("Status");
+    await composer.press("Tab");
+    await expect(slashMenu).toHaveCount(0);
+    await expect(composer).toHaveValue("Outline next steps /status");
 
     await composer.fill("");
     await pasteTinyPng(window, "new-thread-image.png", "new-thread-composer");

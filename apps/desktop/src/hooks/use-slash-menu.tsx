@@ -20,11 +20,35 @@ interface ActiveSlashFlow {
   readonly command: ComposerSlashCommand;
 }
 
+interface ActiveSlashQuery {
+  readonly query: string;
+  readonly start: number;
+  readonly end: number;
+  readonly isPrimary: boolean;
+}
+
 export function nextMenuIndex(current: number, delta: number, total: number): number {
   if (!total) {
     return 0;
   }
   return (current + delta + total) % total;
+}
+
+function extractActiveSlashQuery(text: string): ActiveSlashQuery | undefined {
+  const match = /\/[^\s]*$/.exec(text);
+  if (!match || match.index < 0) {
+    return undefined;
+  }
+
+  const query = match[0];
+  const start = match.index;
+  const prefix = text.slice(0, start);
+  return {
+    query,
+    start,
+    end: start + query.length,
+    isPrimary: prefix.trim().length === 0,
+  };
 }
 
 interface UseSlashMenuParams {
@@ -101,9 +125,10 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const [activeSlashFlow, setActiveSlashFlow] = useState<ActiveSlashFlow | undefined>();
   const [slashMenuSuppressedDraft, setSlashMenuSuppressedDraft] = useState("");
 
-  const slashQuery = composerDraft.trimStart();
+  const activeSlashQuery = extractActiveSlashQuery(composerDraft);
+  const slashQuery = activeSlashQuery?.query ?? "";
   const slashSections =
-    slashQuery.startsWith("/")
+    activeSlashQuery
       ? buildSlashCommandSections(slashQuery, selectedRuntime, sessionCommands, commandCompatibility)
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
@@ -112,10 +137,9 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     activeSlashFlow?.command ?? (exactSlashCommand?.submitMode === "pick-option" ? exactSlashCommand : undefined);
   const showSlashMenu =
     !isRunning &&
-    slashQuery.startsWith("/") &&
-    !slashQuery.includes("\n") &&
+    Boolean(activeSlashQuery) &&
     !activeSlashOptionCommand &&
-    slashQuery !== slashMenuSuppressedDraft &&
+    composerDraft !== slashMenuSuppressedDraft &&
     slashSuggestions.length > 0;
   const selectedSlashCommand = showSlashMenu ? slashSuggestions[slashIndex % slashSuggestions.length] : undefined;
   const slashOptions =
@@ -137,14 +161,14 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   }, [slashQuery]);
 
   useEffect(() => {
-    if (slashMenuSuppressedDraft && slashQuery !== slashMenuSuppressedDraft) {
+    if (slashMenuSuppressedDraft && composerDraft !== slashMenuSuppressedDraft) {
       setSlashMenuSuppressedDraft("");
     }
-  }, [slashMenuSuppressedDraft, slashQuery]);
+  }, [composerDraft, slashMenuSuppressedDraft]);
 
   useEffect(() => {
-    if (!slashQuery.startsWith("/")) {
-      if (!slashQuery && activeSlashFlow) {
+    if (!activeSlashQuery) {
+      if (!composerDraft.trim() && activeSlashFlow) {
         return;
       }
       setActiveSlashFlow(undefined);
@@ -156,7 +180,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       setActiveSlashFlow(undefined);
       setSlashOptionIndex(0);
     }
-  }, [activeSlashFlow, slashQuery]);
+  }, [activeSlashFlow, activeSlashQuery, slashQuery]);
 
   useEffect(() => {
     setActiveSlashFlow(undefined);
@@ -175,12 +199,20 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   };
 
   const fillComposerFromSlash = (draft: string, options?: { suppressMenu?: boolean }) => {
-    setComposerDraft(draft);
-    setSlashMenuSuppressedDraft(options?.suppressMenu ? draft : "");
+    const nextDraft = activeSlashQuery
+      ? `${composerDraft.slice(0, activeSlashQuery.start)}${draft}${composerDraft.slice(activeSlashQuery.end)}`
+      : draft;
+    setComposerDraft(nextDraft);
+    setSlashMenuSuppressedDraft(options?.suppressMenu ? nextDraft : "");
     focusComposer();
   };
 
   const openSlashOptionMenu = (command: ComposerSlashCommand) => {
+    if (!activeSlashQuery?.isPrimary) {
+      closeSlashOptionMenu();
+      fillComposerFromSlash(command.command);
+      return;
+    }
     setSlashMenuSuppressedDraft("");
     setActiveSlashFlow({ command });
     setSlashOptionIndex(0);
@@ -192,6 +224,12 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     const submitMode = command.submitMode ?? "prefill";
     if (submitMode === "pick-option") {
       openSlashOptionMenu(command);
+      return;
+    }
+
+    if (!activeSlashQuery?.isPrimary) {
+      closeSlashOptionMenu();
+      fillComposerFromSlash(submitMode === "prefill" ? command.template : command.command, { suppressMenu: true });
       return;
     }
 
@@ -229,6 +267,12 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
 
   const applySlashOptionSelection = (option: ComposerSlashOption) => {
     if (!activeSlashOptionCommand) {
+      return;
+    }
+
+    if (!activeSlashQuery?.isPrimary) {
+      closeSlashOptionMenu();
+      fillComposerFromSlash(`${activeSlashOptionCommand.command} ${option.value}`, { suppressMenu: true });
       return;
     }
 

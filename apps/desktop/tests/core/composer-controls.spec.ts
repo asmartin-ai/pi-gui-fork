@@ -65,7 +65,7 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await selectSession(window, "Controls session");
     await expect(composer).toBeFocused();
 
-    await composer.fill("/st");
+    await composer.fill("/stat");
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toBeVisible();
     await expect(slashMenu).toContainText("Status");
@@ -82,6 +82,13 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
     await expect(composer).toHaveValue("");
 
+    await composer.fill("Need a quick check /stat");
+    await expect(slashMenu).toBeVisible();
+    await expect(slashMenu).toContainText("Status");
+    await composer.press("Tab");
+    await expect(slashMenu).toHaveCount(0);
+    await expect(composer).toHaveValue("Need a quick check /status");
+
     await composer.fill("/thinking");
     const optionsMenu = window.getByTestId("slash-options-menu");
     await expect(optionsMenu).toBeVisible();
@@ -93,6 +100,13 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(optionsMenu).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("Thinking set to high");
     await expect(window.locator(".composer__hint")).toContainText("high");
+
+    await composer.fill("Keep the draft /thinking");
+    await expect(optionsMenu).toBeVisible();
+    await composer.press("ArrowDown");
+    await composer.press("Enter");
+    await expect(optionsMenu).toHaveCount(0);
+    await expect(composer).toHaveValue("Keep the draft /thinking medium");
 
     const selectedWorkspaceId = (await getDesktopState(window)).selectedWorkspaceId;
     expect(selectedWorkspaceId).toBeTruthy();
