@@ -59,7 +59,7 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
   }
 });
 
-test("new thread keeps onboarding notice visible until a default model is set", async () => {
+test("new thread hides the onboarding notice after picking a thread model", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const agentDir = join(userDataDir, "agent");
@@ -92,11 +92,12 @@ test("new thread keeps onboarding notice visible until a default model is set", 
 
     await expect(modelBadge).toHaveText("openai:gpt-5");
     await expect(startButton).toBeEnabled();
+    await expect(notice).toHaveCount(0);
 
     await startButton.click();
 
     await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
-    await expect(window.getByTestId("model-onboarding-notice")).toContainText("No default model set");
+    await expect(window.getByTestId("model-onboarding-notice")).toHaveCount(0);
 
     const composer = window.getByTestId("composer");
     await composer.fill("continue");

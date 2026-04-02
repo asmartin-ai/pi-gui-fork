@@ -92,14 +92,14 @@ export function deriveModelOnboardingState(
       unselectedModelLabel: "No default model",
       emptyModelTitle: "No default model set",
       emptyModelDescription: "Choose a model for this thread, then open Settings > Models to choose the app default.",
-      notice: {
-        title: "No default model set",
-        description: currentSelectionUsable
-          ? "You're using a model for this thread only. Open Settings > Models to choose the app default for new threads."
-          : "Choose a model for this thread, then open Settings > Models to choose the app default for new threads.",
-        actionLabel: "Open Settings > Models",
-        actionSection: "models",
-      },
+      notice: currentSelectionUsable
+        ? undefined
+        : {
+            title: "No default model set",
+            description: "Choose a model for this thread, then open Settings > Models to choose the app default for new threads.",
+            actionLabel: "Open Settings > Models",
+            actionSection: "models",
+          },
     };
   }
 
