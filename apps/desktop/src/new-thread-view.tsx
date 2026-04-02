@@ -157,6 +157,9 @@ export function NewThreadView({
             <ComposerSurface
               activeSlashCommand={activeSlashCommand}
               activeSlashCommandMeta={activeSlashCommandMeta}
+              topNotice={(
+                <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
+              )}
               composerDraft={prompt}
               setComposerDraft={onChangePrompt}
               composerRef={composerRef}
@@ -196,7 +199,6 @@ export function NewThreadView({
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
-                  onOpenModelSettings={onOpenModelSettings}
                   onAddImages={onAddImages}
                   onSubmit={onSubmit}
                 />
@@ -221,7 +223,6 @@ interface NewThreadComposerFooterProps {
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
-  readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
   readonly onAddImages: (files: File[]) => void;
   readonly onSubmit: () => void;
 }
@@ -238,14 +239,12 @@ function NewThreadComposerFooter({
   onSelectEnvironment,
   onSetModel,
   onSetThinking,
-  onOpenModelSettings,
   onAddImages,
   onSubmit,
 }: NewThreadComposerFooterProps) {
   return (
     <>
       <div className="composer__footer">
-        <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
         <div className="composer__footer-row">
           <div className="composer__hint new-thread__hint">
             <div className="new-thread__environment-group">

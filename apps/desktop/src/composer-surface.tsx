@@ -13,6 +13,7 @@ interface ComposerSurfaceProps {
   readonly lastError?: string;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
+  readonly topNotice?: ReactNode;
   readonly composerDraft: string;
   readonly setComposerDraft: (draft: string) => void;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
@@ -49,6 +50,7 @@ export function ComposerSurface({
   lastError,
   activeSlashCommand,
   activeSlashCommandMeta,
+  topNotice,
   composerDraft,
   setComposerDraft,
   composerRef,
@@ -139,6 +141,7 @@ export function ComposerSurface({
         </div>
       ) : null}
       <div className="composer__editor">
+        {topNotice}
         {showMentionMenu ? (
           <div className="composer__menus">
             <div className="mention-menu" data-testid="mention-menu" onWheel={(event) => event.stopPropagation()}>

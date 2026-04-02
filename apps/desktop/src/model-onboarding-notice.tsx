@@ -16,11 +16,11 @@ export function ModelOnboardingNoticeBanner({
   return (
     <div className="model-onboarding-notice" data-testid="model-onboarding-notice">
       <div className="model-onboarding-notice__body">
-        <div className="model-onboarding-notice__title">{notice.title}</div>
-        <div className="model-onboarding-notice__description">{notice.description}</div>
+        <span className="model-onboarding-notice__title">{notice.title}</span>
+        <span className="model-onboarding-notice__description">{notice.description}</span>
       </div>
       <button
-        className="button"
+        className="model-onboarding-notice__action"
         type="button"
         onClick={() => onOpenSettings(notice.actionSection)}
       >

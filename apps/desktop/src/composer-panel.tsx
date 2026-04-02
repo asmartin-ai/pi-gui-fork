@@ -106,6 +106,9 @@ export function ComposerPanel({
           lastError={lastError}
           activeSlashCommand={activeSlashCommand}
           activeSlashCommandMeta={activeSlashCommandMeta}
+          topNotice={(
+            <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
+          )}
           composerDraft={composerDraft}
           setComposerDraft={setComposerDraft}
           composerRef={composerRef}
@@ -136,7 +139,6 @@ export function ComposerPanel({
           onToggleExtensionDock={onToggleExtensionDock}
           footer={(
             <div className="composer__footer">
-              <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
               <div className="composer__footer-row">
                 <div className="composer__hint">
                   {selectedSession.status === "running" ? runningLabel : "Enter to send · Shift+Enter for newline"}
