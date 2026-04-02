@@ -217,7 +217,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function messageText(message: Record<string, unknown>): string {
+export function messageText(message: Record<string, unknown>): string {
   const { content } = message;
   if (typeof content === "string") {
     return content.trim();
@@ -227,6 +227,7 @@ function messageText(message: Record<string, unknown>): string {
     return content
       .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
       .join(" ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
