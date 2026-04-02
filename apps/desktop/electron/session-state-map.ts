@@ -2,7 +2,7 @@ import type { SessionConfig } from "@pi-gui/session-driver";
 import { createEmptyExtensionUiState as createBaseExtensionUiState, type ExtensionUiState } from "@pi-gui/pi-sdk-driver";
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
 import type {
-  ComposerImageAttachment,
+  ComposerAttachment,
   SessionExtensionDialogRecord,
   SessionExtensionUiStateRecord,
   TranscriptMessage,
@@ -27,7 +27,7 @@ export interface PendingAutoTitle {
 export class SessionStateMap {
   readonly transcriptCache = new Map<string, TranscriptMessage[]>();
   readonly composerDraftsBySession = new Map<string, string>();
-  readonly composerAttachmentsBySession = new Map<string, ComposerImageAttachment[]>();
+  readonly composerAttachmentsBySession = new Map<string, ComposerAttachment[]>();
   readonly sessionConfigBySession = new Map<string, SessionConfig>();
   readonly lastViewedAtBySession = new Map<string, string>();
   readonly sessionErrorsBySession = new Map<string, string>();

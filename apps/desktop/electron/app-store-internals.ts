@@ -3,7 +3,7 @@ import type { CreateSessionOptions, SessionConfig, SessionRef, SessionSnapshot, 
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   AppView,
-  ComposerImageAttachment,
+  ComposerAttachment,
   DesktopAppState,
   ExtensionCommandCompatibilityRecord,
   TranscriptMessage,
@@ -31,7 +31,7 @@ export interface AppStoreInternals {
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
-  readonly attachmentStore: JsonFileStore<ComposerImageAttachment[]>;
+  readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
 
   /* ── Shared helpers (called by extracted method groups) ── */
   initialize(): Promise<void>;
@@ -57,7 +57,7 @@ export interface AppStoreInternals {
   clearExtensionUiForSession(sessionRef: SessionRef): void;
   cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void>;
   persistUiState(): Promise<void>;
-  persistComposerAttachments(key: string, attachments: readonly ComposerImageAttachment[]): Promise<void>;
+  persistComposerAttachments(key: string, attachments: readonly ComposerAttachment[]): Promise<void>;
   persistTranscriptCacheForSession(sessionRef: SessionRef): void;
   schedulePersistUiState(): void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { delimiter, join, resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { basename, delimiter, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
@@ -186,6 +186,10 @@ export async function writeTinyPng(filePath: string): Promise<void> {
   await writeFile(filePath, Buffer.from(TINY_PNG_BASE64, "base64"));
 }
 
+export async function writeTextFile(filePath: string, contents: string): Promise<void> {
+  await writeFile(filePath, contents, "utf8");
+}
+
 export function desktopShortcut(keyChord: string): string {
   return `${desktopModifierKey}+${keyChord}`;
 }
@@ -219,6 +223,25 @@ export async function pasteTinyPng(
   composerTestId = "composer",
 ): Promise<void> {
   await dispatchTinyPngPaste(window, fileName, composerTestId, "data-transfer");
+}
+
+export async function dragFilesOverComposer(
+  window: Page,
+  filePaths: readonly string[],
+  composerSurfaceTestId = "composer-surface",
+): Promise<void> {
+  const files = await Promise.all(filePaths.map(loadComposerDragFile));
+  await dispatchComposerDragEvent(window, "dragenter", files, composerSurfaceTestId);
+  await dispatchComposerDragEvent(window, "dragover", files, composerSurfaceTestId);
+}
+
+export async function dropFilesOnComposer(
+  window: Page,
+  filePaths: readonly string[],
+  composerSurfaceTestId = "composer-surface",
+): Promise<void> {
+  const files = await Promise.all(filePaths.map(loadComposerDragFile));
+  await dispatchComposerDragEvent(window, "drop", files, composerSurfaceTestId);
 }
 
 async function dispatchTinyPngPaste(
@@ -257,6 +280,79 @@ async function dispatchTinyPngPaste(
     composer.focus();
     composer.dispatchEvent(event);
   }, { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId, clipboardMode: mode });
+}
+
+async function dispatchComposerDragEvent(
+  window: Page,
+  eventType: "dragenter" | "dragover" | "drop",
+  files: readonly {
+    readonly encoded: string;
+    readonly mimeType: string;
+    readonly name: string;
+    readonly path: string;
+  }[],
+  composerSurfaceTestId: string,
+): Promise<void> {
+  await window.evaluate(({ eventName, entries, surfaceTestId }) => {
+    const surface = document.querySelector<HTMLElement>(`[data-testid='${surfaceTestId}']`);
+    if (!surface) {
+      throw new Error(`Composer surface was unavailable for test id: ${surfaceTestId}`);
+    }
+
+    const transfer = new DataTransfer();
+    for (const entry of entries) {
+      const bytes = Uint8Array.from(atob(entry.encoded), (char) => char.charCodeAt(0));
+      const file = new File([bytes], entry.name, { type: entry.mimeType });
+      Object.defineProperty(file, "path", {
+        configurable: true,
+        value: entry.path,
+      });
+      transfer.items.add(file);
+    }
+
+    const event = new Event(eventName, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      configurable: true,
+      value: transfer,
+    });
+    surface.dispatchEvent(event);
+  }, { eventName: eventType, entries: files, surfaceTestId: composerSurfaceTestId });
+}
+
+async function loadComposerDragFile(filePath: string): Promise<{
+  readonly encoded: string;
+  readonly mimeType: string;
+  readonly name: string;
+  readonly path: string;
+}> {
+  const buffer = await readFile(filePath);
+  return {
+    encoded: buffer.toString("base64"),
+    mimeType: mimeTypeForTestFile(filePath),
+    name: basename(filePath),
+    path: filePath,
+  };
+}
+
+function mimeTypeForTestFile(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".txt":
+    case ".md":
+      return "text/plain";
+    case ".json":
+      return "application/json";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 export async function stubNextOpenDialogResult(

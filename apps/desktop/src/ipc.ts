@@ -1,6 +1,7 @@
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   AppView,
+  ComposerAttachment,
   ComposerImageAttachment,
   CreateSessionInput,
   CreateWorktreeInput,
@@ -53,10 +54,10 @@ export const desktopIpc = {
   setExtensionEnabled: "pi-gui:set-extension-enabled",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
-  pickComposerImages: "pi-gui:pick-composer-images",
+  pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
-  addComposerImages: "pi-gui:add-composer-images",
-  removeComposerImage: "pi-gui:remove-composer-image",
+  addComposerAttachments: "pi-gui:add-composer-attachments",
+  removeComposerAttachment: "pi-gui:remove-composer-attachment",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
@@ -118,6 +119,7 @@ export interface PiDesktopApi {
   onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
+  getPathForFile(file: File): string;
   addWorkspacePath(path: string): Promise<DesktopAppState>;
   pickWorkspace(): Promise<DesktopAppState>;
   selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
@@ -170,10 +172,10 @@ export interface PiDesktopApi {
       | { readonly requestId: string; readonly cancelled: true },
   ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
-  pickComposerImages(): Promise<DesktopAppState>;
+  pickComposerAttachments(): Promise<DesktopAppState>;
   readClipboardImage(): ComposerImageAttachment | null;
-  addComposerImages(attachments: readonly ComposerImageAttachment[]): Promise<DesktopAppState>;
-  removeComposerImage(attachmentId: string): Promise<DesktopAppState>;
+  addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState>;
+  removeComposerAttachment(attachmentId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
   submitComposer(text: string): Promise<DesktopAppState>;
   listWorkspaceFiles(workspaceId: string): Promise<string[]>;

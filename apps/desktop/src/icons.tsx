@@ -67,6 +67,20 @@ export function FolderIcon() {
   );
 }
 
+export function FileIcon() {
+  return (
+    <Icon>
+      <path
+        d="M6.1 3.9h5.6l2.3 2.3v8a1.7 1.7 0 0 1-1.7 1.7H6.1a1.7 1.7 0 0 1-1.7-1.7V5.6a1.7 1.7 0 0 1 1.7-1.7Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.35"
+      />
+      <path d="M11.7 3.9v2.4h2.3M7.2 9.15h5.6M7.2 11.8h4.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
 export function ArchiveIcon() {
   return (
     <Icon>

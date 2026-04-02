@@ -1,13 +1,14 @@
-import { type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import type { ComposerImageAttachment } from "./desktop-state";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import type { ComposerAttachment } from "./desktop-state";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandSection,
   ComposerSlashOption,
   ComposerSlashOptionEmptyState,
 } from "./composer-commands";
+import { hasFilesInDataTransfer } from "./composer-attachments";
 import { ExtensionDock, type ExtensionDockModel } from "./extension-session-ui";
-import { ModelIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
+import { FileIcon, ModelIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
 
 interface ComposerSurfaceProps {
   readonly lastError?: string;
@@ -17,7 +18,7 @@ interface ComposerSurfaceProps {
   readonly composerDraft: string;
   readonly setComposerDraft: (draft: string) => void;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
-  readonly attachments: readonly ComposerImageAttachment[];
+  readonly attachments: readonly ComposerAttachment[];
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
   readonly selectedSlashCommand?: ComposerSlashCommand;
@@ -29,7 +30,7 @@ interface ComposerSurfaceProps {
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
   readonly onComposerDrop: (event: DragEvent<HTMLDivElement>) => void;
-  readonly onRemoveImage: (attachmentId: string) => void;
+  readonly onRemoveAttachment: (attachmentId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly showMentionMenu: boolean;
@@ -66,7 +67,7 @@ export function ComposerSurface({
   onComposerKeyDown,
   onComposerPaste,
   onComposerDrop,
-  onRemoveImage,
+  onRemoveAttachment,
   onSelectSlashCommand,
   onSelectSlashOption,
   showMentionMenu,
@@ -82,13 +83,64 @@ export function ComposerSurface({
   onToggleExtensionDock,
   footer,
 }: ComposerSurfaceProps) {
+  const [isDragActive, setIsDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+
+  const clearDragState = () => {
+    dragDepthRef.current = 0;
+    setIsDragActive(false);
+  };
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFilesInDataTransfer(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!isDragActive) {
+      return;
+    }
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDragActive(false);
+    }
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFilesInDataTransfer(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    if (!isDragActive) {
+      setIsDragActive(true);
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    clearDragState();
+    onComposerDrop(event);
+  };
+
   return (
     <div
-      className="composer__surface"
+      className={`composer__surface ${isDragActive ? "composer__surface--drag-active" : ""}`}
+      data-testid={`${textareaTestId}-surface`}
       onPaste={onComposerPaste}
-      onDrop={onComposerDrop}
-      onDragOver={(event) => event.preventDefault()}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
     >
+      {isDragActive ? (
+        <div className="composer__drop-indicator" data-testid="composer-drop-indicator">
+          Drop images or files to attach
+        </div>
+      ) : null}
       {activeSlashCommand ? (
         <div className="composer__slash-intent">
           <span className="composer__slash-intent-icon" aria-hidden="true">
@@ -113,18 +165,24 @@ export function ComposerSurface({
       {attachments.length > 0 ? (
         <div className="composer__attachments">
           {attachments.map((attachment) => (
-            <div className="composer-attachment" key={attachment.id}>
-              <img
-                alt={attachment.name}
-                className="composer-attachment__preview"
-                src={`data:${attachment.mimeType};base64,${attachment.data}`}
-              />
+            <div className={`composer-attachment composer-attachment--${attachment.kind}`} key={attachment.id}>
+              {attachment.kind === "image" ? (
+                <img
+                  alt={attachment.name}
+                  className="composer-attachment__preview"
+                  src={`data:${attachment.mimeType};base64,${attachment.data}`}
+                />
+              ) : (
+                <span className="composer-attachment__icon" aria-hidden="true">
+                  <FileIcon />
+                </span>
+              )}
               <span className="composer-attachment__name">{attachment.name}</span>
               <button
                 aria-label={`Remove ${attachment.name}`}
                 className="composer-attachment__remove"
                 type="button"
-                onClick={() => onRemoveImage(attachment.id)}
+                onClick={() => onRemoveAttachment(attachment.id)}
               >
                 ×
               </button>

@@ -340,7 +340,11 @@ function findEndIndex(offsets: readonly number[], targetOffset: number): number 
 
 function estimateTimelineItemHeight(item: TranscriptMessage): number {
   if (item.kind === "message") {
-    const attachmentHeight = item.attachments?.length ? 120 : 0;
+    const attachmentHeight = item.attachments?.some((attachment) => attachment.kind === "image")
+      ? 120
+      : item.attachments?.length
+        ? 56
+        : 0;
     const textLength = Math.max(item.text.length, 1);
     return 48 + attachmentHeight + Math.min(240, Math.ceil(textLength / 90) * 20);
   }

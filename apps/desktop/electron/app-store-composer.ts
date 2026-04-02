@@ -1,6 +1,6 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionConfig, SessionRef } from "@pi-gui/session-driver";
-import type { ComposerImageAttachment, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
+import type { ComposerAttachment, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
   formatSessionConfigStatus,
@@ -11,7 +11,7 @@ import {
 } from "../src/composer-commands";
 import { appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
 import {
-  cloneComposerImageAttachments,
+  cloneComposerAttachments,
   makeActivityItem,
   previewFromTranscript,
   toSessionAttachments,
@@ -45,9 +45,9 @@ export async function updateComposerDraft(
   return store.emit();
 }
 
-export async function addComposerImages(
+export async function addComposerAttachments(
   store: AppStoreInternals,
-  attachments: readonly ComposerImageAttachment[],
+  attachments: readonly ComposerAttachment[],
 ): Promise<DesktopAppState> {
   await store.initialize();
   const sessionRef = store.selectedSessionRef();
@@ -61,14 +61,14 @@ export async function addComposerImages(
   store.sessionState.composerAttachmentsBySession.set(key, next);
   store.state = {
     ...store.state,
-    composerAttachments: next,
+    composerAttachments: cloneComposerAttachments(next),
     revision: store.state.revision + 1,
   };
   await store.persistComposerAttachments(key, next);
   return store.emit();
 }
 
-export async function removeComposerImage(
+export async function removeComposerAttachment(
   store: AppStoreInternals,
   attachmentId: string,
 ): Promise<DesktopAppState> {
@@ -88,7 +88,7 @@ export async function removeComposerImage(
   }
   store.state = {
     ...store.state,
-    composerAttachments: next,
+    composerAttachments: cloneComposerAttachments(next),
     revision: store.state.revision + 1,
   };
   await store.persistComposerAttachments(key, next);
@@ -130,13 +130,13 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
       if (learnedCompatibility?.status === "terminal-only") {
         store.sessionState.composerDraftsBySession.set(key, textInput);
         if (attachments.length > 0) {
-          store.sessionState.composerAttachmentsBySession.set(key, cloneComposerImageAttachments(attachments));
+          store.sessionState.composerAttachmentsBySession.set(key, cloneComposerAttachments(attachments));
           await store.persistComposerAttachments(key, attachments);
         }
         store.state = {
           ...store.state,
           composerDraft: textInput,
-          composerAttachments: cloneComposerImageAttachments(attachments),
+          composerAttachments: cloneComposerAttachments(attachments),
           revision: store.state.revision + 1,
         };
         return store.withError(learnedCompatibility.message);
@@ -163,7 +163,7 @@ export async function submitComposer(store: AppStoreInternals, textInput: string
       store.sessionState.composerDraftsBySession.set(key, textInput);
     }
     if (attachments.length > 0) {
-      store.sessionState.composerAttachmentsBySession.set(key, cloneComposerImageAttachments(attachments));
+      store.sessionState.composerAttachmentsBySession.set(key, cloneComposerAttachments(attachments));
       await store.persistComposerAttachments(key, attachments);
     }
     return store.withError(error);
@@ -228,7 +228,7 @@ export async function sendMessageToSession(
   store: AppStoreInternals,
   sessionRef: SessionRef,
   text: string,
-  attachments: readonly ComposerImageAttachment[],
+  attachments: readonly ComposerAttachment[],
 ): Promise<void> {
   const key = sessionKey(sessionRef);
   if (!store.sessionState.loadedTranscriptKeys.has(key)) {

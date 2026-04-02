@@ -1,6 +1,6 @@
 import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerImageAttachment, SessionRecord } from "./desktop-state";
+import type { ComposerAttachment, SessionRecord } from "./desktop-state";
 import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
 import type {
   ComposerSlashCommand,
@@ -24,7 +24,7 @@ interface ComposerPanelProps {
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly runningLabel: string;
-  readonly attachments: readonly ComposerImageAttachment[];
+  readonly attachments: readonly ComposerAttachment[];
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
@@ -39,8 +39,8 @@ interface ComposerPanelProps {
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
   readonly onComposerDrop: (event: DragEvent<HTMLDivElement>) => void;
-  readonly onPickImages: () => void;
-  readonly onRemoveImage: (attachmentId: string) => void;
+  readonly onPickAttachments: () => void;
+  readonly onRemoveAttachment: (attachmentId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
@@ -82,8 +82,8 @@ export function ComposerPanel({
   onComposerKeyDown,
   onComposerPaste,
   onComposerDrop,
-  onPickImages,
-  onRemoveImage,
+  onPickAttachments,
+  onRemoveAttachment,
   onSelectSlashCommand,
   onSelectSlashOption,
   onSetModel,
@@ -124,7 +124,7 @@ export function ComposerPanel({
           onComposerKeyDown={onComposerKeyDown}
           onComposerPaste={onComposerPaste}
           onComposerDrop={onComposerDrop}
-          onRemoveImage={onRemoveImage}
+          onRemoveAttachment={onRemoveAttachment}
           onSelectSlashCommand={onSelectSlashCommand}
           onSelectSlashOption={onSelectSlashOption}
           showMentionMenu={showMentionMenu}
@@ -158,11 +158,11 @@ export function ComposerPanel({
                 </div>
                 <div className="composer__actions">
                   <button
-                    aria-label="Attach image"
+                    aria-label="Attach files"
                     className="icon-button composer__attach"
                     type="button"
                     disabled={selectedSession.status === "running"}
-                    onClick={onPickImages}
+                    onClick={onPickAttachments}
                   >
                     <PlusIcon />
                   </button>

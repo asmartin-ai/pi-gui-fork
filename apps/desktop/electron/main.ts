@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
@@ -12,8 +12,10 @@ import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
-import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-images";
+import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
 import type {
+  ComposerAttachment,
+  ComposerFileAttachment,
   ComposerImageAttachment,
   CreateSessionInput,
   CreateWorktreeInput,
@@ -37,6 +39,7 @@ let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
 
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
+const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
@@ -59,6 +62,7 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
 
   return {
     id: randomUUID(),
+    kind: "image",
     name: "pasted-image.png",
     mimeType: "image/png",
     data: png.toString("base64"),
@@ -383,33 +387,26 @@ app.whenReady().then(async () => {
     await shell.openPath(path.dirname(resolved));
   });
   ipcMain.handle(desktopIpc.cancelCurrentRun, () => store.cancelCurrentRun());
-  ipcMain.handle(desktopIpc.pickComposerImages, async () => {
+  ipcMain.handle(desktopIpc.pickComposerAttachments, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],
-      filters: [
-        {
-          name: "Images",
-          extensions: SUPPORTED_IMAGE_TYPES.map((type) => type.extension),
-        },
-      ],
-      title: "Attach images",
+      title: "Attach files",
     });
     if (result.canceled || result.filePaths.length === 0) {
       return store.getState();
     }
-    const attachments = await Promise.all(result.filePaths.map(readComposerImage));
-    return store.addComposerImages(attachments);
+    const attachments = await Promise.all(result.filePaths.map(readComposerAttachment));
+    return store.addComposerAttachments(attachments);
   });
   ipcMain.on(desktopIpc.readClipboardImage, (event) => {
     event.returnValue = readClipboardImageAttachment();
   });
-  ipcMain.handle(desktopIpc.addComposerImages, (_event, attachments: readonly ComposerImageAttachment[]) => {
-    const allowedMimeTypes: Set<string> = new Set(SUPPORTED_IMAGE_TYPES.map((t) => t.mimeType));
-    const validated = attachments.filter((a) => typeof a.mimeType === "string" && allowedMimeTypes.has(a.mimeType));
-    return store.addComposerImages(validated);
+  ipcMain.handle(desktopIpc.addComposerAttachments, (_event, attachments: readonly ComposerAttachment[]) => {
+    const validated = attachments.flatMap(validateComposerAttachmentPayload);
+    return store.addComposerAttachments(validated);
   });
-  ipcMain.handle(desktopIpc.removeComposerImage, (_event, attachmentId: string) =>
-    store.removeComposerImage(attachmentId),
+  ipcMain.handle(desktopIpc.removeComposerAttachment, (_event, attachmentId: string) =>
+    store.removeComposerAttachment(attachmentId),
   );
   ipcMain.handle(desktopIpc.updateComposerDraft, (_event, composerDraft: string) =>
     store.updateComposerDraft(composerDraft),
@@ -503,12 +500,30 @@ function resolveWindowTestMode(): "foreground" | "background" {
   return process.env.PI_APP_TEST_MODE?.trim().toLowerCase() === "background" ? "background" : "foreground";
 }
 
-async function readComposerImage(filePath: string): Promise<ComposerImageAttachment> {
+async function readComposerAttachment(filePath: string): Promise<ComposerAttachment> {
+  const mimeType = mimeTypeForPath(filePath);
+  if (mimeType.startsWith("image/")) {
+    return readComposerImageAttachment(filePath, mimeType);
+  }
+
+  const stats = await stat(filePath);
+  return {
+    id: randomUUID(),
+    kind: "file",
+    name: path.basename(filePath),
+    mimeType,
+    fsPath: filePath,
+    ...(typeof stats.size === "number" ? { sizeBytes: stats.size } : {}),
+  };
+}
+
+async function readComposerImageAttachment(filePath: string, mimeType: string): Promise<ComposerImageAttachment> {
   const buffer = await readFile(filePath);
   return {
     id: randomUUID(),
+    kind: "image",
     name: path.basename(filePath),
-    mimeType: mimeTypeForPath(filePath),
+    mimeType,
     data: buffer.toString("base64"),
   };
 }
@@ -520,6 +535,40 @@ function mimeTypeForPath(filePath: string): string {
     return supported.mimeType;
   }
   return "application/octet-stream";
+}
+
+function validateComposerAttachmentPayload(attachment: ComposerAttachment): ComposerAttachment[] {
+  if (attachment.kind === "image") {
+    if (typeof attachment.data !== "string" || typeof attachment.mimeType !== "string" || !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+      return [];
+    }
+    return [
+      {
+        ...attachment,
+        kind: "image",
+      },
+    ];
+  }
+
+  if (
+    attachment.kind !== "file" ||
+    typeof attachment.fsPath !== "string" ||
+    typeof attachment.mimeType !== "string" ||
+    typeof attachment.name !== "string"
+  ) {
+    return [];
+  }
+
+  const normalized: ComposerFileAttachment = {
+    ...attachment,
+    kind: "file",
+    fsPath: attachment.fsPath.trim(),
+    name: attachment.name.trim() || path.basename(attachment.fsPath),
+  };
+  if (!normalized.fsPath) {
+    return [];
+  }
+  return [normalized];
 }
 
 function createRuntimeLoginCallbacks() {

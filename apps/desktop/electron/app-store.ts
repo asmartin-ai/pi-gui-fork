@@ -29,10 +29,10 @@ import type {
 } from "@pi-gui/session-driver/runtime-types";
 import {
   type AppView,
+  type ComposerAttachment,
   type ExtensionCommandCompatibilityRecord,
   type ModelSettingsScopeMode,
   createEmptyDesktopAppState,
-  type ComposerImageAttachment,
   type CreateSessionInput,
   type CreateWorktreeInput,
   type DesktopAppState,
@@ -68,8 +68,8 @@ import {
 import {
   buildWorktreeRecords,
   buildWorkspaceRecords,
-  cloneComposerImageAttachment,
-  cloneComposerImageAttachments,
+  cloneComposerAttachment,
+  cloneComposerAttachments,
   cloneTranscriptMessage,
   mapToRecord,
   previewFromTranscript,
@@ -126,7 +126,7 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly worktreeManager: GitWorktreeManager;
   private readonly uiStateFilePath: string;
   private readonly transcriptStore: JsonFileStore<PersistedTranscriptStoreValue>;
-  readonly attachmentStore: JsonFileStore<ComposerImageAttachment[]>;
+  readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
   readonly sessionState = new SessionStateMap();
   readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
   readonly extensionCommandCompatibilityByWorkspace = new Map<string, Map<string, ExtensionCommandCompatibilityRecord>>();
@@ -153,7 +153,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
     this.transcriptStore = new JsonFileStore<PersistedTranscriptStoreValue>(options.userDataDir, "transcripts");
-    this.attachmentStore = new JsonFileStore<ComposerImageAttachment[]>(options.userDataDir, "attachments");
+    this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
   }
@@ -312,12 +312,12 @@ export class DesktopAppStore implements AppStoreInternals {
     return composer.updateComposerDraft(this, composerDraft);
   }
 
-  async addComposerImages(attachments: readonly ComposerImageAttachment[]): Promise<DesktopAppState> {
-    return composer.addComposerImages(this, attachments);
+  async addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState> {
+    return composer.addComposerAttachments(this, attachments);
   }
 
-  async removeComposerImage(attachmentId: string): Promise<DesktopAppState> {
-    return composer.removeComposerImage(this, attachmentId);
+  async removeComposerAttachment(attachmentId: string): Promise<DesktopAppState> {
+    return composer.removeComposerAttachment(this, attachmentId);
   }
 
   async submitComposer(textInput: string): Promise<DesktopAppState> {
@@ -472,9 +472,20 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async loginProvider(workspaceId: string, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<DesktopAppState> {
-    return this.withRuntimeUpdate(workspaceId, (ws) =>
-      this.driver.runtimeSupervisor.login(ws, providerId, callbacks),
-    );
+    await this.initialize();
+    const targetWorkspaceId = this.resolveModelSettingsWorkspaceId(workspaceId);
+    const ws = this.workspaceRefFromState(workspaceId);
+    if (!ws) {
+      return this.withError(`Unknown workspace: ${workspaceId}`);
+    }
+
+    return this.withErrorHandling(async () => {
+      const snapshot = await this.driver.runtimeSupervisor.login(ws, providerId, callbacks);
+      this.runtimeByWorkspace.set(workspaceId, snapshot);
+      await this.autoEnableModelsForConnectedProvider(targetWorkspaceId, providerId, snapshot);
+      await this.refreshSessionCommandsForWorkspace(workspaceId);
+      return this.refreshState({ clearLastError: true });
+    });
   }
 
   async logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState> {
@@ -509,6 +520,50 @@ export class DesktopAppStore implements AppStoreInternals {
       }));
       return this.refreshState({ clearLastError: true });
     });
+  }
+
+  private async autoEnableModelsForConnectedProvider(
+    workspaceId: string,
+    providerId: string,
+    snapshot: RuntimeSnapshot,
+  ): Promise<void> {
+    const providerModelPatterns = [...new Set(
+      snapshot.models
+        .filter((model) => model.available && model.providerId === providerId)
+        .map((model) => `${model.providerId}/${model.modelId}`),
+    )];
+    if (providerModelPatterns.length === 0) {
+      return;
+    }
+
+    const currentPatterns = snapshot.settings.enabledModelPatterns;
+    if (currentPatterns.length === 0) {
+      return;
+    }
+
+    const nextPatterns = mergeEnabledModelPatterns(currentPatterns, providerModelPatterns);
+    if (nextPatterns.length === currentPatterns.length) {
+      return;
+    }
+
+    if (this.state.modelSettingsScopeMode !== "per-repo") {
+      const ownerWorkspace = this.workspaceRefFromState(workspaceId);
+      if (!ownerWorkspace) {
+        return;
+      }
+      const updatedSnapshot = await this.driver.runtimeSupervisor.setScopedModelPatterns(ownerWorkspace, nextPatterns);
+      this.runtimeByWorkspace.set(workspaceId, updatedSnapshot);
+      return;
+    }
+
+    const ownerWorkspace = this.workspaceRefFromState(workspaceId);
+    if (!ownerWorkspace) {
+      return;
+    }
+    await updateProjectModelSettingsFile(ownerWorkspace.path, (settings) => ({
+      ...settings,
+      enabledModels: nextPatterns,
+    }));
   }
 
   async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
@@ -641,7 +696,7 @@ export class DesktopAppStore implements AppStoreInternals {
     const attachmentEntries = Object.entries(persisted.composerAttachmentsBySession ?? {});
     await Promise.all(
       attachmentEntries.map(async ([key, attachments]) => {
-        const cloned = cloneComposerImageAttachments(attachments as readonly ComposerImageAttachment[]);
+        const cloned = cloneComposerAttachments(attachments as readonly ComposerAttachment[]);
         if (cloned.length > 0) {
           this.sessionState.composerAttachmentsBySession.set(key, cloned);
           await this.attachmentStore.write(key, cloned);
@@ -835,7 +890,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
     const attachments = await this.attachmentStore.read(key);
     if (attachments?.length) {
-      this.sessionState.composerAttachmentsBySession.set(key, cloneComposerImageAttachments(attachments));
+      this.sessionState.composerAttachmentsBySession.set(key, cloneComposerAttachments(attachments));
     }
   }
 
@@ -1460,9 +1515,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async persistComposerAttachments(
     key: string,
-    attachments: readonly ComposerImageAttachment[],
+    attachments: readonly ComposerAttachment[],
   ): Promise<void> {
-    await this.attachmentStore.write(key, cloneComposerImageAttachments(attachments));
+    await this.attachmentStore.write(key, cloneComposerAttachments(attachments));
     await this.persistUiState();
   }
 
@@ -1778,14 +1833,14 @@ export class DesktopAppStore implements AppStoreInternals {
   private resolveComposerAttachments(
     selectedWorkspaceId: string,
     selectedSessionId: string,
-  ): readonly ComposerImageAttachment[] {
+  ): readonly ComposerAttachment[] {
     if (!selectedWorkspaceId || !selectedSessionId) {
       return [];
     }
 
     return this.sessionState.composerAttachmentsBySession.get(
       sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
-    )?.map(cloneComposerImageAttachment) ?? [];
+    )?.map(cloneComposerAttachment) ?? [];
   }
 
   private resolveSelectedSessionError(

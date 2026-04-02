@@ -10,12 +10,16 @@ import {
   makeWorkspace,
   pasteTinyPng,
   persistedSessionDataPaths,
+  stubNextOpenDialog,
+  writeTextFile,
 } from "../helpers/electron-app";
 
-test("pastes an image into the composer surface and clears the attachment chip on submit", async () => {
+test("clears mixed attachment chips on submit after paste and file attach", async () => {
   test.setTimeout(30_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("paste-workspace");
+  const filePath = join(workspacePath, "composer-notes.txt");
+  await writeTextFile(filePath, "submit clears file attachment too");
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
@@ -27,11 +31,11 @@ test("pastes an image into the composer surface and clears the attachment chip o
 
     const composer = window.getByTestId("composer");
     await pasteTinyPng(window);
+    await stubNextOpenDialog(harness, [filePath]);
+    await window.getByRole("button", { name: "Attach files" }).click();
 
-    const chip = window.locator(".composer-attachment");
-    await expect(chip).toBeVisible();
-    await expect(chip.locator(".composer-attachment__name")).toContainText("screenshot.png");
-    await expect(chip.locator(".composer-attachment__preview")).toBeVisible();
+    await expect(window.locator(".composer-attachment--image")).toHaveCount(1);
+    await expect(window.locator(".composer-attachment--file")).toHaveCount(1);
 
     await composer.fill("test with image");
     await composer.press("Enter");
@@ -46,6 +50,8 @@ test("persists transcript storage separately from ui state and restores the curr
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("persistence-workspace");
+  const filePath = join(workspacePath, "persisted-notes.txt");
+  await writeTextFile(filePath, "persisted file attachment");
 
   const firstRun = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -57,7 +63,9 @@ test("persists transcript storage separately from ui state and restores the curr
 
     const composer = window.getByTestId("composer");
     await pasteTinyPng(window);
-    await expect(window.locator(".composer-attachment")).toBeVisible();
+    await stubNextOpenDialog(firstRun, [filePath]);
+    await window.getByRole("button", { name: "Attach files" }).click();
+    await expect(window.locator(".composer-attachment")).toHaveCount(2);
 
     await composer.fill("/status");
     await composer.press("Enter");
@@ -103,7 +111,16 @@ test("persists transcript storage separately from ui state and restores the curr
           return "";
         }
       })
-      .toContain("\"mimeType\": \"image/png\"");
+      .toContain("\"kind\": \"image\"");
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(attachmentPath, "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .toContain("\"kind\": \"file\"");
   } finally {
     await firstRun.close();
   }
@@ -122,7 +139,7 @@ test("persists transcript storage separately from ui state and restores the curr
         };
       })
       .toMatchObject({
-        attachments: 1,
+        attachments: 2,
       });
   } finally {
     await secondRun.close();
@@ -178,7 +195,7 @@ test("migrates legacy inline transcript and attachment persistence into file-bac
           return "";
         }
       })
-      .toContain("\"mimeType\": \"image/png\"");
+      .toContain("\"kind\": \"image\"");
   } finally {
     await firstRun.close();
   }

@@ -2,7 +2,7 @@ import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
-import { ChevronRightIcon, CopyIcon } from "./icons";
+import { ChevronRightIcon, CopyIcon, FileIcon } from "./icons";
 
 export function TimelineItem({
   item,
@@ -40,14 +40,27 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
         <div className="timeline-item__bubble">
           {item.attachments?.length ? (
             <div className="timeline-item__attachments">
-              {item.attachments.map((attachment, index) => (
-                <img
-                  alt={attachment.name ?? `Attachment ${index + 1}`}
-                  className="timeline-item__attachment"
-                  key={`${item.id}:${index}`}
-                  src={`data:${attachment.mimeType};base64,${attachment.data}`}
-                />
-              ))}
+              {item.attachments.map((attachment, index) =>
+                attachment.kind === "image" ? (
+                  <img
+                    alt={attachment.name ?? `Attachment ${index + 1}`}
+                    className="timeline-item__attachment timeline-item__attachment--image"
+                    key={`${item.id}:${index}`}
+                    src={`data:${attachment.mimeType};base64,${attachment.data}`}
+                  />
+                ) : (
+                  <div
+                    className="timeline-item__attachment timeline-item__attachment--file"
+                    key={`${item.id}:${index}`}
+                    title={attachment.fsPath}
+                  >
+                    <span className="timeline-item__attachment-icon" aria-hidden="true">
+                      <FileIcon />
+                    </span>
+                    <span className="timeline-item__attachment-name">{attachment.name}</span>
+                  </div>
+                ),
+              )}
             </div>
           ) : null}
           <MessageMarkdown text={item.text} />

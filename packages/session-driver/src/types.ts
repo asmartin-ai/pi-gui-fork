@@ -28,12 +28,22 @@ export interface SessionSnapshot {
   readonly runningRunId?: RunId;
 }
 
-export interface SessionAttachment {
+export interface SessionImageAttachment {
   readonly kind: "image";
   readonly mimeType: string;
   readonly data: string;
   readonly name?: string;
 }
+
+export interface SessionFileAttachment {
+  readonly kind: "file";
+  readonly name: string;
+  readonly mimeType: string;
+  readonly fsPath: string;
+  readonly sizeBytes?: number;
+}
+
+export type SessionAttachment = SessionImageAttachment | SessionFileAttachment;
 
 export interface SessionConfig {
   readonly provider?: string;

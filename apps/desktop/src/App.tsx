@@ -4,6 +4,7 @@ import {
   getSelectedSession,
   getSelectedWorkspace,
   type AppView,
+  type ComposerAttachment,
   type ComposerImageAttachment,
   type DesktopAppState,
   type NewThreadEnvironment,
@@ -36,9 +37,9 @@ import { getEffectiveModelRuntime } from "./model-settings";
 import { resolveRepoWorkspaceId } from "./workspace-roots";
 import {
   extractImageFilesFromClipboardData,
-  extractImageFilesFromDataTransfer,
+  extractFilesFromDataTransfer,
   readComposerAttachmentsFromFiles,
-} from "./composer-images";
+} from "./composer-attachments";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -138,7 +139,7 @@ export default function App() {
   const [newThreadRootWorkspaceId, setNewThreadRootWorkspaceId] = useState("");
   const [newThreadEnvironment, setNewThreadEnvironment] = useState<NewThreadEnvironment>("local");
   const [newThreadPrompt, setNewThreadPrompt] = useState("");
-  const [newThreadAttachments, setNewThreadAttachments] = useState<readonly ComposerImageAttachment[]>([]);
+  const [newThreadAttachments, setNewThreadAttachments] = useState<readonly ComposerAttachment[]>([]);
   const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
@@ -893,15 +894,15 @@ export default function App() {
     });
   };
 
-  const handlePickImages = () => {
-    void updateSnapshot(api, setSnapshot, () => api.pickComposerImages());
+  const handlePickAttachments = () => {
+    void updateSnapshot(api, setSnapshot, () => api.pickComposerAttachments());
   };
 
-  const handleRemoveImage = (attachmentId: string) => {
-    void updateSnapshot(api, setSnapshot, () => api.removeComposerImage(attachmentId));
+  const handleRemoveAttachment = (attachmentId: string) => {
+    void updateSnapshot(api, setSnapshot, () => api.removeComposerAttachment(attachmentId));
   };
 
-  const handleNewThreadAddImages = (files: File[]) => {
+  const handleNewThreadAddAttachments = (files: File[]) => {
     void readComposerAttachmentsFromFiles(files).then((attachments) => {
       if (attachments.length === 0) {
         return;
@@ -910,7 +911,7 @@ export default function App() {
     });
   };
 
-  const handleNewThreadRemoveImage = (attachmentId: string) => {
+  const handleNewThreadRemoveAttachment = (attachmentId: string) => {
     setNewThreadAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   };
 
@@ -923,9 +924,9 @@ export default function App() {
     onFiles(files);
   };
 
-  const handleImageDrop = (event: DragEvent<HTMLDivElement>, onFiles: (files: File[]) => void) => {
+  const handleAttachmentDrop = (event: DragEvent<HTMLDivElement>, onFiles: (files: File[]) => void) => {
     event.preventDefault();
-    const files = extractImageFilesFromDataTransfer(event.dataTransfer);
+    const files = extractFilesFromDataTransfer(event.dataTransfer);
     if (files.length === 0) {
       return;
     }
@@ -934,25 +935,25 @@ export default function App() {
 
   const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     handleImagePaste(event, (files) => {
-      void addImagesToSessionComposer(files);
+      void addAttachmentsToSessionComposer(files);
     });
   };
 
   const handleNewThreadComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    handleImagePaste(event, handleNewThreadAddImages);
+    handleImagePaste(event, handleNewThreadAddAttachments);
   };
 
   const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
-    handleImageDrop(event, (files) => {
-      void addImagesToSessionComposer(files);
+    handleAttachmentDrop(event, (files) => {
+      void addAttachmentsToSessionComposer(files);
     });
   };
 
   const handleNewThreadComposerDrop = (event: DragEvent<HTMLDivElement>) => {
-    handleImageDrop(event, handleNewThreadAddImages);
+    handleAttachmentDrop(event, handleNewThreadAddAttachments);
   };
 
-  async function addImagesToSessionComposer(files: File[]) {
+  async function addAttachmentsToSessionComposer(files: File[]) {
     if (!api) {
       return;
     }
@@ -960,7 +961,7 @@ export default function App() {
     if (valid.length === 0) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.addComposerImages(valid));
+    void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments(valid));
   }
 
   const handleClipboardImageShortcut = (
@@ -987,7 +988,7 @@ export default function App() {
       if (!api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.addComposerImages([clipboardImage]));
+      void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments([clipboardImage]));
       return;
     }
 
@@ -1216,7 +1217,7 @@ export default function App() {
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (handleClipboardImageShortcut(event, (clipboardImage) => {
-      void updateSnapshot(api, setSnapshot, () => api.addComposerImages([clipboardImage]));
+      void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments([clipboardImage]));
     })) {
       return;
     }
@@ -1497,8 +1498,8 @@ export default function App() {
                 newThreadSlashMenu.applySlashOptionSelection(option);
               }}
               onSelectMention={newThreadMentionMenu.insertMention}
-              onAddImages={handleNewThreadAddImages}
-              onRemoveImage={handleNewThreadRemoveImage}
+              onAddAttachments={handleNewThreadAddAttachments}
+              onRemoveAttachment={handleNewThreadRemoveAttachment}
               onSubmit={handleStartThread}
             />
           ) : (
@@ -1556,8 +1557,8 @@ export default function App() {
               onComposerKeyDown={handleComposerKeyDown}
               onComposerPaste={handleComposerPaste}
               onComposerDrop={handleComposerDrop}
-              onPickImages={handlePickImages}
-              onRemoveImage={handleRemoveImage}
+              onPickAttachments={handlePickAttachments}
+              onRemoveAttachment={handleRemoveAttachment}
               onSelectSlashCommand={(command) => {
                 slashMenu.applySlashCommandSelection(command, "click");
               }}

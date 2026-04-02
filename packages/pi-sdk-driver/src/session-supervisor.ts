@@ -50,6 +50,7 @@ import {
   determineRunOutcome,
   extractPreview,
   forcePersistSession,
+  injectFileAttachmentPreamble,
   nowIso,
   previewFromSessionInfo,
   sessionKey,
@@ -356,12 +357,17 @@ export class SessionSupervisor {
     await this.emit(record, sessionUpdatedEvent(record));
 
     try {
-      const images = input.attachments?.map((attachment) => ({
-        type: "image" as const,
-        data: attachment.data,
-        mimeType: attachment.mimeType,
-      }));
-      await session.prompt(input.text, {
+      const images = input.attachments?.flatMap((attachment) =>
+        attachment.kind === "image"
+          ? [{
+              type: "image" as const,
+              data: attachment.data,
+              mimeType: attachment.mimeType,
+            }]
+          : [],
+      );
+      const promptText = injectFileAttachmentPreamble(input.text, input.attachments);
+      await session.prompt(promptText, {
         ...(images && images.length > 0 ? { images } : {}),
         source: "interactive",
       });

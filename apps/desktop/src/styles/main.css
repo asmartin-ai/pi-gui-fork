@@ -303,12 +303,50 @@
 }
 
 .timeline-item__attachment {
+  border: 1px solid #dfe4ee;
+  background: #edf1f7;
+}
+
+.timeline-item__attachment--image {
   width: 88px;
   height: 88px;
   object-fit: cover;
   border-radius: 12px;
-  border: 1px solid #dfe4ee;
-  background: #edf1f7;
+}
+
+.timeline-item__attachment--file {
+  min-width: 0;
+  max-width: min(320px, 100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8f9fc;
+}
+
+.timeline-item__attachment-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-soft);
+  flex-shrink: 0;
+}
+
+.timeline-item__attachment-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.timeline-item__attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 520;
 }
 
 .timeline-activity {
@@ -749,6 +787,7 @@
 }
 
 .composer__surface {
+  position: relative;
   border-radius: 18px;
   padding: 12px 14px 11px;
   border: 1px solid #dfe4ee;
@@ -756,6 +795,27 @@
   width: 100%;
   box-shadow: 0 10px 24px rgba(24, 31, 48, 0.04);
   overflow: visible;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.composer__surface--drag-active {
+  border-color: #6b7dd8;
+  background: #fbfcff;
+  box-shadow: 0 0 0 3px rgba(107, 125, 216, 0.16), 0 12px 28px rgba(42, 57, 115, 0.12);
+}
+
+.composer__drop-indicator {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 2;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(107, 125, 216, 0.12);
+  color: #4456b7;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .composer__editor {
@@ -1032,6 +1092,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: min(280px, 100%);
   padding: 6px 10px 6px 6px;
   border-radius: 999px;
   border: 1px solid #dfe4ee;
@@ -1046,7 +1108,27 @@
   background: #e8ecf5;
 }
 
+.composer-attachment__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-soft);
+  background: #e8ecf5;
+  flex-shrink: 0;
+}
+
+.composer-attachment__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .composer-attachment__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted-strong);
   font-size: 13px;
   font-weight: 520;
@@ -2238,6 +2320,10 @@ mark.thread-find-active {
   background: var(--surface-muted);
 }
 
+:root.dark .timeline-item__attachment--file {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 :root.dark .timeline-summary::before,
 :root.dark .timeline-summary::after {
   background: var(--line);
@@ -2273,6 +2359,17 @@ mark.thread-find-active {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
 }
 
+:root.dark .composer__surface--drag-active {
+  border-color: #8fa0ff;
+  background: rgba(78, 90, 140, 0.18);
+  box-shadow: 0 0 0 3px rgba(143, 160, 255, 0.18), 0 12px 28px rgba(0, 0, 0, 0.36);
+}
+
+:root.dark .composer__drop-indicator {
+  background: rgba(143, 160, 255, 0.16);
+  color: #c6d0ff;
+}
+
 :root.dark .composer__slash-intent {
   border-bottom-color: var(--line);
 }
@@ -2287,6 +2384,7 @@ mark.thread-find-active {
   background: var(--surface-muted);
 }
 
+:root.dark .composer-attachment__icon,
 :root.dark .composer-attachment__preview {
   background: var(--surface);
 }

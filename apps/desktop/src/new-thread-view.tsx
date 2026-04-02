@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerImageAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
+import type { ComposerAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
 import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
 import {
   MODEL_OPTIONS_EMPTY_TITLE,
@@ -10,7 +10,6 @@ import {
   type ComposerSlashOptionEmptyState,
 } from "./composer-commands";
 import { ComposerSurface } from "./composer-surface";
-import { COMPOSER_IMAGE_FILE_INPUT_ACCEPT } from "./composer-images";
 import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
 import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
@@ -21,7 +20,7 @@ interface NewThreadViewProps {
   readonly runtime?: RuntimeSnapshot;
   readonly environment: NewThreadEnvironment;
   readonly prompt: string;
-  readonly attachments: readonly ComposerImageAttachment[];
+  readonly attachments: readonly ComposerAttachment[];
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
@@ -52,8 +51,8 @@ interface NewThreadViewProps {
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly onSelectMention: (filePath: string) => void;
-  readonly onAddImages: (files: File[]) => void;
-  readonly onRemoveImage: (attachmentId: string) => void;
+  readonly onAddAttachments: (files: File[]) => void;
+  readonly onRemoveAttachment: (attachmentId: string) => void;
   readonly onSubmit: () => void;
 }
 
@@ -94,8 +93,8 @@ export function NewThreadView({
   onSelectSlashCommand,
   onSelectSlashOption,
   onSelectMention,
-  onAddImages,
-  onRemoveImage,
+  onAddAttachments,
+  onRemoveAttachment,
   onSubmit,
 }: NewThreadViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -175,7 +174,7 @@ export function NewThreadView({
               onComposerKeyDown={onComposerKeyDown}
               onComposerPaste={onComposerPaste}
               onComposerDrop={onComposerDrop}
-              onRemoveImage={onRemoveImage}
+              onRemoveAttachment={onRemoveAttachment}
               onSelectSlashCommand={onSelectSlashCommand}
               onSelectSlashOption={onSelectSlashOption}
               showMentionMenu={showMentionMenu}
@@ -199,7 +198,7 @@ export function NewThreadView({
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
-                  onAddImages={onAddImages}
+                  onAddAttachments={onAddAttachments}
                   onSubmit={onSubmit}
                 />
               )}
@@ -223,7 +222,7 @@ interface NewThreadComposerFooterProps {
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
-  readonly onAddImages: (files: File[]) => void;
+  readonly onAddAttachments: (files: File[]) => void;
   readonly onSubmit: () => void;
 }
 
@@ -239,7 +238,7 @@ function NewThreadComposerFooter({
   onSelectEnvironment,
   onSetModel,
   onSetThinking,
-  onAddImages,
+  onAddAttachments,
   onSubmit,
 }: NewThreadComposerFooterProps) {
   return (
@@ -285,18 +284,17 @@ function NewThreadComposerFooter({
               ref={fileInputRef}
               hidden
               type="file"
-              accept={COMPOSER_IMAGE_FILE_INPUT_ACCEPT}
               multiple
               onChange={(event) => {
                 const files = Array.from(event.target.files ?? []);
                 if (files.length > 0) {
-                  onAddImages(files);
+                  onAddAttachments(files);
                 }
                 event.currentTarget.value = "";
               }}
             />
             <button
-              aria-label="Attach image"
+              aria-label="Attach files"
               className="icon-button composer__attach"
               type="button"
               onClick={() => fileInputRef.current?.click()}

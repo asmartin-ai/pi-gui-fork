@@ -3,7 +3,7 @@ import type { SessionCatalogEntry, WorkspaceCatalogEntry, WorktreeCatalogEntry }
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionAttachment, SessionConfig, SessionRef } from "@pi-gui/session-driver";
 import type {
-  ComposerImageAttachment,
+  ComposerAttachment,
   SessionRecord,
   TranscriptMessage,
   WorktreeRecord,
@@ -284,35 +284,104 @@ export function cloneTranscriptMessage(message: TranscriptMessage): TranscriptMe
   return { ...message };
 }
 
-export function cloneComposerImageAttachment(attachment: ComposerImageAttachment): ComposerImageAttachment {
-  return { ...attachment };
+export function cloneComposerAttachment(attachment: ComposerAttachment): ComposerAttachment {
+  if (attachment.kind === "file") {
+    return { ...attachment };
+  }
+  return {
+    ...attachment,
+    kind: "image",
+  };
 }
 
-export function cloneComposerImageAttachments(
-  attachments: readonly ComposerImageAttachment[],
-): ComposerImageAttachment[] {
-  return attachments.map(cloneComposerImageAttachment);
+export function cloneComposerAttachments(
+  attachments: readonly ComposerAttachment[],
+): ComposerAttachment[] {
+  return attachments.flatMap((attachment) => {
+    const normalized = normalizeComposerAttachment(attachment as unknown as Record<string, unknown>);
+    return normalized ? [normalized] : [];
+  });
 }
 
 export function toSessionAttachments(
-  attachments: readonly ComposerImageAttachment[],
+  attachments: readonly ComposerAttachment[],
 ): SessionAttachment[] {
-  return attachments.map(toImageAttachmentPayload);
+  return attachments.map((attachment) =>
+    attachment.kind === "image" ? toImageAttachmentPayload(attachment) : toFileAttachmentPayload(attachment),
+  );
 }
 
 export function toTranscriptAttachments(
-  attachments: readonly ComposerImageAttachment[],
+  attachments: readonly ComposerAttachment[],
 ): NonNullable<Extract<TranscriptMessage, { kind: "message" }>["attachments"]> {
-  return attachments.map(toImageAttachmentPayload);
+  return attachments.map((attachment) =>
+    attachment.kind === "image" ? toImageAttachmentPayload(attachment) : toFileAttachmentPayload(attachment),
+  );
 }
 
-function toImageAttachmentPayload({ data, mimeType, name }: ComposerImageAttachment) {
+function toImageAttachmentPayload({
+  data,
+  mimeType,
+  name,
+}: Extract<ComposerAttachment, { readonly kind: "image" }>) {
   return {
     kind: "image" as const,
     data,
     mimeType,
     name,
   };
+}
+
+function toFileAttachmentPayload({
+  fsPath,
+  mimeType,
+  name,
+  sizeBytes,
+}: Extract<ComposerAttachment, { readonly kind: "file" }>) {
+  return {
+    kind: "file" as const,
+    fsPath,
+    mimeType,
+    name,
+    ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+  };
+}
+
+function normalizeComposerAttachment(value: Record<string, unknown>): ComposerAttachment | null {
+  if (
+    (value.kind === "image" || value.kind === undefined) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.mimeType === "string" &&
+    typeof value.data === "string"
+  ) {
+    return {
+      id: value.id,
+      kind: "image",
+      name: value.name,
+      mimeType: value.mimeType,
+      data: value.data,
+    };
+  }
+
+  if (
+    value.kind === "file" &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.mimeType === "string" &&
+    typeof value.fsPath === "string"
+  ) {
+    return {
+      id: value.id,
+      kind: "file",
+      name: value.name,
+      mimeType: value.mimeType,
+      fsPath: value.fsPath,
+      ...(typeof value.sizeBytes === "number" ? { sizeBytes: value.sizeBytes } : {}),
+    };
+  }
+
+  return null;
 }
 
 export function makeActivityItem(

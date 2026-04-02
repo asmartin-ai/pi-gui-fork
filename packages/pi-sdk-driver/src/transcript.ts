@@ -1,9 +1,19 @@
-export interface SessionTranscriptAttachment {
+export interface SessionTranscriptImageAttachment {
   readonly kind: "image";
   readonly mimeType: string;
   readonly data: string;
   readonly name?: string;
 }
+
+export interface SessionTranscriptFileAttachment {
+  readonly kind: "file";
+  readonly name: string;
+  readonly mimeType: string;
+  readonly fsPath: string;
+  readonly sizeBytes?: number;
+}
+
+export type SessionTranscriptAttachment = SessionTranscriptImageAttachment | SessionTranscriptFileAttachment;
 
 export type SessionTranscriptRole = "user" | "assistant";
 

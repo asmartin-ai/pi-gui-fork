@@ -1,7 +1,18 @@
 import { basename } from "node:path";
 import type { SessionInfo } from "@mariozechner/pi-coding-agent";
-import type { SessionConfig, SessionErrorInfo, SessionRef, SessionSnapshot, SessionStatus, WorkspaceRef } from "@pi-gui/session-driver";
-import type { SessionTranscriptMessage } from "./transcript.js";
+import type {
+  SessionAttachment,
+  SessionConfig,
+  SessionErrorInfo,
+  SessionRef,
+  SessionSnapshot,
+  SessionStatus,
+  WorkspaceRef,
+} from "@pi-gui/session-driver";
+import type { SessionTranscriptAttachment, SessionTranscriptMessage } from "./transcript.js";
+
+const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
+const FILE_ATTACHMENT_BLOCK_END = "</pi-gui-file-attachments>";
 
 export interface SnapshotSource {
   readonly ref: SessionRef;
@@ -100,17 +111,9 @@ export function extractPreview(message: unknown): string | undefined {
     return undefined;
   }
 
-  const content = message.content;
-  if (typeof content === "string") {
-    return truncate(content);
-  }
-
-  if (Array.isArray(content)) {
-    const text = content
-      .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
-      .join(" ")
-      .trim();
-    return text ? truncate(text) : undefined;
+  const text = messageText(message);
+  if (text) {
+    return truncate(text);
   }
 
   if (typeof message.stopReason === "string" && typeof message.errorMessage === "string") {
@@ -179,6 +182,29 @@ export function truncate(value: string, limit = 140): string {
   return `${normalized.slice(0, limit - 1)}…`;
 }
 
+export function injectFileAttachmentPreamble(
+  text: string,
+  attachments: readonly SessionAttachment[] | undefined,
+): string {
+  const files = attachments?.filter((attachment): attachment is Extract<SessionAttachment, { readonly kind: "file" }> => attachment.kind === "file") ?? [];
+  if (files.length === 0) {
+    return text;
+  }
+
+  const payload = JSON.stringify({
+    version: 1,
+    files: files.map((attachment) => ({
+      kind: "file" as const,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      fsPath: attachment.fsPath,
+      ...(attachment.sizeBytes !== undefined ? { sizeBytes: attachment.sizeBytes } : {}),
+    })),
+  });
+  const block = `${FILE_ATTACHMENT_BLOCK_START}${payload}${FILE_ATTACHMENT_BLOCK_END}`;
+  return text ? `${block}\n${text}` : block;
+}
+
 export function transcriptFromMessages(messages: readonly unknown[], fallbackTimestamp = nowIso()): SessionTranscriptMessage[] {
   const transcript: SessionTranscriptMessage[] = [];
 
@@ -220,12 +246,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function messageText(message: Record<string, unknown>): string {
   const { content } = message;
   if (typeof content === "string") {
-    return content.trim();
+    return stripSerializedFileAttachments(content, message.role).text.trim();
   }
 
   if (Array.isArray(content)) {
     return content
-      .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
+      .map((part) =>
+        isRecord(part) && part.type === "text" && typeof part.text === "string"
+          ? stripSerializedFileAttachments(part.text, message.role).text
+          : "",
+      )
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
@@ -236,11 +266,19 @@ export function messageText(message: Record<string, unknown>): string {
 
 function messageAttachments(message: Record<string, unknown>) {
   const { content } = message;
+  if (typeof content === "string") {
+    return stripSerializedFileAttachments(content, message.role).attachments;
+  }
+
   if (!Array.isArray(content)) {
     return [];
   }
 
   return content.flatMap((part) => {
+    if (isRecord(part) && part.type === "text" && typeof part.text === "string") {
+      return stripSerializedFileAttachments(part.text, message.role).attachments;
+    }
+
     if (!isRecord(part) || part.type !== "image" || typeof part.data !== "string" || typeof part.mimeType !== "string") {
       return [];
     }
@@ -254,4 +292,66 @@ function messageAttachments(message: Record<string, unknown>) {
       },
     ];
   });
+}
+
+function stripSerializedFileAttachments(
+  text: string,
+  role: unknown,
+): { readonly text: string; readonly attachments: readonly SessionTranscriptAttachment[] } {
+  if (role !== "user" || !text.startsWith(FILE_ATTACHMENT_BLOCK_START)) {
+    return {
+      text,
+      attachments: [],
+    };
+  }
+
+  const endIndex = text.indexOf(FILE_ATTACHMENT_BLOCK_END, FILE_ATTACHMENT_BLOCK_START.length);
+  if (endIndex < 0) {
+    return {
+      text,
+      attachments: [],
+    };
+  }
+
+  const payload = text.slice(FILE_ATTACHMENT_BLOCK_START.length, endIndex);
+  const remainder = text.slice(endIndex + FILE_ATTACHMENT_BLOCK_END.length).replace(/^\n+/, "");
+  const attachments = parseSerializedFileAttachments(payload);
+  if (attachments.length === 0) {
+    return {
+      text,
+      attachments: [],
+    };
+  }
+
+  return {
+    text: remainder,
+    attachments,
+  };
+}
+
+function parseSerializedFileAttachments(payload: string): SessionTranscriptAttachment[] {
+  try {
+    const parsed = JSON.parse(payload) as { readonly version?: unknown; readonly files?: readonly unknown[] };
+    if (parsed.version !== 1 || !Array.isArray(parsed.files)) {
+      return [];
+    }
+
+    return parsed.files.flatMap((entry) => {
+      if (!isRecord(entry) || entry.kind !== "file" || typeof entry.name !== "string" || typeof entry.mimeType !== "string" || typeof entry.fsPath !== "string") {
+        return [];
+      }
+
+      return [
+        {
+          kind: "file" as const,
+          name: entry.name,
+          mimeType: entry.mimeType,
+          fsPath: entry.fsPath,
+          ...(typeof entry.sizeBytes === "number" ? { sizeBytes: entry.sizeBytes } : {}),
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
 }

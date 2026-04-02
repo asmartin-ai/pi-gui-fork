@@ -19,10 +19,22 @@ export interface NotificationPreferences {
 
 export interface ComposerImageAttachment {
   readonly id: string;
+  readonly kind: "image";
   readonly name: string;
   readonly mimeType: string;
   readonly data: string;
 }
+
+export interface ComposerFileAttachment {
+  readonly id: string;
+  readonly kind: "file";
+  readonly name: string;
+  readonly mimeType: string;
+  readonly fsPath: string;
+  readonly sizeBytes?: number;
+}
+
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment;
 
 export interface SessionRecord {
   readonly id: string;
@@ -110,7 +122,7 @@ export type StartThreadInput = {
   readonly rootWorkspaceId: string;
   readonly environment: NewThreadEnvironment;
   readonly prompt?: string;
-  readonly attachments?: readonly ComposerImageAttachment[];
+  readonly attachments?: readonly ComposerAttachment[];
   readonly provider?: string;
   readonly modelId?: string;
   readonly thinkingLevel?: string;
@@ -128,7 +140,7 @@ export interface DesktopAppState {
   readonly selectedSessionId: string;
   readonly activeView: AppView;
   readonly composerDraft: string;
-  readonly composerAttachments: readonly ComposerImageAttachment[];
+  readonly composerAttachments: readonly ComposerAttachment[];
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
