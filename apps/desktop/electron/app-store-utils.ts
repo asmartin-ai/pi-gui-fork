@@ -11,7 +11,7 @@ import type {
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 
-export const TRANSCRIPT_HISTORY_LIMIT = 180;
+export const LEGACY_TRANSCRIPT_HISTORY_LIMIT = 180;
 
 export function mapToRecord<V>(map: Map<string, V>): Record<string, V> {
   return Object.fromEntries(map.entries());

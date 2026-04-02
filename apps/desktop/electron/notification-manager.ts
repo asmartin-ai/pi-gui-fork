@@ -98,13 +98,6 @@ export class NotificationManager {
       return false;
     }
 
-    if (event.type === "runCompleted" || event.type === "runFailed") {
-      const session = this.sessionFromLatestState(event.sessionRef);
-      if (session && !session.hasUnseenUpdate) {
-        return false;
-      }
-    }
-
     const window = this.getWindow();
     if (!window || window.isDestroyed()) {
       return true;

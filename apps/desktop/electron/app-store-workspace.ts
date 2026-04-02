@@ -2,6 +2,7 @@ import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { CreateSessionInput, DesktopAppState, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import type { AppStoreInternals, RefreshStateOptions } from "./app-store-internals";
+import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";
 
 function fallbackSelectionAfterWorkspaceRemoval(
   state: DesktopAppState,
@@ -122,7 +123,9 @@ export async function archiveSession(
   await store.initialize();
 
   return store.withErrorHandling(async () => {
-    await store.driver.archiveSession(toSessionRef(target));
+    const sessionRef = toSessionRef(target);
+    store.clearPendingAutoTitle(sessionRef);
+    await store.driver.archiveSession(sessionRef);
     return store.refreshState(selectionAfterArchiving(store.state, target));
   });
 }
@@ -182,7 +185,9 @@ export async function unarchiveSession(
   await store.initialize();
 
   return store.withErrorHandling(async () => {
-    await store.driver.unarchiveSession(toSessionRef(target));
+    const sessionRef = toSessionRef(target);
+    store.clearPendingAutoTitle(sessionRef);
+    await store.driver.unarchiveSession(sessionRef);
     return store.refreshState({
       selectedWorkspaceId: store.state.selectedWorkspaceId,
       selectedSessionId:
@@ -206,7 +211,7 @@ export async function createSession(store: AppStoreInternals, input: CreateSessi
     const createOptions = await store.buildCreateSessionOptions(input.workspaceId);
     const snapshot = await store.driver.createSession(ws, {
       ...createOptions,
-      title: input.title?.trim() || "New thread",
+      title: input.title?.trim() || NEW_THREAD_PLACEHOLDER_TITLE,
     });
     const key = sessionKey(snapshot.ref);
     store.sessionState.transcriptCache.set(key, []);
