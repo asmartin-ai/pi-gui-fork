@@ -60,6 +60,15 @@ Use the smallest lane that matches the changed surface.
   pnpm --filter @pi-gui/desktop run test:e2e:native
   ```
 
+- `production`
+  Opt-in higher-fidelity smokes that stay out of the default fast lanes. Use these for real-auth `live` checks, packaged `.app` launch, and real macOS open-panel coverage.
+
+  ```bash
+  pnpm --filter @pi-gui/desktop run test:prod:real-auth-contract
+  pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+  pnpm --filter @pi-gui/desktop run test:prod:open-folder-real
+  ```
+
 Run all desktop lanes:
 
 ```bash
@@ -78,6 +87,7 @@ pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
 - `native` scripts set `PI_APP_TEST_MODE=foreground` for you and may steal focus.
 - If a native test fails, rerun it with a clean foreground window before assuming the product is broken.
 - Picker tests rely on macOS Accessibility/UI scripting. If folder or image picker automation cannot type into the dialog, check system Accessibility permissions first.
+- `production` open-panel coverage also relies on macOS Accessibility/UI scripting and should be run with the app kept frontmost.
 
 ## Targeted Commands
 
@@ -92,6 +102,19 @@ pnpm --filter @pi-gui/desktop run test:live:tool-calls
 pnpm --filter @pi-gui/desktop run test:native:paste
 pnpm --filter @pi-gui/desktop run test:native:open-folder
 pnpm --filter @pi-gui/desktop run test:native:attach-image
+pnpm --filter @pi-gui/desktop run test:prod:real-auth-contract
+pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+pnpm --filter @pi-gui/desktop run test:prod:open-folder-real
+```
+
+For real-auth `live` specs, opt in explicitly:
+
+```bash
+PI_APP_REAL_AUTH=1 PI_APP_REAL_AUTH_SOURCE_DIR=/absolute/path/to/agent \
+  pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/live/submit-run.spec.ts
+
+PI_APP_REAL_AUTH=1 PI_APP_REAL_AUTH_SOURCE_DIR=/absolute/path/to/agent \
+  pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/live/tool-calls.spec.ts
 ```
 
 For dev-loop verification, use:
@@ -109,11 +132,15 @@ That spec launches the app in development mode, edits isolated probe modules for
 - Avoid direct IPC shortcuts for visible behavior unless the user surface does not exist yet. If you must use one, document why the surface gap exists.
 - `pasteTinyPng()` drives the renderer paste handler directly and is appropriate for background-safe coverage.
 - `pasteTinyPngViaClipboard()` uses Electron clipboard plus `webContents.paste()` and is appropriate for foreground/native coverage.
+- `tests/production/real-auth-contract.spec.ts` proves the default non-real-auth path still seeds a temporary fake-auth agent dir and keeps real-auth coverage opt-in.
+- `tests/production/packaged-smoke.spec.ts` proves the packaged `.app` bundle launches and can start a thread through the real UI.
+- `tests/production/open-folder-real.spec.ts` proves the real macOS open panel can add a workspace through the empty-state button.
 
 ## Lane Map
 
 - `tests/core`: deterministic in-window behavior
 - `tests/live`: real agent/runtime behavior
 - `tests/native`: macOS OS-surface behavior
+- `tests/production`: opt-in higher-fidelity smokes kept out of the default lane globs
 
 Future agents should start by reading this file, `apps/desktop/tests/AGENTS.md`, and the scripts in `apps/desktop/package.json`.
