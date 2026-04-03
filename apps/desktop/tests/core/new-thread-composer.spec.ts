@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   desktopShortcut,
   getDesktopState,
+  getSelectedTranscript,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -62,6 +63,15 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await window.getByRole("button", { name: "Start thread" }).click();
 
     await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const transcript = await getSelectedTranscript(window);
+        const userMessage = transcript?.transcript.find(
+          (entry) => entry.kind === "message" && "role" in entry && entry.role === "user",
+        );
+        return userMessage?.attachments?.map((attachment) => attachment.kind).join(",") ?? "";
+      }, { timeout: 15_000 })
+      .toBe("image");
     await expect(window.locator(".timeline-item__attachment")).toBeVisible({ timeout: 15_000 });
     await expect(window.locator(".composer-attachment")).toHaveCount(0);
   } finally {

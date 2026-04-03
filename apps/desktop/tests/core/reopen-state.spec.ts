@@ -10,6 +10,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   persistedSessionDataPaths,
+  waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
 test("reopens persisted folders and thread state while a saved running session keeps streaming updates", async () => {
@@ -78,6 +79,23 @@ test("reopens persisted folders and thread state while a saved running session k
   const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {
     const window = await secondRun.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+        const session = workspace?.sessions.find((entry) => entry.id === sessionId);
+        return {
+          selectedWorkspaceId: state.selectedWorkspaceId,
+          selectedSessionId: state.selectedSessionId,
+          sessionTitle: session?.title ?? "",
+        };
+      }, { timeout: 15_000 })
+      .toMatchObject({
+        selectedWorkspaceId: workspaceId,
+        selectedSessionId: sessionId,
+        sessionTitle: "Reopen reliability session",
+      });
     await expect(window.locator(".topbar__session")).toHaveText("Reopen reliability session");
     await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
 

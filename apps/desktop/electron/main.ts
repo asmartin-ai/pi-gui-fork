@@ -262,6 +262,7 @@ app.whenReady().then(async () => {
               deferredThreadTitle = { resolve, reject };
             });
         },
+        hasDeferredThreadTitle: () => Boolean(deferredThreadTitle),
         resolveDeferredThreadTitle: (title: string) => {
           if (!deferredThreadTitle) {
             throw new Error("Deferred thread-title request is unavailable");

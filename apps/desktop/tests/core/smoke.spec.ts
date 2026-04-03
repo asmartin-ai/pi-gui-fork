@@ -1,6 +1,13 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createSessionViaIpc, launchDesktop, makeUserDataDir, makeWorkspace, waitForWorkspaceByPath } from "../helpers/electron-app";
+import {
+  createSessionViaIpc,
+  getSelectedTranscript,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+  waitForWorkspaceByPath,
+} from "../helpers/electron-app";
 
 test("boots an existing workspace and starts a new thread through the real UI", async () => {
   const userDataDir = await makeUserDataDir();
@@ -28,6 +35,15 @@ test("boots an existing workspace and starts a new thread through the real UI", 
 
     await expect(window.locator(".topbar__session")).toHaveText(/\S+/);
     await expect(window.getByTestId("composer")).toBeFocused();
+    await expect
+      .poll(async () => {
+        const transcript = await getSelectedTranscript(window);
+        const userMessage = transcript?.transcript.find(
+          (entry) => entry.kind === "message" && "role" in entry && entry.role === "user",
+        );
+        return userMessage?.text ?? "";
+      }, { timeout: 15_000 })
+      .toContain(promptText);
     await expect(window.getByTestId("transcript")).toContainText(promptText);
   } finally {
     await harness.close();

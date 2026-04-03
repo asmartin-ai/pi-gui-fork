@@ -740,6 +740,18 @@ export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promi
 }
 
 export async function resolveDeferredThreadTitle(harness: DesktopHarness, title: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        harness.electronApp.evaluate(() => {
+          const hooks = (globalThis as {
+            __PI_APP_TEST_HOOKS?: { hasDeferredThreadTitle?: () => boolean };
+          }).__PI_APP_TEST_HOOKS;
+          return hooks?.hasDeferredThreadTitle?.() ?? false;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   await harness.electronApp.evaluate(async (_, nextTitle) => {
     const hooks = (globalThis as {
       __PI_APP_TEST_HOOKS?: { resolveDeferredThreadTitle?: (title: string) => void };
@@ -752,6 +764,18 @@ export async function resolveDeferredThreadTitle(harness: DesktopHarness, title:
 }
 
 export async function rejectDeferredThreadTitle(harness: DesktopHarness): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        harness.electronApp.evaluate(() => {
+          const hooks = (globalThis as {
+            __PI_APP_TEST_HOOKS?: { hasDeferredThreadTitle?: () => boolean };
+          }).__PI_APP_TEST_HOOKS;
+          return hooks?.hasDeferredThreadTitle?.() ?? false;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   await harness.electronApp.evaluate(async () => {
     const hooks = (globalThis as {
       __PI_APP_TEST_HOOKS?: { rejectDeferredThreadTitle?: () => void };

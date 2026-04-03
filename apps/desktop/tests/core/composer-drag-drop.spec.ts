@@ -4,6 +4,7 @@ import {
   createNamedThread,
   dragFilesOverComposer,
   dropFilesOnComposer,
+  getSelectedTranscript,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -74,6 +75,15 @@ test("new thread reuses drag-drop attachments and carries them into the transcri
     await window.getByRole("button", { name: "Start thread" }).click();
 
     await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const transcript = await getSelectedTranscript(window);
+        const userMessage = transcript?.transcript.find(
+          (entry) => entry.kind === "message" && "role" in entry && entry.role === "user",
+        );
+        return userMessage?.attachments?.map((attachment) => attachment.kind).sort().join(",") ?? "";
+      }, { timeout: 15_000 })
+      .toBe("file,image");
     await expect(window.locator(".timeline-item__attachment--image")).toHaveCount(1, { timeout: 15_000 });
     await expect(window.locator(".timeline-item__attachment--file")).toContainText("notes.txt", { timeout: 15_000 });
   } finally {
