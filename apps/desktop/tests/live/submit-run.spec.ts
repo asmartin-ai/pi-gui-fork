@@ -1,13 +1,17 @@
 import { expect, test } from "@playwright/test";
-import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import { getDesktopState, getRealAuthConfig, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 
 test("submits a real prompt and shows the response in the transcript", async () => {
   test.setTimeout(180_000);
+  const realAuth = getRealAuthConfig();
+  test.skip(!realAuth.enabled, realAuth.skipReason);
+
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("live-run-workspace");
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    realAuthSourceDir: realAuth.sourceDir,
   });
 
   try {

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  getRealAuthConfig,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -8,11 +9,15 @@ import {
 
 test("renders a real tool call item that expands and collapses from the transcript", async () => {
   test.setTimeout(180_000);
+  const realAuth = getRealAuthConfig();
+  test.skip(!realAuth.enabled, realAuth.skipReason);
+
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("tool-call-workspace");
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    realAuthSourceDir: realAuth.sourceDir,
   });
 
   try {

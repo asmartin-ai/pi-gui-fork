@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
-import { basename, delimiter, extname, join, resolve } from "node:path";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
@@ -16,8 +16,23 @@ import type {
 } from "../../src/desktop-state";
 
 const desktopDir = resolve(__dirname, "..", "..");
+const packagedReleaseDir = join(desktopDir, "release");
 const nativeClipboardImagePath = resolve(__dirname, "..", "..", "..", "website", "public", "og.png");
 const execFileAsync = promisify(execFile);
+const REAL_AUTH_ENV_VAR = "PI_APP_REAL_AUTH";
+const REAL_AUTH_SOURCE_DIR_ENV_VAR = "PI_APP_REAL_AUTH_SOURCE_DIR";
+const REQUIRED_REAL_AUTH_FILES = ["auth.json"] as const;
+const OPTIONAL_REAL_AUTH_FILES = ["settings.json", "models.json"] as const;
+const PROVIDER_ENV_VARS = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GOOGLE_API_KEY",
+  "GEMINI_API_KEY",
+  "AZURE_OPENAI_API_KEY",
+  "XAI_API_KEY",
+  "MISTRAL_API_KEY",
+  "DEEPSEEK_API_KEY",
+] as const;
 export const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
 
@@ -37,6 +52,7 @@ export interface LaunchDesktopOptions {
   readonly notificationLogPath?: string;
   readonly testMode?: DesktopTestMode;
   readonly agentDir?: string;
+  readonly realAuthSourceDir?: string;
   readonly scrubProviderEnv?: boolean;
 }
 
@@ -46,44 +62,69 @@ export interface SeedAgentDirOptions {
   readonly enabledModels?: readonly string[];
 }
 
+export interface RealAuthConfig {
+  readonly enabled: boolean;
+  readonly sourceDir?: string;
+  readonly skipReason?: string;
+}
+
+export function getRealAuthConfig(): RealAuthConfig {
+  if (process.env[REAL_AUTH_ENV_VAR] !== "1") {
+    return {
+      enabled: false,
+      skipReason: `Set ${REAL_AUTH_ENV_VAR}=1 and ${REAL_AUTH_SOURCE_DIR_ENV_VAR}=/absolute/path/to/agent to run this spec.`,
+    };
+  }
+
+  const sourceDir = process.env[REAL_AUTH_SOURCE_DIR_ENV_VAR]?.trim();
+  if (!sourceDir) {
+    return {
+      enabled: false,
+      skipReason: `Set ${REAL_AUTH_SOURCE_DIR_ENV_VAR}=/absolute/path/to/agent when ${REAL_AUTH_ENV_VAR}=1.`,
+    };
+  }
+
+  return {
+    enabled: true,
+    sourceDir: resolve(sourceDir),
+  };
+}
+
 export async function launchDesktop(
   userDataDir: string,
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
-  const agentDir = normalized.agentDir ?? join(userDataDir, "agent");
-  if (!normalized.agentDir) {
-    await seedAgentDir(agentDir);
-  }
-  const env = {
-    ...process.env,
-    PI_APP_USER_DATA_DIR: userDataDir,
-    PI_APP_INITIAL_WORKSPACES: (normalized.initialWorkspaces ?? []).join(delimiter),
-    PI_APP_TEST_MODE: normalized.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
-    PI_CODING_AGENT_DIR: agentDir,
-    ...(normalized.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: normalized.notificationLogPath } : {}),
-    PI_APP_OPEN_DEVTOOLS: "0",
-  };
-  if (normalized.scrubProviderEnv) {
-    for (const key of [
-      "OPENAI_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "GOOGLE_API_KEY",
-      "GEMINI_API_KEY",
-      "AZURE_OPENAI_API_KEY",
-      "XAI_API_KEY",
-      "MISTRAL_API_KEY",
-      "DEEPSEEK_API_KEY",
-    ]) {
-      delete env[key];
-    }
-  }
+  const agentDir = await prepareAgentDir(userDataDir, normalized);
+  const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   const electronApp = await electron.launch({
     args: [desktopDir],
     cwd: desktopDir,
     env,
   });
 
+  return createDesktopHarness(electronApp);
+}
+
+export async function launchPackagedDesktop(
+  userDataDir: string,
+  options: readonly string[] | LaunchDesktopOptions = [],
+): Promise<DesktopHarness> {
+  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const agentDir = await prepareAgentDir(userDataDir, normalized);
+  const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
+  const executablePath = await resolvePackagedAppExecutable();
+  const electronApp = await electron.launch({
+    executablePath,
+    args: [],
+    cwd: dirname(executablePath),
+    env,
+  });
+
+  return createDesktopHarness(electronApp);
+}
+
+function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness {
   let page: Page | undefined;
 
   async function getWindow(): Promise<Page> {
@@ -123,6 +164,147 @@ export async function launchDesktop(
       await electronApp.close();
     },
   };
+}
+
+function buildDesktopLaunchEnv(
+  userDataDir: string,
+  agentDir: string,
+  options: LaunchDesktopOptions,
+): NodeJS.ProcessEnv {
+  const env = {
+    ...process.env,
+    PI_APP_USER_DATA_DIR: userDataDir,
+    PI_APP_INITIAL_WORKSPACES: (options.initialWorkspaces ?? []).join(delimiter),
+    PI_APP_TEST_MODE: options.testMode ?? process.env.PI_APP_TEST_MODE ?? "foreground",
+    PI_CODING_AGENT_DIR: agentDir,
+    ...(options.notificationLogPath ? { PI_APP_NOTIFICATION_LOG_PATH: options.notificationLogPath } : {}),
+    PI_APP_OPEN_DEVTOOLS: "0",
+  };
+
+  if (options.scrubProviderEnv || options.realAuthSourceDir) {
+    for (const key of PROVIDER_ENV_VARS) {
+      delete env[key];
+    }
+  }
+
+  return env;
+}
+
+async function prepareAgentDir(
+  userDataDir: string,
+  options: LaunchDesktopOptions,
+): Promise<string> {
+  if (options.agentDir && options.realAuthSourceDir) {
+    throw new Error("Pass either agentDir or realAuthSourceDir to the desktop launch helper, not both.");
+  }
+
+  if (options.agentDir) {
+    return options.agentDir;
+  }
+
+  const agentDir = join(userDataDir, "agent");
+  if (options.realAuthSourceDir) {
+    await seedAgentDirFromRealAuth(agentDir, options.realAuthSourceDir);
+    return agentDir;
+  }
+
+  await seedAgentDir(agentDir);
+  return agentDir;
+}
+
+async function seedAgentDirFromRealAuth(agentDir: string, sourceDir: string): Promise<void> {
+  const resolvedSourceDir = resolve(sourceDir);
+  await mkdir(agentDir, { recursive: true });
+
+  for (const fileName of REQUIRED_REAL_AUTH_FILES) {
+    await copyAgentFile(resolvedSourceDir, agentDir, fileName, true);
+  }
+
+  for (const fileName of OPTIONAL_REAL_AUTH_FILES) {
+    await copyAgentFile(resolvedSourceDir, agentDir, fileName, false);
+  }
+}
+
+async function copyAgentFile(
+  sourceDir: string,
+  targetDir: string,
+  fileName: string,
+  required: boolean,
+): Promise<void> {
+  const sourcePath = join(sourceDir, fileName);
+  try {
+    await copyFile(sourcePath, join(targetDir, fileName));
+  } catch (error) {
+    if (required && isMissingPathError(error)) {
+      throw new Error(
+        `Real-auth source dir is missing required file ${fileName}: ${sourcePath}. ` +
+          `Set ${REAL_AUTH_SOURCE_DIR_ENV_VAR} to an agent dir with the full provider state.`,
+      );
+    }
+
+    if (!required && isMissingPathError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+export async function resolvePackagedAppExecutable(releaseDir = packagedReleaseDir): Promise<string> {
+  let appBundles: string[];
+  try {
+    appBundles = await findAppBundles(releaseDir);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      throw new Error(
+        `Packaged release directory not found: ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package:dir first.`,
+      );
+    }
+    throw error;
+  }
+
+  const appBundle = appBundles.find((candidate) => basename(candidate) === "pi-gui.app") ?? appBundles[0];
+  if (!appBundle) {
+    throw new Error(`No .app bundle found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package:dir first.`);
+  }
+
+  const macOsDir = join(appBundle, "Contents", "MacOS");
+  const entries = await readdir(macOsDir, { withFileTypes: true });
+  const expectedExecutableName = basename(appBundle, ".app");
+  const executableEntry =
+    entries.find((entry) => entry.isFile() && entry.name === expectedExecutableName) ??
+    entries.find((entry) => entry.isFile());
+
+  if (!executableEntry) {
+    throw new Error(`No packaged executable found under ${macOsDir}.`);
+  }
+
+  return join(macOsDir, executableEntry.name);
+}
+
+async function findAppBundles(rootDir: string): Promise<string[]> {
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  const bundles: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const fullPath = join(rootDir, entry.name);
+    if (entry.name.endsWith(".app")) {
+      bundles.push(fullPath);
+      continue;
+    }
+
+    bundles.push(...(await findAppBundles(fullPath)));
+  }
+
+  return bundles;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 export async function makeUserDataDir(prefix = "pi-gui-user-data-"): Promise<string> {
