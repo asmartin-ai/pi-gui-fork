@@ -100,9 +100,18 @@ test("switching away does not cancel a pending auto-title", async () => {
     await expect.poll(async () => (await getDesktopState(window)).selectedWorkspaceId).toBe(workspace.id);
 
     await resolveDeferredThreadTitleEventually(harness, "Keep title after nav");
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return state.workspaces.some((candidateWorkspace) =>
+          candidateWorkspace.sessions.some((session) => session.title === "Keep title after nav"),
+        );
+      })
+      .toBe(true);
 
-    await expect(window.locator(".session-row__select", { hasText: "Keep title after nav" }).first()).toBeVisible();
-    await window.locator(".session-row__select", { hasText: "Keep title after nav" }).first().click();
+    const autoTitledRow = window.locator(".session-row__select", { hasText: "Keep title after nav" }).first();
+    await expect(autoTitledRow).toBeVisible({ timeout: 15_000 });
+    await autoTitledRow.click();
     await expect(window.locator(".topbar__session")).toHaveText("Keep title after nav");
   } finally {
     await harness.close();

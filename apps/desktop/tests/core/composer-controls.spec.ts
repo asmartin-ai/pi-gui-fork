@@ -192,25 +192,33 @@ test("dark mode keeps the send button visible before and after typing", async ()
 
     const sendButton = window.getByTestId("send");
     await expect(sendButton).toBeDisabled();
-    const disabledStyles = await sendButton.evaluate((button) => {
-      const styles = getComputedStyle(button);
-      return {
-        backgroundColor: styles.backgroundColor,
-        color: styles.color,
-      };
-    });
-    expect(contrastRatio(disabledStyles.color, disabledStyles.backgroundColor)).toBeGreaterThan(3);
+    await expect
+      .poll(async () => {
+        const styles = await sendButton.evaluate((button) => {
+          const computed = getComputedStyle(button);
+          return {
+            backgroundColor: computed.backgroundColor,
+            color: computed.color,
+          };
+        });
+        return contrastRatio(styles.color, styles.backgroundColor);
+      })
+      .toBeGreaterThan(3);
 
     await window.getByTestId("composer").fill("make the arrow visible");
     await expect(sendButton).toBeEnabled();
-    const enabledStyles = await sendButton.evaluate((button) => {
-      const styles = getComputedStyle(button);
-      return {
-        backgroundColor: styles.backgroundColor,
-        color: styles.color,
-      };
-    });
-    expect(contrastRatio(enabledStyles.color, enabledStyles.backgroundColor)).toBeGreaterThan(4.5);
+    await expect
+      .poll(async () => {
+        const styles = await sendButton.evaluate((button) => {
+          const computed = getComputedStyle(button);
+          return {
+            backgroundColor: computed.backgroundColor,
+            color: computed.color,
+          };
+        });
+        return contrastRatio(styles.color, styles.backgroundColor);
+      })
+      .toBeGreaterThan(4.5);
   } finally {
     await harness.close();
   }
