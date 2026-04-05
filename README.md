@@ -17,9 +17,11 @@ This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is no
 
 Download the latest `.dmg` from [Releases](https://github.com/minghinmatthewlam/pi-gui/releases).
 
-> The app is unsigned. On first launch: right-click the app > Open, then click Open in the dialog.
+Signed and notarized beta releases are the intended install path. Older unsigned artifacts may still require the macOS right-click > Open workaround.
 
 ### With Homebrew
+
+Homebrew installation will be published from [`minghinmatthewlam/homebrew-tap`](https://github.com/minghinmatthewlam/homebrew-tap) once the first signed release artifacts are available.
 
 ```bash
 brew tap minghinmatthewlam/tap
@@ -70,6 +72,20 @@ pnpm test
 ```
 
 Desktop E2E lanes and setup are documented in [`apps/desktop/README.md`](./apps/desktop/README.md). The default desktop test command runs the `core` lane; use `pnpm --filter @pi-gui/desktop run test:e2e:all` when you need `core`, `live`, and `native`.
+
+Production-like packaged-app checks:
+
+```bash
+pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+```
+
+Release automation expects these GitHub Actions secrets for signed/notarized macOS builds:
+
+- `CSC_LINK`
+- `CSC_KEY_PASSWORD`
+- `APPLE_API_KEY`
+- `APPLE_API_KEY_ID`
+- `APPLE_API_ISSUER`
 
 Regenerate the README demo assets:
 
