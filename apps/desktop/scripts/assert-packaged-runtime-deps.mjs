@@ -3,7 +3,15 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const requiredPackages = ["chalk", "glob", "hosted-git-info", "minimatch"];
+const requiredPackages = [
+  "balanced-match",
+  "brace-expansion",
+  "chalk",
+  "glob",
+  "hosted-git-info",
+  "lru-cache",
+  "minimatch",
+];
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
