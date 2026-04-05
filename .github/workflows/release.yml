@@ -64,6 +64,7 @@ jobs:
         run: |
           cd apps/desktop
           pnpm exec electron-builder --mac \
+            --publish never \
             "-c.extraMetadata.version=${GITHUB_REF_NAME#v}"
 
       - name: Release
