@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -114,6 +114,24 @@ export async function launchPackagedDesktop(
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   const executablePath = await resolvePackagedAppExecutable();
+  return launchDesktopExecutable(executablePath, env);
+}
+
+export async function launchDesktopByExecutable(
+  executablePath: string,
+  userDataDir: string,
+  options: readonly string[] | LaunchDesktopOptions = [],
+): Promise<DesktopHarness> {
+  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const agentDir = await prepareAgentDir(userDataDir, normalized);
+  const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
+  return launchDesktopExecutable(executablePath, env);
+}
+
+async function launchDesktopExecutable(
+  executablePath: string,
+  env: NodeJS.ProcessEnv,
+): Promise<DesktopHarness> {
   const electronApp = await electron.launch({
     executablePath,
     args: [],
@@ -250,7 +268,7 @@ async function copyAgentFile(
   }
 }
 
-export async function resolvePackagedAppExecutable(releaseDir = packagedReleaseDir): Promise<string> {
+export async function resolvePackagedAppBundle(releaseDir = packagedReleaseDir): Promise<string> {
   let appBundles: string[];
   try {
     appBundles = await findAppBundles(releaseDir);
@@ -268,6 +286,14 @@ export async function resolvePackagedAppExecutable(releaseDir = packagedReleaseD
     throw new Error(`No .app bundle found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package:dir first.`);
   }
 
+  return appBundle;
+}
+
+export async function resolvePackagedAppExecutable(releaseDir = packagedReleaseDir): Promise<string> {
+  return resolveAppBundleExecutable(await resolvePackagedAppBundle(releaseDir));
+}
+
+export async function resolveAppBundleExecutable(appBundle: string): Promise<string> {
   const macOsDir = join(appBundle, "Contents", "MacOS");
   const entries = await readdir(macOsDir, { withFileTypes: true });
   const expectedExecutableName = basename(appBundle, ".app");
@@ -280,6 +306,47 @@ export async function resolvePackagedAppExecutable(releaseDir = packagedReleaseD
   }
 
   return join(macOsDir, executableEntry.name);
+}
+
+export async function resolvePackagedReleaseZip(releaseDir = packagedReleaseDir): Promise<string> {
+  const entries = await readdir(releaseDir, { withFileTypes: true });
+  const zipEntry = entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip"));
+
+  if (!zipEntry) {
+    throw new Error(`No packaged macOS release zip found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package first.`);
+  }
+
+  return join(releaseDir, zipEntry.name);
+}
+
+export async function extractPackagedReleaseZipAppBundle(
+  releaseDir = packagedReleaseDir,
+  appName = "pi-gui 2.app",
+): Promise<string> {
+  const zipPath = await resolvePackagedReleaseZip(releaseDir);
+  const extractionDir = await mkdtemp(join(tmpdir(), "pi-gui-release-zip-"));
+  await execFileAsync("ditto", ["-x", "-k", zipPath, extractionDir]);
+
+  const extractedAppBundle = await resolvePackagedAppBundle(extractionDir);
+  const renamedBundle = join(extractionDir, appName);
+
+  if (extractedAppBundle !== renamedBundle) {
+    try {
+      await rename(extractedAppBundle, renamedBundle);
+    } catch (error) {
+      if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EXDEV") {
+        throw error;
+      }
+
+      await cp(extractedAppBundle, renamedBundle, { recursive: true });
+    }
+  }
+
+  return realpath(renamedBundle);
+}
+
+export async function copyAppBundle(sourceAppBundle: string, targetAppBundle: string): Promise<void> {
+  await execFileAsync("ditto", [sourceAppBundle, targetAppBundle]);
 }
 
 async function findAppBundles(rootDir: string): Promise<string[]> {

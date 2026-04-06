@@ -70,6 +70,9 @@ jobs:
       - name: Verify packaged runtime dependencies
         run: pnpm --dir apps/desktop run verify:packaged-runtime-deps
 
+      - name: Smoke test the packaged release zip
+        run: pnpm --dir apps/desktop run test:prod:release-zip-smoke:ci
+
       - name: Staple macOS artifacts
         run: |
           if xcrun stapler staple apps/desktop/release/*.dmg; then

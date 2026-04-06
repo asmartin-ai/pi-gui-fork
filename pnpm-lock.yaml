@@ -25,6 +25,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@mariozechner/pi-coding-agent':
+        specifier: ^0.62.0
+        version: 0.62.0(ws@8.19.0)(zod@4.3.6)
       '@pi-gui/pi-sdk-driver':
         specifier: workspace:*
         version: link:../../packages/pi-sdk-driver
@@ -8259,7 +8262,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 22.19.15
+      '@types/node': 24.12.2
       long: 5.3.2
 
   proxy-agent@6.5.0:
