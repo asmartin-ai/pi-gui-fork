@@ -119,6 +119,8 @@ interface PromptTemplateAdapter {
   readonly filePath?: string;
 }
 
+const NEW_THREAD_PLACEHOLDER_TITLE = "New thread";
+
 interface SkillAdapter {
   readonly name: string;
   readonly description: string;
@@ -1301,13 +1303,14 @@ export class SessionSupervisor {
       runtimeRecord && runtimeRecord.session && !runtimeRecord.closed ? buildSnapshot(runtimeRecord) : undefined;
     const previewSnippet = runtimeSnapshot?.preview ?? previewFromSessionInfo(info);
     const archivedAt = runtimeSnapshot?.archivedAt ?? existingEntry?.archivedAt;
+    const titleFromInfo = titleFromSessionInfo(info);
     const entry: SessionCatalogSnapshot["sessions"][number] = {
       sessionRef: {
         workspaceId: workspace.workspaceId,
         sessionId: info.id,
       },
       workspaceId: workspace.workspaceId,
-      title: runtimeSnapshot?.title ?? existingEntry?.title ?? titleFromSessionInfo(info),
+      title: runtimeSnapshot?.title ?? resolvedCatalogSessionTitle(existingEntry?.title, titleFromInfo),
       updatedAt: runtimeSnapshot?.updatedAt ?? info.modified.toISOString(),
       status: runtimeSnapshot?.status ?? "idle",
       sessionFilePath: info.path,
@@ -1357,6 +1360,17 @@ export class SessionSupervisor {
 
     await this.catalogs.sessions.upsertSession(nextEntry);
   }
+}
+
+function resolvedCatalogSessionTitle(existingTitle: string | undefined, infoTitle: string): string {
+  const trimmedExisting = existingTitle?.trim();
+  if (!trimmedExisting) {
+    return infoTitle;
+  }
+  if (trimmedExisting === NEW_THREAD_PLACEHOLDER_TITLE && infoTitle !== NEW_THREAD_PLACEHOLDER_TITLE) {
+    return infoTitle;
+  }
+  return trimmedExisting;
 }
 
 const DEFAULT_SESSION_THINKING_LEVEL = "medium";

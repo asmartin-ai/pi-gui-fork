@@ -328,6 +328,13 @@ export async function extractPackagedReleaseZipAppBundle(
   appName = "pi-gui 2.app",
 ): Promise<string> {
   const zipPath = await resolvePackagedReleaseZip(releaseDir);
+  return extractAppBundleFromReleaseZip(zipPath, appName);
+}
+
+export async function extractAppBundleFromReleaseZip(
+  zipPath: string,
+  appName = "pi-gui 2.app",
+): Promise<string> {
   const extractionDir = await mkdtemp(join(tmpdir(), "pi-gui-release-zip-"));
   await execFileAsync("ditto", ["-x", "-k", zipPath, extractionDir]);
 

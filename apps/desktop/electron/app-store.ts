@@ -138,6 +138,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
+  private refreshStateDepth = 0;
 
   constructor(options: DesktopAppStoreOptions) {
     const catalogFilePath = join(options.userDataDir, "catalogs.json");
@@ -732,118 +733,123 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async refreshState(options: RefreshStateOptions = {}): Promise<DesktopAppState> {
-    const previousSelectedKey = this.currentSelectedSessionKey();
-    const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
-      this.driver.listWorkspaces(),
-      this.driver.listSessions(),
-    ]);
-    const worktreeEntries = options.refreshWorktrees
-      ? await worktree.syncAndListWorktrees(this, workspacesSnapshot.workspaces)
-      : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
+    this.refreshStateDepth += 1;
+    try {
+      const previousSelectedKey = this.currentSelectedSessionKey();
+      const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
+        this.driver.listWorkspaces(),
+        this.driver.listSessions(),
+      ]);
+      const worktreeEntries = options.refreshWorktrees
+        ? await worktree.syncAndListWorktrees(this, workspacesSnapshot.workspaces)
+        : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
 
-    await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
-    await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
+      await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
+      await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
 
-    const selectedWorkspaceId = resolveSelectedWorkspaceIdFromCatalog(
-      options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
-      workspacesSnapshot.workspaces,
-    );
-    const selectedSessionId = resolveSelectedSessionIdFromCatalog(
-      selectedWorkspaceId,
-      options.selectedSessionId ?? this.state.selectedSessionId,
-      sessionsSnapshot.sessions,
-    );
+      const selectedWorkspaceId = resolveSelectedWorkspaceIdFromCatalog(
+        options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
+        workspacesSnapshot.workspaces,
+      );
+      const selectedSessionId = resolveSelectedSessionIdFromCatalog(
+        selectedWorkspaceId,
+        options.selectedSessionId ?? this.state.selectedSessionId,
+        sessionsSnapshot.sessions,
+      );
 
-    if (selectedWorkspaceId && selectedSessionId) {
-      const sessionRef = {
-        workspaceId: selectedWorkspaceId,
-        sessionId: selectedSessionId,
+      if (selectedWorkspaceId && selectedSessionId) {
+        const sessionRef = {
+          workspaceId: selectedWorkspaceId,
+          sessionId: selectedSessionId,
+        };
+        await this.ensureSessionReady(sessionRef);
+        await this.ensureComposerAttachmentsLoaded(sessionRef);
+      }
+
+      const workspaces = buildWorkspaceRecords(
+        workspacesSnapshot.workspaces,
+        worktreeEntries,
+        sessionsSnapshot.sessions,
+        this.sessionState.transcriptCache,
+        this.sessionState.runningSinceBySession,
+        this.sessionState.sessionConfigBySession,
+        this.sessionState.lastViewedAtBySession,
+      );
+      const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
+      const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
+      for (const wsId of this.runtimeByWorkspace.keys()) {
+        if (!liveWorkspaceIds.has(wsId)) {
+          this.runtimeByWorkspace.delete(wsId);
+        }
+      }
+      for (const workspaceId of this.extensionCommandCompatibilityByWorkspace.keys()) {
+        if (!liveWorkspaceIds.has(workspaceId)) {
+          this.extensionCommandCompatibilityByWorkspace.delete(workspaceId);
+        }
+      }
+
+      if (selectedWorkspaceId) {
+        await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
+      }
+      for (const runtime of this.runtimeByWorkspace.values()) {
+        pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
+      }
+      const liveGlobalModelSettings = await this.loadLiveGlobalModelSettings(
+        workspacesSnapshot.workspaces,
+        selectedWorkspaceId || workspacesSnapshot.workspaces[0]?.workspaceId,
+      );
+      const globalModelSettings =
+        this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
+          ? this.state.globalModelSettings
+          : liveGlobalModelSettings;
+      if (
+        this.state.modelSettingsScopeMode === "per-repo" &&
+        hasStoredModelSettings(globalModelSettings) &&
+        !modelSettingsEqual(globalModelSettings, liveGlobalModelSettings)
+      ) {
+        await this.restoreGlobalModelSettings(globalModelSettings, workspacesSnapshot.workspaces, selectedWorkspaceId);
+      }
+      const scopedModelSettingsByWorkspace =
+        this.state.modelSettingsScopeMode === "per-repo"
+          ? await this.loadScopedModelSettingsByWorkspace(workspaces, workspacesSnapshot.workspaces, globalModelSettings)
+          : undefined;
+      const runtimeByWorkspace = this.serializeEffectiveRuntimeState(workspaces, scopedModelSettingsByWorkspace);
+
+      const activeView = options.activeView ?? this.state.activeView;
+      this.state = {
+        ...this.state,
+        workspaces,
+        worktreesByWorkspace,
+        selectedWorkspaceId,
+        selectedSessionId,
+        activeView,
+        runtimeByWorkspace,
+        sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
+        sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
+        extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
+        lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+        workspaceOrder: this.state.workspaceOrder,
+        modelSettingsScopeMode: this.state.modelSettingsScopeMode,
+        globalModelSettings,
+        composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
+        composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
+        lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
+        revision: this.state.revision + 1,
       };
-      await this.ensureSessionReady(sessionRef);
-      await this.ensureComposerAttachmentsLoaded(sessionRef);
-    }
 
-    const workspaces = buildWorkspaceRecords(
-      workspacesSnapshot.workspaces,
-      worktreeEntries,
-      sessionsSnapshot.sessions,
-      this.sessionState.transcriptCache,
-      this.sessionState.runningSinceBySession,
-      this.sessionState.sessionConfigBySession,
-      this.sessionState.lastViewedAtBySession,
-    );
-    const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
-    const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
-    for (const wsId of this.runtimeByWorkspace.keys()) {
-      if (!liveWorkspaceIds.has(wsId)) {
-        this.runtimeByWorkspace.delete(wsId);
+      if (options.markSelectedSessionViewed ?? true) {
+        this.markSelectedSessionViewedIfVisible();
       }
-    }
-    for (const workspaceId of this.extensionCommandCompatibilityByWorkspace.keys()) {
-      if (!liveWorkspaceIds.has(workspaceId)) {
-        this.extensionCommandCompatibilityByWorkspace.delete(workspaceId);
+
+      await this.persistUiState();
+      const snapshot = this.emit();
+      if (this.currentSelectedSessionKey() !== previousSelectedKey) {
+        this.publishSelectedTranscript();
       }
+      return snapshot;
+    } finally {
+      this.refreshStateDepth = Math.max(0, this.refreshStateDepth - 1);
     }
-
-    if (selectedWorkspaceId) {
-      await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
-    }
-    for (const runtime of this.runtimeByWorkspace.values()) {
-      pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
-    }
-    const liveGlobalModelSettings = await this.loadLiveGlobalModelSettings(
-      workspacesSnapshot.workspaces,
-      selectedWorkspaceId || workspacesSnapshot.workspaces[0]?.workspaceId,
-    );
-    const globalModelSettings =
-      this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
-        ? this.state.globalModelSettings
-        : liveGlobalModelSettings;
-    if (
-      this.state.modelSettingsScopeMode === "per-repo" &&
-      hasStoredModelSettings(globalModelSettings) &&
-      !modelSettingsEqual(globalModelSettings, liveGlobalModelSettings)
-    ) {
-      await this.restoreGlobalModelSettings(globalModelSettings, workspacesSnapshot.workspaces, selectedWorkspaceId);
-    }
-    const scopedModelSettingsByWorkspace =
-      this.state.modelSettingsScopeMode === "per-repo"
-        ? await this.loadScopedModelSettingsByWorkspace(workspaces, workspacesSnapshot.workspaces, globalModelSettings)
-        : undefined;
-    const runtimeByWorkspace = this.serializeEffectiveRuntimeState(workspaces, scopedModelSettingsByWorkspace);
-
-    const activeView = options.activeView ?? this.state.activeView;
-    this.state = {
-      ...this.state,
-      workspaces,
-      worktreesByWorkspace,
-      selectedWorkspaceId,
-      selectedSessionId,
-      activeView,
-      runtimeByWorkspace,
-      sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
-      sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
-      extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
-      lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
-      workspaceOrder: this.state.workspaceOrder,
-      modelSettingsScopeMode: this.state.modelSettingsScopeMode,
-      globalModelSettings,
-      composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
-      composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
-      lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
-      revision: this.state.revision + 1,
-    };
-
-    if (options.markSelectedSessionViewed ?? true) {
-      this.markSelectedSessionViewedIfVisible();
-    }
-
-    await this.persistUiState();
-    const snapshot = this.emit();
-    if (this.currentSelectedSessionKey() !== previousSelectedKey) {
-      this.publishSelectedTranscript();
-    }
-    return snapshot;
   }
 
   private async pruneStaleSessionSubscriptions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
@@ -1190,15 +1196,17 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "runCompleted" ||
         event.type === "hostUiRequest")
     ) {
-      const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
-      await this.refreshState({
-        selectedWorkspaceId:
-          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
-            ? event.sessionRef.workspaceId
-            : this.state.selectedWorkspaceId,
-        selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
-        clearLastError: true,
-      });
+      if (this.refreshStateDepth === 0) {
+        const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
+        await this.refreshState({
+          selectedWorkspaceId:
+            this.state.selectedWorkspaceId === event.sessionRef.workspaceId
+              ? event.sessionRef.workspaceId
+              : this.state.selectedWorkspaceId,
+          selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
+          clearLastError: true,
+        });
+      }
     }
 
     switch (event.type) {
@@ -1722,7 +1730,11 @@ export class DesktopAppStore implements AppStoreInternals {
     };
     this.markSessionViewed(sessionRef, new Date().toISOString());
     this.schedulePersistUiState();
-    return this.emit();
+    const snapshot = this.emit();
+    if (this.sessionState.loadedTranscriptKeys.has(sessionKey(sessionRef))) {
+      this.publishSelectedTranscript();
+    }
+    return snapshot;
   }
 
   private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
@@ -1747,6 +1759,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
     this.schedulePersistUiState();
     this.emit();
+    this.publishSelectedTranscriptFor(sessionRef);
   }
 
   private async handleSelectedSessionHydrationError(

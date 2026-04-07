@@ -1,3 +1,5 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   createNamedThread,
@@ -186,6 +188,65 @@ test("later sends do not retrigger auto-title generation", async () => {
     await expect(resolveDeferredThreadTitle(harness, "Should not apply")).rejects.toThrow(/unavailable/);
   } finally {
     await harness.close();
+  }
+});
+
+test("reopen heals a stale placeholder catalog title after auto-title finished", async () => {
+  const userDataDir = await makeUserDataDir("pi-app-user-data-");
+  const workspacePath = await makeWorkspace("auto-title-reopen-heal-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  let workspaceId = "";
+  let sessionId = "";
+  const generatedTitle = "Heal title after reopen";
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await setDeferredThreadTitleMode(harness);
+
+    await startThreadViaIpc(window, {
+      prompt: "Verify the app heals stale placeholder titles on reopen",
+    });
+
+    await expect(window.locator(".topbar__session")).toHaveText("New thread");
+    await resolveDeferredThreadTitleEventually(harness, generatedTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(generatedTitle);
+    await expect(window.locator(".session-row__select", { hasText: generatedTitle }).first()).toBeVisible();
+
+    const state = await getDesktopState(window);
+    workspaceId = state.selectedWorkspaceId;
+    sessionId = state.selectedSessionId;
+  } finally {
+    await harness.close();
+  }
+
+  const catalogsPath = join(userDataDir, "catalogs.json");
+  const catalogs = JSON.parse(await readFile(catalogsPath, "utf8")) as {
+    sessions: Array<{
+      sessionRef: { workspaceId: string; sessionId: string };
+      title: string;
+    }>;
+  };
+  catalogs.sessions = catalogs.sessions.map((session) =>
+    session.sessionRef.workspaceId === workspaceId && session.sessionRef.sessionId === sessionId
+      ? { ...session, title: "New thread" }
+      : session,
+  );
+  await writeFile(catalogsPath, `${JSON.stringify(catalogs, null, 2)}\n`, "utf8");
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await expect(window.locator(".topbar__session")).toHaveText(generatedTitle);
+    await expect(window.locator(".session-row__select", { hasText: generatedTitle }).first()).toBeVisible();
+    await expect(window.locator(".session-row__select", { hasText: "New thread" })).toHaveCount(0);
+  } finally {
+    await secondRun.close();
   }
 });
 
