@@ -2,7 +2,6 @@ import { access, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   ModelRegistry,
-  createAgentSession,
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
@@ -61,6 +60,7 @@ import {
   workspaceToRef,
 } from "./session-supervisor-utils.js";
 import type { SessionTranscriptMessage } from "./transcript.js";
+import { createAgentSessionWithNpmFallback } from "./npm-package-fallback.js";
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
@@ -137,7 +137,7 @@ export class SessionSupervisor {
     this.catalogs = options.catalogFilePath
       ? new JsonCatalogStore({ catalogFilePath: options.catalogFilePath })
       : new JsonCatalogStore();
-    this.createAgentSessionImpl = options.createAgentSessionImpl ?? ((createOptions) => createAgentSession(createOptions));
+    this.createAgentSessionImpl = options.createAgentSessionImpl ?? ((createOptions) => createAgentSessionWithNpmFallback(createOptions));
     this.modelRegistry = options.modelRegistry;
   }
 
