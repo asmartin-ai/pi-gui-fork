@@ -24,6 +24,7 @@ export async function addWorkspace(store: AppStoreInternals, path: string): Prom
   if (!normalizedPath) {
     return store.emit();
   }
+  const hadNoWorkspaces = store.state.workspaces.length === 0;
 
   const existing = store.state.workspaces.find((workspace) => workspace.path === normalizedPath);
   if (existing) {
@@ -40,6 +41,10 @@ export async function addWorkspace(store: AppStoreInternals, path: string): Prom
     const firstSession = synced.sessions[0];
     if (firstSession) {
       await store.ensureSessionReady(firstSession.sessionRef);
+    }
+    if (hadNoWorkspaces) {
+      const snapshot = await store.driver.runtimeSupervisor.refreshRuntime(synced.workspace);
+      store.runtimeByWorkspace.set(synced.workspace.workspaceId, snapshot);
     }
 
     return store.refreshState({

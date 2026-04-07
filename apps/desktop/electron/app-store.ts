@@ -788,9 +788,26 @@ export class DesktopAppStore implements AppStoreInternals {
         }
       }
 
-      if (selectedWorkspaceId) {
+      if (selectedWorkspaceId && !this.runtimeByWorkspace.has(selectedWorkspaceId)) {
         await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
       }
+      const secondaryWorkspacesToLoad = workspacesSnapshot.workspaces
+        .filter((workspace) => workspace.workspaceId !== selectedWorkspaceId)
+        .filter((workspace) => !this.runtimeByWorkspace.has(workspace.workspaceId));
+      const secondaryRuntimeLoads = await Promise.allSettled(
+        secondaryWorkspacesToLoad.map((workspace) => this.ensureRuntimeLoaded(workspace.workspaceId, workspacesSnapshot.workspaces)),
+      );
+      secondaryRuntimeLoads.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          return;
+        }
+        const failedWorkspace = secondaryWorkspacesToLoad[index];
+        console.warn(
+          `[pi-gui] Failed to preload runtime for ${failedWorkspace?.path ?? "unknown workspace"}: ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`,
+        );
+      });
       for (const runtime of this.runtimeByWorkspace.values()) {
         pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
       }
@@ -941,7 +958,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    const snapshot = await this.driver.runtimeSupervisor.refreshRuntime({
+    const snapshot = await this.driver.runtimeSupervisor.getRuntimeSnapshot({
       workspaceId: ws.workspaceId,
       path: ws.path,
       displayName: ws.displayName,
