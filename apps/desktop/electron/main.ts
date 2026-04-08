@@ -426,6 +426,14 @@ app.whenReady().then(async () => {
     store.updateComposerDraft(composerDraft),
   );
   ipcMain.handle(desktopIpc.submitComposer, (_event, text: string) => store.submitComposer(text));
+  ipcMain.handle(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
+    store.getSessionTree(target),
+  );
+  ipcMain.handle(
+    desktopIpc.navigateSessionTree,
+    (_event, target: WorkspaceSessionTarget, targetId: string, options) =>
+      store.navigateSessionTree(target, targetId, options),
+  );
   ipcMain.handle(desktopIpc.listWorkspaceFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {

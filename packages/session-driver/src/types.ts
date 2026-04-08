@@ -51,6 +51,47 @@ export interface SessionConfig {
   readonly thinkingLevel?: string;
 }
 
+export type SessionTreeNodeKind =
+  | "message"
+  | "thinking_level_change"
+  | "model_change"
+  | "compaction"
+  | "branch_summary"
+  | "custom"
+  | "custom_message"
+  | "label"
+  | "session_info";
+
+export interface SessionTreeNodeSnapshot {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly kind: SessionTreeNodeKind;
+  readonly timestamp: Timestamp;
+  readonly label?: string;
+  readonly role?: string;
+  readonly customType?: string;
+  readonly title: string;
+  readonly preview?: string;
+  readonly children: readonly SessionTreeNodeSnapshot[];
+}
+
+export interface SessionTreeSnapshot {
+  readonly roots: readonly SessionTreeNodeSnapshot[];
+  readonly leafId: string | null;
+}
+
+export interface NavigateSessionTreeOptions {
+  readonly summarize?: boolean;
+  readonly customInstructions?: string;
+}
+
+export interface NavigateSessionTreeResult {
+  readonly cancelled: boolean;
+  readonly aborted?: boolean;
+  readonly editorText?: string;
+  readonly summaryCreated?: boolean;
+}
+
 export interface SessionModelSelection {
   readonly provider: string;
   readonly modelId: string;
@@ -256,6 +297,12 @@ export interface SessionDriver {
   renameSession(sessionRef: SessionRef, title: string): Promise<void>;
   compactSession(sessionRef: SessionRef, customInstructions?: string): Promise<void>;
   reloadSession(sessionRef: SessionRef): Promise<void>;
+  getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot>;
+  navigateSessionTree(
+    sessionRef: SessionRef,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<NavigateSessionTreeResult>;
   getSessionCommands(sessionRef: SessionRef): Promise<readonly import("./runtime-types.js").RuntimeCommandRecord[]>;
   respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;

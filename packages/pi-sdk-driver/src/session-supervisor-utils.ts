@@ -214,7 +214,7 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
     }
 
     const role = message.role;
-    if (role !== "user" && role !== "assistant") {
+    if (role !== "user" && role !== "assistant" && role !== "branchSummary" && role !== "compactionSummary") {
       continue;
     }
 
@@ -244,6 +244,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function messageText(message: Record<string, unknown>): string {
+  if (message.role === "branchSummary" || message.role === "compactionSummary") {
+    return typeof message.summary === "string" ? message.summary.trim() : "";
+  }
+
   const { content } = message;
   if (typeof content === "string") {
     return stripSerializedFileAttachments(content, message.role).text.trim();

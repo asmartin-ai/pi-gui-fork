@@ -1,6 +1,11 @@
 import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } from "@pi-gui/catalogs";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   CreateSessionOptions,
   HostUiResponse,
   SessionDriver,
@@ -86,6 +91,18 @@ export class PiSdkDriver implements SessionDriver {
 
   reloadSession(sessionRef: SessionRef): Promise<void> {
     return this.supervisor.reloadSession(sessionRef);
+  }
+
+  getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot> {
+    return this.supervisor.getSessionTree(sessionRef);
+  }
+
+  navigateSessionTree(
+    sessionRef: SessionRef,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<NavigateSessionTreeResult> {
+    return this.supervisor.navigateSessionTree(sessionRef, targetId, options);
   }
 
   getSessionCommands(sessionRef: SessionRef) {

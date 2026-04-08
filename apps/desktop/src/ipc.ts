@@ -1,5 +1,10 @@
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   AppView,
   ComposerAttachment,
   ComposerImageAttachment,
@@ -62,6 +67,8 @@ export const desktopIpc = {
   removeComposerAttachment: "pi-gui:remove-composer-attachment",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
+  getSessionTree: "pi-gui:get-session-tree",
+  navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
   listWorkspaceFiles: "pi-gui:list-workspace-files",
   getChangedFiles: "pi-gui:get-changed-files",
@@ -182,6 +189,12 @@ export interface PiDesktopApi {
   removeComposerAttachment(attachmentId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
   submitComposer(text: string): Promise<DesktopAppState>;
+  getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
+  navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
   listWorkspaceFiles(workspaceId: string): Promise<string[]>;
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;

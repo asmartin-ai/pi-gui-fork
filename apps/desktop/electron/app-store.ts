@@ -12,6 +12,11 @@ import {
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   CreateSessionOptions,
   HostUiResponse,
   SessionConfig,
@@ -347,6 +352,41 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async cancelCurrentRun(): Promise<DesktopAppState> {
     return composer.cancelCurrentRun(this);
+  }
+
+  async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+    return this.driver.getSessionTree(sessionRef);
+  }
+
+  async navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+
+    const result = await this.driver.navigateSessionTree(sessionRef, targetId, options);
+    if (!result.cancelled && !result.aborted) {
+      await this.reloadTranscriptFromDriver(sessionRef);
+      await this.refreshSessionCommandsFor(sessionRef);
+      const state = await this.refreshState({
+        selectedWorkspaceId: target.workspaceId,
+        selectedSessionId: target.sessionId,
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+      return { state, result };
+    }
+
+    return {
+      state: structuredClone(this.state),
+      result,
+    };
   }
 
   /* ── Session / thread methods (delegated) ───────────────── */
