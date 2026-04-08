@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
+import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -17,6 +18,7 @@ import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
 import { DiffPanel } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
+import { parseTreeComposerCommand } from "./composer-commands";
 import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
 import { deriveModelOnboardingState } from "./model-onboarding";
 import { SkillsView } from "./skills-view";
@@ -33,6 +35,7 @@ import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
 import { useWorkspaceMenu } from "./hooks/use-workspace-menu";
 import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } from "./extension-session-ui";
+import { TreeModal } from "./tree-modal";
 import { getEffectiveModelRuntime } from "./model-settings";
 import { resolveRepoWorkspaceId } from "./workspace-roots";
 import {
@@ -144,8 +147,20 @@ export default function App() {
   const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
+  const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
+  const [treeModalState, setTreeModalState] = useState<{
+    readonly open: boolean;
+    readonly loading: boolean;
+    readonly submitting: boolean;
+    readonly tree?: SessionTreeSnapshot;
+    readonly error?: string;
+  }>({
+    open: false,
+    loading: false,
+    submitting: false,
+  });
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
@@ -317,6 +332,10 @@ export default function App() {
       newThreadComposerRef.current?.focus();
     });
   };
+  const updateNewThreadPrompt = useCallback((value: SetStateAction<string>) => {
+    setNewThreadComposerError(undefined);
+    setNewThreadPrompt(value);
+  }, []);
   const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const pane = timelinePaneRef.current;
     if (!pane) {
@@ -441,6 +460,93 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView("settings"));
   };
 
+  const closeTreeModal = useCallback(() => {
+    setTreeModalState((current) =>
+      current.submitting
+        ? current
+        : {
+            open: false,
+            loading: false,
+            submitting: false,
+          },
+    );
+    focusComposer();
+  }, []);
+
+  const openTreeModal = useCallback(() => {
+    if (!api || !selectedWorkspace || !selectedSession) {
+      return;
+    }
+
+    setTreeModalState({
+      open: true,
+      loading: true,
+      submitting: false,
+    });
+    setComposerDraft("");
+
+    void api
+      .getSessionTree({
+        workspaceId: selectedWorkspace.id,
+        sessionId: selectedSession.id,
+      })
+      .then((tree) => {
+        setTreeModalState({
+          open: true,
+          loading: false,
+          submitting: false,
+          tree,
+        });
+      })
+      .catch((error) => {
+        setTreeModalState({
+          open: true,
+          loading: false,
+          submitting: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, [api, selectedSession, selectedWorkspace]);
+
+  const navigateTreeSelection = useCallback(
+    (targetId: string, options?: { readonly summarize?: boolean; readonly customInstructions?: string }) => {
+      if (!api || !selectedWorkspace || !selectedSession) {
+        return;
+      }
+
+      setTreeModalState((current) => ({ ...current, submitting: true, error: undefined }));
+      void api
+        .navigateSessionTree(
+          {
+            workspaceId: selectedWorkspace.id,
+            sessionId: selectedSession.id,
+          },
+          targetId,
+          options,
+        )
+        .then(({ state, result }) => {
+          setSnapshot(state);
+          setTreeModalState({
+            open: false,
+            loading: false,
+            submitting: false,
+          });
+          setComposerDraft((current) =>
+            !current.trim() && result.editorText ? result.editorText : state.composerDraft,
+          );
+          focusComposer();
+        })
+        .catch((error) => {
+          setTreeModalState((current) => ({
+            ...current,
+            submitting: false,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        });
+    },
+    [api, selectedSession, selectedWorkspace],
+  );
+
   const slashMenu = useSlashMenu({
     composerDraft,
     setComposerDraft,
@@ -457,6 +563,8 @@ export default function App() {
     focusComposer,
     openSettings,
     updateSnapshot,
+    allowTreeCommand: true,
+    onRunTreeCommand: openTreeModal,
   });
 
   const mentionMenu = useMentionMenu({
@@ -469,7 +577,7 @@ export default function App() {
 
   const newThreadSlashMenu = useSlashMenu({
     composerDraft: newThreadPrompt,
-    setComposerDraft: setNewThreadPrompt,
+    setComposerDraft: updateNewThreadPrompt,
     selectedRuntime: newThreadRuntime,
     selectedModelRuntime: newThreadRuntime,
     sessionCommands: [],
@@ -483,6 +591,7 @@ export default function App() {
     focusComposer: focusNewThreadComposer,
     openSettings,
     updateSnapshot,
+    allowTreeCommand: false,
     immediateCommandMode: "prefill",
     onSelectModelOption: (provider, modelId) => {
       setNewThreadProvider(provider);
@@ -604,6 +713,7 @@ export default function App() {
     setNewThreadProvider(undefined);
     setNewThreadModelId(undefined);
     setNewThreadThinkingLevel(undefined);
+    setNewThreadComposerError(undefined);
   };
 
   useEffect(() => {
@@ -665,6 +775,18 @@ export default function App() {
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
   }, [selectedSessionKey]);
+
+  useEffect(() => {
+    setTreeModalState((current) =>
+      current.open
+        ? {
+            open: false,
+            loading: false,
+            submitting: false,
+          }
+        : current,
+    );
+  }, [selectedSessionKey, snapshot?.activeView]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -891,6 +1013,7 @@ export default function App() {
     setNewThreadProvider(undefined);
     setNewThreadModelId(undefined);
     setNewThreadThinkingLevel(undefined);
+    setNewThreadComposerError(undefined);
   };
 
   const submitComposerDraft = () => {
@@ -907,6 +1030,23 @@ export default function App() {
       return;
     }
     if (selectedSessionModelOnboarding.requiresModelSelection) {
+      return;
+    }
+
+    const treeCommand = parseTreeComposerCommand(composerDraft);
+    if (treeCommand?.type === "error") {
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              lastError: treeCommand.message,
+            }
+          : current,
+      );
+      return;
+    }
+    if (treeCommand?.type === "tree") {
+      openTreeModal();
       return;
     }
 
@@ -1209,6 +1349,15 @@ export default function App() {
     if (newThreadModelOnboarding.requiresModelSelection) {
       return;
     }
+    const treeCommand = parseTreeComposerCommand(newThreadPrompt);
+    if (treeCommand?.type === "error") {
+      setNewThreadComposerError(treeCommand.message);
+      return;
+    }
+    if (treeCommand?.type === "tree") {
+      setNewThreadComposerError("/tree is only available inside an existing session.");
+      return;
+    }
     const modelConfig = {
       prompt: newThreadPrompt,
       attachments: newThreadAttachments,
@@ -1507,6 +1656,7 @@ export default function App() {
               environment={newThreadEnvironment}
               prompt={newThreadPrompt}
               attachments={newThreadAttachments}
+              lastError={newThreadComposerError}
               provider={resolvedNewThreadProvider}
               modelId={resolvedNewThreadModelId}
               thinkingLevel={resolvedNewThreadThinkingLevel}
@@ -1636,6 +1786,16 @@ export default function App() {
             />
             {activeExtensionDialog ? (
               <ExtensionDialog dialog={activeExtensionDialog} onRespond={handleRespondToExtensionDialog} />
+            ) : null}
+            {treeModalState.open ? (
+              <TreeModal
+                error={treeModalState.error}
+                loading={treeModalState.loading}
+                submitting={treeModalState.submitting}
+                tree={treeModalState.tree}
+                onClose={closeTreeModal}
+                onNavigate={navigateTreeSelection}
+              />
             ) : null}
           </>
         ) : selectedWorkspace ? (

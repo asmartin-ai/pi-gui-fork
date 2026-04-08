@@ -424,6 +424,201 @@ export async function seedAgentDir(agentDir: string, options: SeedAgentDirOption
   );
 }
 
+export async function seedBranchedTreeSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Tree fixture session";
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: { role: "user" | "assistant"; content: string; timestamp: number }): string;
+        appendModelChange(provider: string, modelId: string): string;
+        appendSessionInfo(name: string): string;
+        appendThinkingLevelChange(thinkingLevel: string): string;
+        branch(entryId: string): void;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    let timestamp = Date.now();
+    const nextTimestamp = () => {
+      timestamp += 1_000;
+      return timestamp;
+    };
+    const appendUser = (content: string) =>
+      sessionManager.appendMessage({
+        role: "user",
+        content,
+        timestamp: nextTimestamp(),
+      });
+    const appendAssistant = (content: string) =>
+      sessionManager.appendMessage({
+        role: "assistant",
+        content,
+        timestamp: nextTimestamp(),
+      });
+
+    sessionManager.appendModelChange("openai", "gpt-5.4");
+    sessionManager.appendThinkingLevelChange("high");
+    appendUser("Root question");
+    const rootAnswerId = appendAssistant("Root answer");
+    appendUser("Branch alpha");
+    appendAssistant("Alpha answer");
+
+    sessionManager.branch(rootAnswerId);
+    appendUser("Branch beta");
+    const betaAnswerId = appendAssistant("Beta answer");
+    appendUser("Beta detail one");
+    appendAssistant("Beta detail answer one");
+    appendUser("Beta detail two");
+    appendAssistant("Beta detail answer two");
+    for (let index = 3; index <= 40; index += 1) {
+      appendUser(`Beta detail ${index}`);
+      appendAssistant(`Beta detail answer ${index}`);
+    }
+
+    sessionManager.branch(betaAnswerId);
+    sessionManager.appendSessionInfo("Tree fixture session");
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Tree fixture session",
+    };
+  });
+}
+
+export async function seedToolResultTreeSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Tree tool fixture session";
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: Record<string, unknown>): string;
+        appendSessionInfo(name: string): string;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    let timestamp = Date.now();
+    const nextTimestamp = () => {
+      timestamp += 1_000;
+      return timestamp;
+    };
+
+    sessionManager.appendMessage({
+      role: "user",
+      content: "Inspect README",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "read-readme-call",
+          name: "read",
+          arguments: {
+            path: join(workspacePath, "README.md"),
+            offset: 1,
+            limit: 20,
+          },
+        },
+      ],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      stopReason: "toolUse",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "read-readme-call",
+      toolName: "read",
+      content: [{ type: "text", text: "# tree-command-workspace" }],
+      isError: false,
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "README inspected." }],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      stopReason: "stop",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendSessionInfo("Tree tool fixture session");
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Tree tool fixture session",
+    };
+  });
+}
+
+async function withAgentDirEnv<T>(agentDir: string, action: () => Promise<T>): Promise<T> {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    return await action();
+  } finally {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+  }
+}
+
 export async function makeWorkspace(name: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-gui-workspace-"));
   const workspacePath = join(root, name);
