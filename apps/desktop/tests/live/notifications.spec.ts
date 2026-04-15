@@ -90,6 +90,7 @@ test("does not log a notification or blue dot for a focused selected session com
     const window = await harness.firstWindow();
     const session = await createThread(window, "Focused Session");
     await setSessionVisibilityOverride(harness, "active");
+    await selectSessionByTitle(window, "Focused Session");
 
     const row = window.locator(".session-row", { hasText: "Focused Session" });
     await emitRunLifecycle(harness, session, "Focused");
@@ -123,6 +124,7 @@ test("logs a completion notification and blue dot for a focused different sessio
     const sessionA = await createThread(window, "Session A");
     await createThread(window, "Session B");
     await setSessionVisibilityOverride(harness, "active");
+    await selectSessionByTitle(window, "Session A");
     await selectSessionByTitle(window, "Session B");
 
     await emitRunLifecycle(harness, sessionA, "A");
@@ -135,6 +137,9 @@ test("logs a completion notification and blue dot for a focused different sessio
       .toBe("idle");
 
     await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Session A");
+    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+      '"body":"Agent finished responding"',
+    );
     await expect(window.locator(".session-row", { hasText: "Session A" })).toHaveAttribute(
       "data-sidebar-indicator",
       "unseen",
@@ -161,6 +166,7 @@ test("logs a completion notification and blue dot for a selected session after t
   try {
     const window = await harness.firstWindow();
     const session = await createThread(window, "Selected Session");
+    await setSessionVisibilityOverride(harness, "active");
     await selectSessionByTitle(window, "Selected Session");
     await setSessionVisibilityOverride(harness, "inactive");
 
@@ -175,6 +181,9 @@ test("logs a completion notification and blue dot for a selected session after t
       .toBe("idle");
 
     await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Selected Session");
+    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+      '"body":"Agent finished responding"',
+    );
     await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
   } finally {
     await harness.close();
@@ -241,6 +250,9 @@ test("logs a completion notification and blue dot when an existing session compl
       });
 
     await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Runtime Session A");
+    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+      '"body":"Agent finished responding"',
+    );
     await expect(window.locator(".session-row", { hasText: "Runtime Session A" })).toHaveAttribute(
       "data-sidebar-indicator",
       "unseen",

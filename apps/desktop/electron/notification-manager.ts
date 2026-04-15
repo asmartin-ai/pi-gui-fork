@@ -64,7 +64,7 @@ export class NotificationManager {
         return;
       }
       this.completedRunKeys.add(dedupeKey);
-      await this.showNotification(event.sessionRef, event.snapshot.title, event.snapshot.preview || "Run completed");
+      await this.showNotification(event.sessionRef, event.snapshot.title, "Agent finished responding");
       return;
     }
 
@@ -109,6 +109,9 @@ export class NotificationManager {
   private async showNotification(sessionRef: SessionRef, title: string, body: string): Promise<void> {
     this.dismissForSession(sessionRef);
     await this.logNotification(sessionRef, title, body);
+    if (process.env.PI_APP_TEST_MODE) {
+      return;
+    }
     const notification = new Notification({
       title,
       body,
