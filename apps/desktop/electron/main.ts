@@ -8,6 +8,11 @@ import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
+import {
+  getNotificationPermissionStatus,
+  openSystemNotificationSettings,
+  requestNotificationPermission,
+} from "./notification-permission";
 import { initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
@@ -382,6 +387,13 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setNotificationPreferences, (_event, preferences) =>
     store.setNotificationPreferences(preferences),
   );
+  ipcMain.handle(desktopIpc.getNotificationPermissionStatus, () =>
+    getNotificationPermissionStatus(mainWindow),
+  );
+  ipcMain.handle(desktopIpc.requestNotificationPermission, () =>
+    requestNotificationPermission(mainWindow),
+  );
+  ipcMain.handle(desktopIpc.openSystemNotificationSettings, () => openSystemNotificationSettings());
   ipcMain.handle(desktopIpc.createSession, (_event, input: CreateSessionInput) =>
     store.createSession(input),
   );
@@ -422,10 +434,25 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.removeComposerAttachment, (_event, attachmentId: string) =>
     store.removeComposerAttachment(attachmentId),
   );
+  ipcMain.handle(desktopIpc.editQueuedComposerMessage, (_event, messageId: string, currentDraft?: string) =>
+    store.editQueuedComposerMessage(messageId, currentDraft),
+  );
+  ipcMain.handle(desktopIpc.cancelQueuedComposerEdit, () =>
+    store.cancelQueuedComposerEdit(),
+  );
+  ipcMain.handle(desktopIpc.removeQueuedComposerMessage, (_event, messageId: string) =>
+    store.removeQueuedComposerMessage(messageId),
+  );
+  ipcMain.handle(desktopIpc.steerQueuedComposerMessage, (_event, messageId: string) =>
+    store.steerQueuedComposerMessage(messageId),
+  );
   ipcMain.handle(desktopIpc.updateComposerDraft, (_event, composerDraft: string) =>
     store.updateComposerDraft(composerDraft),
   );
-  ipcMain.handle(desktopIpc.submitComposer, (_event, text: string) => store.submitComposer(text));
+  ipcMain.handle(
+    desktopIpc.submitComposer,
+    (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) => store.submitComposer(text, options),
+  );
   ipcMain.handle(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
     store.getSessionTree(target),
   );

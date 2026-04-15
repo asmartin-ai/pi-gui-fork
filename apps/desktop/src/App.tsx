@@ -19,7 +19,12 @@ import { ComposerPanel } from "./composer-panel";
 import { DiffPanel } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
-import { desktopCommands, getDesktopCommandFromShortcut, type PiDesktopCommand } from "./ipc";
+import {
+  desktopCommands,
+  getDesktopCommandFromShortcut,
+  type DesktopNotificationPermissionStatus,
+  type PiDesktopCommand,
+} from "./ipc";
 import { deriveModelOnboardingState } from "./model-onboarding";
 import { SkillsView } from "./skills-view";
 import { ExtensionsView } from "./extensions-view";
@@ -149,6 +154,9 @@ export default function App() {
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
+  const [notificationPermissionStatus, setNotificationPermissionStatus] =
+    useState<DesktopNotificationPermissionStatus>("unknown");
+  const [notificationPermissionPending, setNotificationPermissionPending] = useState(false);
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const [treeModalState, setTreeModalState] = useState<{
     readonly open: boolean;
@@ -171,6 +179,8 @@ export default function App() {
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
   const previousActiveViewRef = useRef<AppView | null>(null);
+  const hydratedComposerSessionKeyRef = useRef("");
+  const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
@@ -195,6 +205,34 @@ export default function App() {
 
     return unsub;
   }, []);
+
+  const refreshNotificationPermissionStatus = useCallback(() => {
+    if (!api?.getNotificationPermissionStatus) {
+      return Promise.resolve("unknown" as DesktopNotificationPermissionStatus);
+    }
+
+    return api.getNotificationPermissionStatus().then((status) => {
+      setNotificationPermissionStatus(status);
+      return status;
+    });
+  }, [api]);
+
+  useEffect(() => {
+    if (snapshot?.activeView !== "settings" || settingsSection !== "notifications") {
+      return undefined;
+    }
+
+    void refreshNotificationPermissionStatus();
+    const handleRefresh = () => {
+      void refreshNotificationPermissionStatus();
+    };
+    window.addEventListener("focus", handleRefresh);
+    document.addEventListener("visibilitychange", handleRefresh);
+    return () => {
+      window.removeEventListener("focus", handleRefresh);
+      document.removeEventListener("visibilitychange", handleRefresh);
+    };
+  }, [refreshNotificationPermissionStatus, settingsSection, snapshot?.activeView]);
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
@@ -293,6 +331,8 @@ export default function App() {
   });
   const [attachmentsClearedOnSubmit, setAttachmentsClearedOnSubmit] = useState(false);
   const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
+  const queuedComposerMessages = snapshot?.queuedComposerMessages ?? [];
+  const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
   const activeTranscript =
@@ -630,8 +670,30 @@ export default function App() {
     if (!snapshot) {
       return;
     }
+
+    if (hydratedComposerSessionKeyRef.current !== selectedSessionKey) {
+      hydratedComposerSessionKeyRef.current = selectedSessionKey;
+      handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
+      setComposerDraft(snapshot.composerDraft);
+      return;
+    }
+
+    if (snapshot.composerDraftSyncNonce === handledComposerSyncNonceRef.current) {
+      return;
+    }
+
+    handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
+    if (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state") {
+      return;
+    }
+
     setComposerDraft(snapshot.composerDraft);
-  }, [persistedComposerDraft, selectedSessionKey]);
+  }, [
+    selectedSessionKey,
+    snapshot?.composerDraft,
+    snapshot?.composerDraftSyncNonce,
+    snapshot?.composerDraftSyncSource,
+  ]);
 
   useEffect(() => {
     const sessionExtensionUiBySession = snapshot?.sessionExtensionUiBySession;
@@ -825,7 +887,7 @@ export default function App() {
     }
 
     const timeout = window.setTimeout(() => {
-      void updateSnapshot(api, setSnapshot, () => api.updateComposerDraft(composerDraft));
+      void api.updateComposerDraft(composerDraft);
     }, 350);
 
     return () => {
@@ -1016,17 +1078,18 @@ export default function App() {
     setNewThreadComposerError(undefined);
   };
 
-  const submitComposerDraft = () => {
+  const submitComposerDraft = (options: { readonly deliverAs?: "steer" | "followUp" } = {}) => {
     if (!selectedSession) {
       return;
     }
 
-    if (selectedSession.status === "running") {
+    const hasComposerInput = composerDraft.trim().length > 0 || composerAttachments.length > 0;
+    if (selectedSession.status === "running" && !hasComposerInput) {
       void updateSnapshot(api, setSnapshot, () => api.cancelCurrentRun());
       return;
     }
 
-    if (!composerDraft.trim() && composerAttachments.length === 0) {
+    if (!hasComposerInput) {
       return;
     }
     if (selectedSessionModelOnboarding.requiresModelSelection) {
@@ -1054,7 +1117,9 @@ export default function App() {
     setComposerDraft("");
     setAttachmentsClearedOnSubmit(true);
     void (async () => {
-      const nextState = await updateSnapshot(api, setSnapshot, () => api.submitComposer(previousDraft));
+      const nextState = await updateSnapshot(api, setSnapshot, () =>
+        api.submitComposer(previousDraft, selectedSession.status === "running" ? { deliverAs: options.deliverAs ?? "followUp" } : undefined),
+      );
       setComposerDraft(nextState.composerDraft);
       setAttachmentsClearedOnSubmit(false);
     })().catch(() => {
@@ -1069,6 +1134,26 @@ export default function App() {
 
   const handleRemoveAttachment = (attachmentId: string) => {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerAttachment(attachmentId));
+  };
+
+  const handleEditQueuedMessage = (messageId: string) => {
+    void updateSnapshot(api, setSnapshot, () => api.editQueuedComposerMessage(messageId, composerDraft)).then(() => {
+      composerRef.current?.focus();
+    });
+  };
+
+  const handleCancelQueuedEdit = () => {
+    void updateSnapshot(api, setSnapshot, () => api.cancelQueuedComposerEdit()).then(() => {
+      composerRef.current?.focus();
+    });
+  };
+
+  const handleRemoveQueuedMessage = (messageId: string) => {
+    void updateSnapshot(api, setSnapshot, () => api.removeQueuedComposerMessage(messageId));
+  };
+
+  const handleSteerQueuedMessage = (messageId: string) => {
+    void updateSnapshot(api, setSnapshot, () => api.steerQueuedComposerMessage(messageId));
   };
 
   const handleNewThreadAddAttachments = (files: File[]) => {
@@ -1300,6 +1385,33 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 
+  const handleRequestNotificationPermission = () => {
+    if (!api?.requestNotificationPermission) {
+      return;
+    }
+    setNotificationPermissionPending(true);
+    void api
+      .requestNotificationPermission()
+      .then((status) => {
+        setNotificationPermissionStatus(status);
+      })
+      .finally(() => {
+        setNotificationPermissionPending(false);
+      });
+  };
+
+  const handleOpenSystemNotificationSettings = () => {
+    if (!api?.openSystemNotificationSettings) {
+      return;
+    }
+    setNotificationPermissionPending(true);
+    void api
+      .openSystemNotificationSettings()
+      .finally(() => {
+        setNotificationPermissionPending(false);
+      });
+  };
+
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
@@ -1423,7 +1535,7 @@ export default function App() {
 
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
       event.preventDefault();
-      submitComposerDraft();
+      submitComposerDraft({ deliverAs: (event.metaKey || event.ctrlKey) ? "steer" : "followUp" });
       return;
     }
 
@@ -1512,6 +1624,8 @@ export default function App() {
           runtime={settingsSection === "models" ? settingsModelRuntime : settingsRuntime}
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
+          notificationPermissionStatus={notificationPermissionStatus}
+          notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           themeMode={themeMode}
           onLoginProvider={handleLoginProvider}
@@ -1521,6 +1635,8 @@ export default function App() {
           onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
+          onRequestNotificationPermission={handleRequestNotificationPermission}
+          onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
           onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
@@ -1740,6 +1856,8 @@ export default function App() {
               activeSlashCommand={slashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
               attachments={composerAttachments}
+              queuedMessages={queuedComposerMessages}
+              editingQueuedMessageId={editingQueuedMessageId}
               composerDraft={composerDraft}
               composerRef={composerRef}
               runtime={selectedModelRuntime}
@@ -1752,6 +1870,10 @@ export default function App() {
               onComposerDrop={handleComposerDrop}
               onPickAttachments={handlePickAttachments}
               onRemoveAttachment={handleRemoveAttachment}
+              onEditQueuedMessage={handleEditQueuedMessage}
+              onCancelQueuedEdit={handleCancelQueuedEdit}
+              onRemoveQueuedMessage={handleRemoveQueuedMessage}
+              onSteerQueuedMessage={handleSteerQueuedMessage}
               onSelectSlashCommand={(command) => {
                 slashMenu.applySlashCommandSelection(command, "click");
               }}
