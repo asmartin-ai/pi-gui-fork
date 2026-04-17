@@ -1,7 +1,7 @@
 import { app, net, Notification, shell } from "electron";
 
 const RELEASES_URL =
-  "https://api.github.com/repos/minghinmatthewlam/pi-gui/releases/latest";
+  "https://api.github.com/repos/minghinmatthewlam/pi-gui/releases?per_page=1";
 const RELEASES_PAGE =
   "https://github.com/minghinmatthewlam/pi-gui/releases/latest";
 
@@ -35,7 +35,15 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
     };
   }
 
-  const release = (await res.json()) as { tag_name: string };
+  const releases = (await res.json()) as Array<{ tag_name: string }>;
+  const release = releases[0];
+  if (!release?.tag_name) {
+    return {
+      status: "error",
+      message: "GitHub Releases did not return any published versions.",
+    };
+  }
+
   const latest = release.tag_name.replace(/^v/, "");
   const current = app.getVersion();
 
