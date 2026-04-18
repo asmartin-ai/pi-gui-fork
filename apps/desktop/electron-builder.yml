@@ -11,6 +11,10 @@ files:
   - out/**/*
   - package.json
 
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+
 asar: true
 asarUnpack:
   - "**/*.node"
