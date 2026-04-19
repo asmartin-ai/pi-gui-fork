@@ -48,6 +48,7 @@ const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 let store: DesktopAppStore;
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
+let notificationManager: NotificationManager | undefined;
 let stopPublishingState: (() => void) | undefined;
 let stopPublishingSelectedTranscript: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
@@ -357,7 +358,8 @@ app.whenReady().then(async () => {
       },
     });
   }
-  stopNotifications = new NotificationManager(store, () => mainWindow).start();
+  notificationManager = new NotificationManager(store, () => mainWindow);
+  stopNotifications = notificationManager.start();
   if (!isDev) {
     stopUpdateChecker = initUpdateChecker();
   }
@@ -573,12 +575,14 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+  notificationManager.trackWindow(mainWindow);
   themeManager.setWindow(mainWindow);
   attachStatePublisher(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
+      notificationManager?.trackWindow(mainWindow);
       themeManager.setWindow(mainWindow);
       attachStatePublisher(mainWindow);
     }
@@ -586,11 +590,12 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  stopNotifications?.();
-  stopNotifications = undefined;
-  stopUpdateChecker?.();
-  stopUpdateChecker = undefined;
   if (process.platform !== "darwin") {
+    stopNotifications?.();
+    stopNotifications = undefined;
+    notificationManager = undefined;
+    stopUpdateChecker?.();
+    stopUpdateChecker = undefined;
     app.quit();
   }
 });
@@ -598,6 +603,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", (event) => {
   stopNotifications?.();
   stopNotifications = undefined;
+  notificationManager = undefined;
   stopUpdateChecker?.();
   stopUpdateChecker = undefined;
   if (quittingAfterStoreFlush || !store) {

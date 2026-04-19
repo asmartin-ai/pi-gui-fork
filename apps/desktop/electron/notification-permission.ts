@@ -7,6 +7,7 @@ import type { DesktopNotificationPermissionStatus } from "../src/ipc";
 const execFileAsync = promisify(execFile);
 const TEST_STATUS_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_STATUS";
 const TEST_REQUEST_RESULT_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RESULT";
+const TEST_REQUEST_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_LOG_PATH";
 const TEST_SETTINGS_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_SETTINGS_LOG_PATH";
 
 let testPermissionStatus = normalizePermissionStatus(process.env[TEST_STATUS_ENV]);
@@ -23,6 +24,7 @@ export async function getNotificationPermissionStatus(
 export async function requestNotificationPermission(
   window: BrowserWindow | null,
 ): Promise<DesktopNotificationPermissionStatus> {
+  await logPermissionRequestAttempt();
   const override = normalizePermissionStatus(process.env[TEST_REQUEST_RESULT_ENV]);
   if (override) {
     testPermissionStatus = override;
@@ -99,6 +101,15 @@ async function readRendererNotificationPermission(
   } catch {
     return "unknown";
   }
+}
+
+async function logPermissionRequestAttempt(): Promise<void> {
+  const testLogPath = process.env[TEST_REQUEST_LOG_PATH_ENV]?.trim();
+  if (!testLogPath) {
+    return;
+  }
+
+  await appendFile(testLogPath, `${new Date().toISOString()}\n`, "utf8");
 }
 
 function normalizePermissionStatus(value: unknown): DesktopNotificationPermissionStatus | undefined {
