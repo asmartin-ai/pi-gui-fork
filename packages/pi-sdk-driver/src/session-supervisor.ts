@@ -14,6 +14,15 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/catalogs";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionMessageDeliveryMode,
+  SessionMessageInput,
+  SessionQueuedMessage,
+  SessionTreeNodeSnapshot,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   CreateSessionOptions,
   HostUiRequest,
   HostUiResponse,
@@ -21,7 +30,6 @@ import type {
   SessionDriverEvent,
   SessionEventListener,
   SessionModelSelection,
-  SessionMessageInput,
   SessionRef,
   SessionSnapshot,
   SessionStatus,
@@ -50,6 +58,7 @@ import {
   extractPreview,
   forcePersistSession,
   injectFileAttachmentPreamble,
+  messageText,
   nowIso,
   previewFromSessionInfo,
   sessionKey,
@@ -89,6 +98,7 @@ interface ManagedSessionRecord {
   preview: string | undefined;
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
+  queuedMessages: SessionQueuedMessage[];
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
@@ -118,6 +128,8 @@ interface PromptTemplateAdapter {
   readonly sourceInfo?: RuntimeCommandRecord["sourceInfo"];
   readonly filePath?: string;
 }
+
+const NEW_THREAD_PLACEHOLDER_TITLE = "New thread";
 
 interface SkillAdapter {
   readonly name: string;
@@ -343,21 +355,28 @@ export class SessionSupervisor {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
     const isExtensionCommand = this.isExtensionCommand(session, input.text);
-    if (session.isStreaming && !isExtensionCommand) {
-      throw new Error("Session is already streaming. TODO: expose steer/follow-up queueing on the driver API.");
+    if (session.isStreaming && !isExtensionCommand && !input.deliverAs) {
+      throw new Error("Session is already streaming. Specify deliverAs ('steer' or 'followUp') to queue the message.");
     }
 
-    const runId = isExtensionCommand ? undefined : crypto.randomUUID();
-    record.runningRunId = runId;
-    record.status = isExtensionCommand ? record.status : "running";
+    const isQueuedMessage = session.isStreaming && !isExtensionCommand && Boolean(input.deliverAs);
+    const runId = isQueuedMessage || isExtensionCommand ? undefined : crypto.randomUUID();
+    record.runningRunId = runId ?? record.runningRunId;
+    record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
     record.config = deriveSessionConfig(session.sessionManager);
     record.preview = truncate(input.text);
+    if (isQueuedMessage) {
+      record.queuedMessages = [
+        ...record.queuedMessages,
+        queuedMessageFromInput(input, record.updatedAt),
+      ];
+    }
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
 
     try {
-      const images = input.attachments?.flatMap((attachment) =>
+      const images = input.attachments?.flatMap((attachment: NonNullable<SessionMessageInput["attachments"]>[number]) =>
         attachment.kind === "image"
           ? [{
               type: "image" as const,
@@ -367,17 +386,26 @@ export class SessionSupervisor {
           : [],
       );
       const promptText = injectFileAttachmentPreamble(input.text, input.attachments);
-      await session.prompt(promptText, {
-        ...(images && images.length > 0 ? { images } : {}),
-        source: "interactive",
-      });
+      if (isQueuedMessage) {
+        await this.queuePrompt(session, promptText, input.deliverAs!, images);
+      } else {
+        await session.prompt(promptText, {
+          ...(images && images.length > 0 ? { images } : {}),
+          source: "interactive",
+        });
+      }
 
       if (isExtensionCommand) {
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
       }
     } catch (error) {
-      record.runningRunId = undefined;
-      record.status = isExtensionCommand ? "idle" : "failed";
+      if (isQueuedMessage) {
+        record.queuedMessages = record.queuedMessages.slice(0, -1);
+      }
+      if (!isQueuedMessage) {
+        record.runningRunId = undefined;
+      }
+      record.status = isQueuedMessage ? "running" : isExtensionCommand ? "idle" : "failed";
       record.updatedAt = nowIso();
       record.preview = error instanceof Error ? error.message : String(error);
       await this.persistSnapshot(record);
@@ -391,6 +419,31 @@ export class SessionSupervisor {
       await this.emit(record, sessionUpdatedEvent(record));
       throw error;
     }
+  }
+
+  async replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const session = this.requireSession(record);
+    session.clearQueue();
+
+    record.queuedMessages = messages.map((message) => cloneQueuedMessage(message));
+    for (const message of record.queuedMessages) {
+      const images = message.attachments?.flatMap((attachment: NonNullable<SessionQueuedMessage["attachments"]>[number]) =>
+        attachment.kind === "image"
+          ? [{
+              type: "image" as const,
+              data: attachment.data,
+              mimeType: attachment.mimeType,
+            }]
+          : [],
+      );
+      const promptText = injectFileAttachmentPreamble(message.text, message.attachments);
+      await this.queuePrompt(session, promptText, message.mode, images);
+    }
+
+    record.updatedAt = nowIso();
+    await this.persistSnapshot(record);
+    await this.emit(record, sessionUpdatedEvent(record));
   }
 
   async cancelCurrentRun(sessionRef: SessionRef): Promise<void> {
@@ -481,6 +534,41 @@ export class SessionSupervisor {
     this.resetExtensionUi(record);
     await session.reload();
     await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+  }
+
+  async getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot> {
+    const record = await this.ensureRecord(sessionRef);
+    const session = this.requireSession(record);
+    return {
+      roots: session.sessionManager.getTree().map((node) => toSessionTreeNodeSnapshot(node)),
+      leafId: session.sessionManager.getLeafId(),
+    };
+  }
+
+  async navigateSessionTree(
+    sessionRef: SessionRef,
+    targetId: string,
+    options: NavigateSessionTreeOptions = {},
+  ): Promise<NavigateSessionTreeResult> {
+    const record = await this.ensureRecord(sessionRef);
+    const session = this.requireSession(record);
+    const result = await session.navigateTree(targetId, options);
+    if (result.cancelled || result.aborted) {
+      return {
+        cancelled: result.cancelled,
+        ...(result.aborted ? { aborted: true } : {}),
+        ...(result.editorText ? { editorText: result.editorText } : {}),
+        ...(result.summaryEntry ? { summaryCreated: true } : {}),
+      };
+    }
+
+    record.updatedAt = nowIso();
+    await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+    return {
+      cancelled: false,
+      ...(result.editorText ? { editorText: result.editorText } : {}),
+      ...(result.summaryEntry ? { summaryCreated: true } : {}),
+    };
   }
 
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe {
@@ -599,6 +687,7 @@ export class SessionSupervisor {
       preview: undefined,
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
+      queuedMessages: [],
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
@@ -868,6 +957,23 @@ export class SessionSupervisor {
     return Boolean(session.extensionRunner?.getCommand(commandName));
   }
 
+  private async queuePrompt(
+    session: AgentSession,
+    text: string,
+    deliverAs: SessionMessageDeliveryMode,
+    images?: readonly {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    }[],
+  ): Promise<void> {
+    if (deliverAs === "steer") {
+      await session.steer(text, images ? [...images] : undefined);
+      return;
+    }
+    await session.followUp(text, images ? [...images] : undefined);
+  }
+
   private resolveModel(provider: string, modelId: string) {
     const model = this.modelRegistry?.find(provider, modelId);
     if (!model) {
@@ -1120,6 +1226,9 @@ export class SessionSupervisor {
         return [sessionUpdatedEvent(record)];
       case "message_start":
       case "message_end":
+        if (event.message.role === "user") {
+          reconcileQueuedMessagesForStartedUserMessage(record, event.message, timestamp);
+        }
         this.updatePreviewFromMessage(record, event.message);
         return [sessionUpdatedEvent(record)];
       case "message_update":
@@ -1301,13 +1410,14 @@ export class SessionSupervisor {
       runtimeRecord && runtimeRecord.session && !runtimeRecord.closed ? buildSnapshot(runtimeRecord) : undefined;
     const previewSnippet = runtimeSnapshot?.preview ?? previewFromSessionInfo(info);
     const archivedAt = runtimeSnapshot?.archivedAt ?? existingEntry?.archivedAt;
+    const titleFromInfo = titleFromSessionInfo(info);
     const entry: SessionCatalogSnapshot["sessions"][number] = {
       sessionRef: {
         workspaceId: workspace.workspaceId,
         sessionId: info.id,
       },
       workspaceId: workspace.workspaceId,
-      title: runtimeSnapshot?.title ?? existingEntry?.title ?? titleFromSessionInfo(info),
+      title: runtimeSnapshot?.title ?? resolvedCatalogSessionTitle(existingEntry?.title, titleFromInfo),
       updatedAt: runtimeSnapshot?.updatedAt ?? info.modified.toISOString(),
       status: runtimeSnapshot?.status ?? "idle",
       sessionFilePath: info.path,
@@ -1359,8 +1469,20 @@ export class SessionSupervisor {
   }
 }
 
+function resolvedCatalogSessionTitle(existingTitle: string | undefined, infoTitle: string): string {
+  const trimmedExisting = existingTitle?.trim();
+  if (!trimmedExisting) {
+    return infoTitle;
+  }
+  if (trimmedExisting === NEW_THREAD_PLACEHOLDER_TITLE && infoTitle !== NEW_THREAD_PLACEHOLDER_TITLE) {
+    return infoTitle;
+  }
+  return trimmedExisting;
+}
+
 const DEFAULT_SESSION_THINKING_LEVEL = "medium";
 const THINKING_LEVEL_ORDER = ["off", "low", "medium", "high", "xhigh"] as const;
+type SessionTreeNodeRecord = ReturnType<SessionManager["getTree"]>[number];
 
 function clampThinkingLevel(level: string, availableLevels: readonly string[]): string {
   const available = new Set(availableLevels);
@@ -1431,6 +1553,273 @@ function getSkills(session: AgentSession): readonly SkillAdapter[] {
   return session.resourceLoader.getSkills().skills as readonly SkillAdapter[];
 }
 
+interface TreeToolCallRecord {
+  readonly name: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+function toSessionTreeNodeSnapshot(
+  node: SessionTreeNodeRecord,
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord> = new Map(),
+): SessionTreeNodeSnapshot {
+  const role = treeNodeRole(node.entry);
+  const customType = treeNodeCustomType(node.entry);
+  const preview = treeNodePreview(node.entry, toolCalls);
+  const childToolCalls = extendTreeToolCalls(toolCalls, node.entry);
+  return {
+    id: node.entry.id,
+    parentId: node.entry.parentId,
+    kind: node.entry.type,
+    timestamp: node.entry.timestamp,
+    ...(node.label ? { label: node.label } : {}),
+    ...(role ? { role } : {}),
+    ...(customType ? { customType } : {}),
+    title: treeNodeTitle(node.entry),
+    ...(preview ? { preview } : {}),
+    children: node.children.map((child) => toSessionTreeNodeSnapshot(child, childToolCalls)),
+  };
+}
+
+function extendTreeToolCalls(
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord>,
+  entry: SessionTreeNodeRecord["entry"],
+): ReadonlyMap<string, TreeToolCallRecord> {
+  if (entry.type !== "message" || entry.message.role !== "assistant") {
+    return toolCalls;
+  }
+
+  const content = entry.message.content;
+  if (!Array.isArray(content)) {
+    return toolCalls;
+  }
+
+  let nextToolCalls: Map<string, TreeToolCallRecord> | undefined;
+  for (const block of content) {
+    if (
+      typeof block !== "object" ||
+      block === null ||
+      !("type" in block) ||
+      block.type !== "toolCall" ||
+      !("id" in block) ||
+      typeof block.id !== "string" ||
+      !("name" in block) ||
+      typeof block.name !== "string"
+    ) {
+      continue;
+    }
+    nextToolCalls ??= new Map(toolCalls);
+    nextToolCalls.set(block.id, {
+      name: block.name,
+      arguments:
+        "arguments" in block && typeof block.arguments === "object" && block.arguments !== null
+          ? (block.arguments as Record<string, unknown>)
+          : {},
+    });
+  }
+
+  return nextToolCalls ?? toolCalls;
+}
+
+function treeNodeRole(entry: SessionTreeNodeRecord["entry"]): string | undefined {
+  if (entry.type !== "message") {
+    return undefined;
+  }
+  return entry.message.role;
+}
+
+function treeNodeCustomType(entry: SessionTreeNodeRecord["entry"]): string | undefined {
+  if (entry.type === "custom" || entry.type === "custom_message") {
+    return entry.customType;
+  }
+  return undefined;
+}
+
+function treeNodeTitle(entry: SessionTreeNodeRecord["entry"]): string {
+  switch (entry.type) {
+    case "message":
+      switch (entry.message.role) {
+        case "user":
+          return "User";
+        case "assistant":
+          return "Assistant";
+        case "toolResult":
+          return "Tool result";
+        case "bashExecution":
+          return "Shell";
+        case "branchSummary":
+          return "Branch summary";
+        case "compactionSummary":
+          return "Compaction";
+        default:
+          return entry.message.role;
+      }
+    case "custom_message":
+      return entry.customType;
+    case "compaction":
+      return "Compaction";
+    case "branch_summary":
+      return "Branch summary";
+    case "model_change":
+      return "Model";
+    case "thinking_level_change":
+      return "Thinking";
+    case "custom":
+      return "Custom";
+    case "label":
+      return "Label";
+    case "session_info":
+      return "Title";
+  }
+  return "Entry";
+}
+
+function treeNodePreview(
+  entry: SessionTreeNodeRecord["entry"],
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord>,
+): string | undefined {
+  switch (entry.type) {
+    case "message":
+      return previewForTreeMessage(entry.message as unknown as Record<string, unknown>, toolCalls);
+    case "custom_message":
+      return previewForTreeContent(entry.content);
+    case "compaction":
+      return `${Math.max(1, Math.round(entry.tokensBefore / 1000))}k token summary`;
+    case "branch_summary":
+      return truncate(entry.summary);
+    case "model_change":
+      return `${entry.provider}:${entry.modelId}`;
+    case "thinking_level_change":
+      return entry.thinkingLevel;
+    case "custom":
+      return entry.customType;
+    case "label":
+      return entry.label ?? "(cleared)";
+    case "session_info":
+      return entry.name || "(empty)";
+    default:
+      return undefined;
+  }
+}
+
+function previewForTreeMessage(
+  message: Record<string, unknown>,
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord>,
+): string | undefined {
+  if (message.role === "toolResult") {
+    return previewForTreeToolResult(message, toolCalls);
+  }
+  const content = message.content;
+  if (typeof content === "string") {
+    return truncate(content.trim()) || undefined;
+  }
+  if (Array.isArray(content)) {
+    const preview = truncate(
+      content
+        .flatMap((part) =>
+          typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+            ? [part.text]
+            : [],
+        )
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    if (preview) {
+      return preview;
+    }
+  }
+  if (message.role === "bashExecution" && typeof message.command === "string") {
+    return truncate(message.command);
+  }
+  return undefined;
+}
+
+function previewForTreeToolResult(
+  message: Record<string, unknown>,
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord>,
+): string | undefined {
+  const toolCallId = typeof message.toolCallId === "string" ? message.toolCallId : undefined;
+  const toolName = typeof message.toolName === "string" ? message.toolName : undefined;
+  const toolCall = toolCallId ? toolCalls.get(toolCallId) : undefined;
+
+  if (toolCall) {
+    return formatTreeToolCall(toolCall.name, toolCall.arguments);
+  }
+
+  if (toolName) {
+    return `[${toolName}]`;
+  }
+
+  return "[tool]";
+}
+
+function formatTreeToolCall(name: string, args: Readonly<Record<string, unknown>>): string {
+  switch (name) {
+    case "read": {
+      const path = shortenHomePath(String(args.path ?? args.file_path ?? ""));
+      const offset = typeof args.offset === "number" ? args.offset : undefined;
+      const limit = typeof args.limit === "number" ? args.limit : undefined;
+      let display = path;
+      if (offset !== undefined || limit !== undefined) {
+        const start = offset ?? 1;
+        const end = limit !== undefined ? start + limit - 1 : undefined;
+        display += `:${start}${end !== undefined ? `-${end}` : ""}`;
+      }
+      return `[read: ${display}]`;
+    }
+    case "write":
+      return `[write: ${shortenHomePath(String(args.path ?? args.file_path ?? ""))}]`;
+    case "edit":
+      return `[edit: ${shortenHomePath(String(args.path ?? args.file_path ?? ""))}]`;
+    case "bash": {
+      const rawCommand = String(args.command ?? "")
+        .replace(/[\n\t]/g, " ")
+        .trim();
+      return `[bash: ${truncate(rawCommand, 50)}]`;
+    }
+    case "grep":
+      return `[grep: /${String(args.pattern ?? "")}/ in ${shortenHomePath(String(args.path ?? "."))}]`;
+    case "find":
+      return `[find: ${String(args.pattern ?? "")} in ${shortenHomePath(String(args.path ?? "."))}]`;
+    case "ls":
+      return `[ls: ${shortenHomePath(String(args.path ?? "."))}]`;
+    default: {
+      const json = JSON.stringify(args);
+      return truncate(`[${name}: ${json}]`, 80);
+    }
+  }
+}
+
+function shortenHomePath(path: string): string {
+  const homePath = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  if (homePath && path.startsWith(homePath)) {
+    return `~${path.slice(homePath.length)}`;
+  }
+  return path;
+}
+
+function previewForTreeContent(content: unknown): string | undefined {
+  if (typeof content === "string") {
+    return truncate(content.trim()) || undefined;
+  }
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  return (
+    truncate(
+      content
+        .flatMap((part) =>
+          typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+            ? [part.text]
+            : [],
+        )
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    ) || undefined
+  );
+}
+
 const extensionUiThemeStub = new Proxy(
   {},
   {
@@ -1440,6 +1829,60 @@ const extensionUiThemeStub = new Proxy(
     },
   },
 ) as ExtensionUIContext["theme"];
+
+function cloneQueuedMessage(message: SessionQueuedMessage): SessionQueuedMessage {
+  return {
+    ...message,
+    ...(message.attachments
+      ? {
+          attachments: message.attachments.map((attachment: NonNullable<SessionQueuedMessage["attachments"]>[number]) => ({ ...attachment })),
+        }
+      : {}),
+  };
+}
+
+function queuedMessageFromInput(input: SessionMessageInput, timestamp: string): SessionQueuedMessage {
+  return {
+    id: crypto.randomUUID(),
+    mode: input.deliverAs!,
+    text: input.text,
+    ...(input.attachments
+      ? {
+          attachments: input.attachments.map((attachment) => ({ ...attachment })),
+        }
+      : {}),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function reconcileQueuedMessagesForStartedUserMessage(
+  record: ManagedSessionRecord,
+  message: unknown,
+  timestamp: string,
+): void {
+  if (typeof message !== "object" || message === null) {
+    return;
+  }
+
+  const text = messageText(message as Record<string, unknown>);
+  if (!text) {
+    return;
+  }
+
+  const steeringIndex = record.queuedMessages.findIndex((item) => item.mode === "steer" && item.text === text);
+  if (steeringIndex !== -1) {
+    record.queuedMessages.splice(steeringIndex, 1);
+    record.updatedAt = timestamp;
+    return;
+  }
+
+  const followUpIndex = record.queuedMessages.findIndex((item) => item.mode === "followUp" && item.text === text);
+  if (followUpIndex !== -1) {
+    record.queuedMessages.splice(followUpIndex, 1);
+    record.updatedAt = timestamp;
+  }
+}
 
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
   return {

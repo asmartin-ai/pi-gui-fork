@@ -1,5 +1,10 @@
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   AppView,
   ComposerAttachment,
   ComposerImageAttachment,
@@ -13,6 +18,13 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
+
+export type DesktopNotificationPermissionStatus =
+  | "granted"
+  | "denied"
+  | "default"
+  | "unsupported"
+  | "unknown";
 
 export const desktopIpc = {
   stateRequest: "pi-gui:state-request",
@@ -56,12 +68,21 @@ export const desktopIpc = {
   setExtensionEnabled: "pi-gui:set-extension-enabled",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
+  getNotificationPermissionStatus: "pi-gui:get-notification-permission-status",
+  requestNotificationPermission: "pi-gui:request-notification-permission",
+  openSystemNotificationSettings: "pi-gui:open-system-notification-settings",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
   addComposerAttachments: "pi-gui:add-composer-attachments",
   removeComposerAttachment: "pi-gui:remove-composer-attachment",
+  editQueuedComposerMessage: "pi-gui:edit-queued-composer-message",
+  cancelQueuedComposerEdit: "pi-gui:cancel-queued-composer-edit",
+  removeQueuedComposerMessage: "pi-gui:remove-queued-composer-message",
+  steerQueuedComposerMessage: "pi-gui:steer-queued-composer-message",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
+  getSessionTree: "pi-gui:get-session-tree",
+  navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
   listWorkspaceFiles: "pi-gui:list-workspace-files",
   getChangedFiles: "pi-gui:get-changed-files",
@@ -176,12 +197,25 @@ export interface PiDesktopApi {
       | { readonly requestId: string; readonly cancelled: true },
   ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
+  getNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus>;
+  requestNotificationPermission(): Promise<DesktopNotificationPermissionStatus>;
+  openSystemNotificationSettings(): Promise<void>;
   pickComposerAttachments(): Promise<DesktopAppState>;
   readClipboardImage(): ComposerImageAttachment | null;
   addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState>;
   removeComposerAttachment(attachmentId: string): Promise<DesktopAppState>;
+  editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<DesktopAppState>;
+  cancelQueuedComposerEdit(): Promise<DesktopAppState>;
+  removeQueuedComposerMessage(messageId: string): Promise<DesktopAppState>;
+  steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
-  submitComposer(text: string): Promise<DesktopAppState>;
+  submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp" }): Promise<DesktopAppState>;
+  getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
+  navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
   listWorkspaceFiles(workspaceId: string): Promise<string[]>;
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked" }[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;

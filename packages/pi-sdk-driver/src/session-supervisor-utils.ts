@@ -9,6 +9,7 @@ import type {
   SessionStatus,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
+import type { SessionQueuedMessage } from "@pi-gui/session-driver/types";
 import type { SessionTranscriptAttachment, SessionTranscriptMessage } from "./transcript.js";
 
 const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
@@ -24,6 +25,7 @@ export interface SnapshotSource {
   readonly preview: string | undefined;
   readonly config: SessionConfig | undefined;
   readonly runningRunId: string | undefined;
+  readonly queuedMessages: readonly SessionQueuedMessage[];
 }
 
 export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
@@ -37,6 +39,18 @@ export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
     ...(source.preview !== undefined ? { preview: source.preview } : {}),
     ...(source.config ? { config: source.config } : {}),
     ...(source.runningRunId !== undefined ? { runningRunId: source.runningRunId } : {}),
+    ...(source.queuedMessages.length > 0
+      ? {
+          queuedMessages: source.queuedMessages.map((message) => ({
+            ...message,
+            ...(message.attachments
+              ? {
+                  attachments: message.attachments.map((attachment: SessionAttachment) => ({ ...attachment })),
+                }
+              : {}),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -214,7 +228,7 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
     }
 
     const role = message.role;
-    if (role !== "user" && role !== "assistant") {
+    if (role !== "user" && role !== "assistant" && role !== "branchSummary" && role !== "compactionSummary") {
       continue;
     }
 
@@ -244,6 +258,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function messageText(message: Record<string, unknown>): string {
+  if (message.role === "branchSummary" || message.role === "compactionSummary") {
+    return typeof message.summary === "string" ? message.summary.trim() : "";
+  }
+
   const { content } = message;
   if (typeof content === "string") {
     return stripSerializedFileAttachments(content, message.role).text.trim();

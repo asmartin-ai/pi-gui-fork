@@ -12,6 +12,7 @@ export type ComposerSlashCommandKind =
   | "runtime"
   | "model"
   | "thinking"
+  | "tree"
   | "status"
   | "session"
   | "reload"
@@ -68,6 +69,7 @@ export const MODEL_OPTIONS_EMPTY_DESCRIPTION = "Open Settings to enable a model 
 export type ParsedComposerCommand =
   | { type: "model"; provider: string; modelId: string }
   | { type: "thinking"; thinkingLevel: string }
+  | { type: "tree" }
   | { type: "status" }
   | { type: "session" }
   | { type: "reload" }
@@ -104,6 +106,16 @@ const HOST_ACTION_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
     title: "Reasoning",
     description: "Set thinking level for this session",
     submitMode: "pick-option",
+    section: "host",
+  },
+  {
+    id: "host:tree",
+    kind: "tree",
+    command: "/tree",
+    template: "/tree",
+    title: "Tree",
+    description: "Browse and jump between branches in this session",
+    submitMode: "immediate",
     section: "host",
   },
   {
@@ -226,6 +238,9 @@ export function buildSlashCommandSections(
   runtime: RuntimeSnapshot | undefined,
   sessionCommands: readonly RuntimeCommandRecord[],
   compatibilityRecords: readonly ExtensionCommandCompatibilityRecord[] = [],
+  options: {
+    readonly allowTreeCommand?: boolean;
+  } = {},
 ): readonly ComposerSlashCommandSection[] {
   const normalizedQuery = query.trim().toLowerCase();
   const availableRuntimeCommands = resolveRuntimeCommands(runtime, sessionCommands);
@@ -247,7 +262,10 @@ export function buildSlashCommandSections(
       compatibility: compatibilityByKey.get(`${command.sourceInfo.path}::${command.name}`),
     }))
     .filter((command) => matchesCommand(command, normalizedQuery));
-  const hostMatches = HOST_ACTION_SLASH_COMMANDS.filter((command) => matchesCommand(command, normalizedQuery));
+  const allowTreeCommand = options.allowTreeCommand ?? true;
+  const hostMatches = HOST_ACTION_SLASH_COMMANDS.filter(
+    (command) => (allowTreeCommand || command.kind !== "tree") && matchesCommand(command, normalizedQuery),
+  );
 
   const sections: ComposerSlashCommandSection[] = [
     {
@@ -579,6 +597,9 @@ export function formatSessionConfigStatus(config?: SessionConfig): string {
 
 export function parseComposerCommand(value: string): ParsedComposerCommand | undefined {
   const trimmed = value.trim();
+  if (trimmed === "/tree") {
+    return { type: "tree" };
+  }
   if (trimmed === "/status") {
     return { type: "status" };
   }
@@ -639,4 +660,27 @@ export function incompleteComposerCommandMessage(value: string): string | undefi
 
 export function isExactSlashCommand(query: string, command: ComposerSlashCommand): boolean {
   return query.trim().toLowerCase() === command.command.toLowerCase();
+}
+
+export function parseTreeComposerCommand(
+  value: string,
+): { readonly type: "tree" } | { readonly type: "error"; readonly message: string } | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/")) {
+    return undefined;
+  }
+
+  const [command, ...rest] = trimmed.split(/\s+/);
+  if (command !== "/tree") {
+    return undefined;
+  }
+
+  if (rest.length > 0) {
+    return {
+      type: "error",
+      message: "/tree does not take arguments.",
+    };
+  }
+
+  return { type: "tree" };
 }

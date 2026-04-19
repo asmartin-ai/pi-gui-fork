@@ -72,7 +72,9 @@ interface UseSlashMenuParams {
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
+  readonly allowTreeCommand?: boolean;
   readonly immediateCommandMode?: "submit" | "prefill";
+  readonly onRunTreeCommand?: () => void;
   readonly onSelectModelOption?: (provider: string, modelId: string) => void;
   readonly onSelectThinkingOption?: (level: string) => void;
   readonly onSelectLoginProvider?: (providerId: string) => void;
@@ -114,7 +116,9 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     focusComposer,
     openSettings,
     updateSnapshot,
+    allowTreeCommand = true,
     immediateCommandMode = "submit",
+    onRunTreeCommand,
     onSelectModelOption,
     onSelectThinkingOption,
     onSelectLoginProvider,
@@ -130,7 +134,9 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const slashQuery = activeSlashQuery?.query ?? "";
   const slashSections =
     activeSlashQuery
-      ? buildSlashCommandSections(slashQuery, selectedRuntime, sessionCommands, commandCompatibility)
+      ? buildSlashCommandSections(slashQuery, selectedRuntime, sessionCommands, commandCompatibility, {
+          allowTreeCommand,
+        })
       : [];
   const slashSuggestions = flattenSlashSections(slashSections);
   const exactSlashCommand = slashSuggestions.find((cmd) => isExactSlashCommand(slashQuery, cmd));
@@ -256,6 +262,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
         selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id,
         command.kind === "scoped-models" ? "models" : undefined,
       );
+      return;
+    }
+
+    if (command.kind === "tree") {
+      resetSlashUi();
+      setComposerDraft("");
+      onRunTreeCommand?.();
       return;
     }
 

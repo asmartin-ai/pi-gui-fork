@@ -16,6 +16,17 @@ export interface SessionRef {
 
 export type SessionStatus = "idle" | "running" | "failed";
 
+export type SessionMessageDeliveryMode = "steer" | "followUp";
+
+export interface SessionQueuedMessage {
+  readonly id: string;
+  readonly mode: SessionMessageDeliveryMode;
+  readonly text: string;
+  readonly attachments?: readonly SessionAttachment[];
+  readonly createdAt: Timestamp;
+  readonly updatedAt: Timestamp;
+}
+
 export interface SessionSnapshot {
   readonly ref: SessionRef;
   readonly workspace: WorkspaceRef;
@@ -26,6 +37,7 @@ export interface SessionSnapshot {
   readonly preview?: string;
   readonly config?: SessionConfig;
   readonly runningRunId?: RunId;
+  readonly queuedMessages?: readonly SessionQueuedMessage[];
 }
 
 export interface SessionImageAttachment {
@@ -51,6 +63,47 @@ export interface SessionConfig {
   readonly thinkingLevel?: string;
 }
 
+export type SessionTreeNodeKind =
+  | "message"
+  | "thinking_level_change"
+  | "model_change"
+  | "compaction"
+  | "branch_summary"
+  | "custom"
+  | "custom_message"
+  | "label"
+  | "session_info";
+
+export interface SessionTreeNodeSnapshot {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly kind: SessionTreeNodeKind;
+  readonly timestamp: Timestamp;
+  readonly label?: string;
+  readonly role?: string;
+  readonly customType?: string;
+  readonly title: string;
+  readonly preview?: string;
+  readonly children: readonly SessionTreeNodeSnapshot[];
+}
+
+export interface SessionTreeSnapshot {
+  readonly roots: readonly SessionTreeNodeSnapshot[];
+  readonly leafId: string | null;
+}
+
+export interface NavigateSessionTreeOptions {
+  readonly summarize?: boolean;
+  readonly customInstructions?: string;
+}
+
+export interface NavigateSessionTreeResult {
+  readonly cancelled: boolean;
+  readonly aborted?: boolean;
+  readonly editorText?: string;
+  readonly summaryCreated?: boolean;
+}
+
 export interface SessionModelSelection {
   readonly provider: string;
   readonly modelId: string;
@@ -59,6 +112,7 @@ export interface SessionModelSelection {
 export interface SessionMessageInput {
   readonly text: string;
   readonly attachments?: readonly SessionAttachment[];
+  readonly deliverAs?: SessionMessageDeliveryMode;
 }
 
 export interface CreateSessionOptions {
@@ -250,12 +304,19 @@ export interface SessionDriver {
   archiveSession(sessionRef: SessionRef): Promise<void>;
   unarchiveSession(sessionRef: SessionRef): Promise<void>;
   sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void>;
+  replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void>;
   cancelCurrentRun(sessionRef: SessionRef): Promise<void>;
   setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void>;
   setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void>;
   renameSession(sessionRef: SessionRef, title: string): Promise<void>;
   compactSession(sessionRef: SessionRef, customInstructions?: string): Promise<void>;
   reloadSession(sessionRef: SessionRef): Promise<void>;
+  getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot>;
+  navigateSessionTree(
+    sessionRef: SessionRef,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<NavigateSessionTreeResult>;
   getSessionCommands(sessionRef: SessionRef): Promise<readonly import("./runtime-types.js").RuntimeCommandRecord[]>;
   respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;

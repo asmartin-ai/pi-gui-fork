@@ -15,7 +15,7 @@ export interface SessionTranscriptFileAttachment {
 
 export type SessionTranscriptAttachment = SessionTranscriptImageAttachment | SessionTranscriptFileAttachment;
 
-export type SessionTranscriptRole = "user" | "assistant";
+export type SessionTranscriptRole = "user" | "assistant" | "branchSummary" | "compactionSummary";
 
 export interface SessionTranscriptMessage {
   readonly kind: "message";

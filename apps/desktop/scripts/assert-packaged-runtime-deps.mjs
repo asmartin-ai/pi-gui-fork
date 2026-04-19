@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,7 +46,17 @@ function resolveAsarPath(desktopDir, packagePlatform) {
   }
 
   if (packagePlatform === "linux") {
-    return path.join(desktopDir, "release", "linux-unpacked", "resources", "app.asar");
+    const releaseDir = path.join(desktopDir, "release");
+    const unpackedAsarPath = readdirSync(releaseDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^linux(?:-[\w]+)?-unpacked$/.test(entry.name))
+      .map((entry) => path.join(releaseDir, entry.name, "resources", "app.asar"))
+      .find((candidatePath) => existsSync(candidatePath));
+
+    if (unpackedAsarPath) {
+      return unpackedAsarPath;
+    }
+
+    return path.join(releaseDir, "linux-unpacked", "resources", "app.asar");
   }
 
   throw new Error(`Unsupported packaged runtime dependency target: ${packagePlatform}`);

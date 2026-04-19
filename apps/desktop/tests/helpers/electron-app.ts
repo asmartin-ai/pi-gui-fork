@@ -115,7 +115,8 @@ export async function launchPackagedDesktop(
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
-  const executablePath = await resolvePackagedAppExecutable();
+  const releaseDir = resolvePackagedReleaseDir(process.env.PI_APP_TEST_RELEASE_DIR);
+  const executablePath = await resolvePackagedAppExecutable(releaseDir);
   return launchDesktopExecutable(executablePath, env);
 }
 
@@ -210,6 +211,14 @@ function buildDesktopLaunchEnv(
   }
 
   return env;
+}
+
+function resolvePackagedReleaseDir(rawPath: string | undefined): string | undefined {
+  const trimmed = rawPath?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return resolve(desktopDir, trimmed);
 }
 
 async function prepareAgentDir(
@@ -314,7 +323,10 @@ export async function resolveAppBundleExecutable(appBundle: string): Promise<str
 
 export async function resolvePackagedReleaseZip(releaseDir = packagedReleaseDir): Promise<string> {
   const entries = await readdir(releaseDir, { withFileTypes: true });
-  const zipEntry = entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip"));
+  const zipEntry =
+    entries.find((entry) => entry.isFile() && entry.name.endsWith("-arm64.zip")) ??
+    entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip")) ??
+    entries.find((entry) => entry.isFile() && entry.name.endsWith(".zip"));
 
   if (!zipEntry) {
     throw new Error(`No packaged macOS release zip found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package first.`);
@@ -328,6 +340,13 @@ export async function extractPackagedReleaseZipAppBundle(
   appName = "pi-gui 2.app",
 ): Promise<string> {
   const zipPath = await resolvePackagedReleaseZip(releaseDir);
+  return extractAppBundleFromReleaseZip(zipPath, appName);
+}
+
+export async function extractAppBundleFromReleaseZip(
+  zipPath: string,
+  appName = "pi-gui 2.app",
+): Promise<string> {
   const extractionDir = await mkdtemp(join(tmpdir(), "pi-gui-release-zip-"));
   await execFileAsync("ditto", ["-x", "-k", zipPath, extractionDir]);
 
@@ -415,6 +434,201 @@ export async function seedAgentDir(agentDir: string, options: SeedAgentDirOption
     )}\n`,
     "utf8",
   );
+}
+
+export async function seedBranchedTreeSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Tree fixture session";
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: { role: "user" | "assistant"; content: string; timestamp: number }): string;
+        appendModelChange(provider: string, modelId: string): string;
+        appendSessionInfo(name: string): string;
+        appendThinkingLevelChange(thinkingLevel: string): string;
+        branch(entryId: string): void;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    let timestamp = Date.now();
+    const nextTimestamp = () => {
+      timestamp += 1_000;
+      return timestamp;
+    };
+    const appendUser = (content: string) =>
+      sessionManager.appendMessage({
+        role: "user",
+        content,
+        timestamp: nextTimestamp(),
+      });
+    const appendAssistant = (content: string) =>
+      sessionManager.appendMessage({
+        role: "assistant",
+        content,
+        timestamp: nextTimestamp(),
+      });
+
+    sessionManager.appendModelChange("openai", "gpt-5.4");
+    sessionManager.appendThinkingLevelChange("high");
+    appendUser("Root question");
+    const rootAnswerId = appendAssistant("Root answer");
+    appendUser("Branch alpha");
+    appendAssistant("Alpha answer");
+
+    sessionManager.branch(rootAnswerId);
+    appendUser("Branch beta");
+    const betaAnswerId = appendAssistant("Beta answer");
+    appendUser("Beta detail one");
+    appendAssistant("Beta detail answer one");
+    appendUser("Beta detail two");
+    appendAssistant("Beta detail answer two");
+    for (let index = 3; index <= 40; index += 1) {
+      appendUser(`Beta detail ${index}`);
+      appendAssistant(`Beta detail answer ${index}`);
+    }
+
+    sessionManager.branch(betaAnswerId);
+    sessionManager.appendSessionInfo("Tree fixture session");
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Tree fixture session",
+    };
+  });
+}
+
+export async function seedToolResultTreeSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Tree tool fixture session";
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: Record<string, unknown>): string;
+        appendSessionInfo(name: string): string;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    let timestamp = Date.now();
+    const nextTimestamp = () => {
+      timestamp += 1_000;
+      return timestamp;
+    };
+
+    sessionManager.appendMessage({
+      role: "user",
+      content: "Inspect README",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "read-readme-call",
+          name: "read",
+          arguments: {
+            path: join(workspacePath, "README.md"),
+            offset: 1,
+            limit: 20,
+          },
+        },
+      ],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      stopReason: "toolUse",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "read-readme-call",
+      toolName: "read",
+      content: [{ type: "text", text: "# tree-command-workspace" }],
+      isError: false,
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "README inspected." }],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      stopReason: "stop",
+      timestamp: nextTimestamp(),
+    });
+
+    sessionManager.appendSessionInfo("Tree tool fixture session");
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Tree tool fixture session",
+    };
+  });
+}
+
+async function withAgentDirEnv<T>(agentDir: string, action: () => Promise<T>): Promise<T> {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    return await action();
+  } finally {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+  }
 }
 
 export async function makeWorkspace(name: string): Promise<string> {

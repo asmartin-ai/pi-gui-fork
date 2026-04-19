@@ -12,10 +12,16 @@ import {
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
 import type {
+  NavigateSessionTreeOptions,
+  NavigateSessionTreeResult,
+  SessionTreeSnapshot,
+} from "@pi-gui/session-driver/types";
+import type {
   CreateSessionOptions,
   HostUiResponse,
   SessionConfig,
   SessionDriverEvent,
+  SessionQueuedMessage,
   SessionRef,
   SessionSnapshot,
   WorkspaceRef,
@@ -30,6 +36,7 @@ import type {
 import {
   type AppView,
   type ComposerAttachment,
+  type ComposerDraftSyncSource,
   type ExtensionCommandCompatibilityRecord,
   type ModelSettingsScopeMode,
   createEmptyDesktopAppState,
@@ -37,6 +44,7 @@ import {
   type CreateWorktreeInput,
   type DesktopAppState,
   type NotificationPreferences,
+  type QueuedComposerMessage,
   type RemoveWorktreeInput,
   type SelectedTranscriptRecord,
   type StartThreadInput,
@@ -71,12 +79,15 @@ import {
   cloneComposerAttachment,
   cloneComposerAttachments,
   cloneTranscriptMessage,
+  latestSessionActivityAt,
+  mergeQueuedComposerMessages,
   mapToRecord,
   previewFromTranscript,
+  toSessionQueuedMessages,
   toSessionRef,
 } from "./app-store-utils";
 import { resolveRepoWorkspaceId } from "../src/workspace-roots";
-import { SessionStateMap } from "./session-state-map";
+import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
 import * as workspace from "./app-store-workspace";
@@ -138,6 +149,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
+  private refreshStateDepth = 0;
 
   constructor(options: DesktopAppStoreOptions) {
     const catalogFilePath = join(options.userDataDir, "catalogs.json");
@@ -340,12 +352,66 @@ export class DesktopAppStore implements AppStoreInternals {
     return composer.removeComposerAttachment(this, attachmentId);
   }
 
-  async submitComposer(textInput: string): Promise<DesktopAppState> {
-    return composer.submitComposer(this, textInput);
+  async submitComposer(
+    textInput: string,
+    options?: { readonly deliverAs?: "steer" | "followUp" },
+  ): Promise<DesktopAppState> {
+    return composer.submitComposer(this, textInput, options);
+  }
+
+  async editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<DesktopAppState> {
+    return composer.editQueuedComposerMessage(this, messageId, currentDraft);
+  }
+
+  async cancelQueuedComposerEdit(): Promise<DesktopAppState> {
+    return composer.cancelQueuedComposerEdit(this);
+  }
+
+  async removeQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
+    return composer.removeQueuedComposerMessage(this, messageId);
+  }
+
+  async steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
+    return composer.steerQueuedComposerMessage(this, messageId);
   }
 
   async cancelCurrentRun(): Promise<DesktopAppState> {
     return composer.cancelCurrentRun(this);
+  }
+
+  async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+    return this.driver.getSessionTree(sessionRef);
+  }
+
+  async navigateSessionTree(
+    target: WorkspaceSessionTarget,
+    targetId: string,
+    options?: NavigateSessionTreeOptions,
+  ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+
+    const result = await this.driver.navigateSessionTree(sessionRef, targetId, options);
+    if (!result.cancelled && !result.aborted) {
+      await this.reloadTranscriptFromDriver(sessionRef);
+      await this.refreshSessionCommandsFor(sessionRef);
+      const state = await this.refreshState({
+        selectedWorkspaceId: target.workspaceId,
+        selectedSessionId: target.sessionId,
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+      return { state, result };
+    }
+
+    return {
+      state: structuredClone(this.state),
+      result,
+    };
   }
 
   /* ── Session / thread methods (delegated) ───────────────── */
@@ -732,118 +798,145 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async refreshState(options: RefreshStateOptions = {}): Promise<DesktopAppState> {
-    const previousSelectedKey = this.currentSelectedSessionKey();
-    const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
-      this.driver.listWorkspaces(),
-      this.driver.listSessions(),
-    ]);
-    const worktreeEntries = options.refreshWorktrees
-      ? await worktree.syncAndListWorktrees(this, workspacesSnapshot.workspaces)
-      : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
+    this.refreshStateDepth += 1;
+    try {
+      const previousSelectedKey = this.currentSelectedSessionKey();
+      const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
+        this.driver.listWorkspaces(),
+        this.driver.listSessions(),
+      ]);
+      const worktreeEntries = options.refreshWorktrees
+        ? await worktree.syncAndListWorktrees(this, workspacesSnapshot.workspaces)
+        : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
 
-    await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
-    await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
+      await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
+      await this.ensureSubscriptionsForSessions(sessionsSnapshot.sessions);
 
-    const selectedWorkspaceId = resolveSelectedWorkspaceIdFromCatalog(
-      options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
-      workspacesSnapshot.workspaces,
-    );
-    const selectedSessionId = resolveSelectedSessionIdFromCatalog(
-      selectedWorkspaceId,
-      options.selectedSessionId ?? this.state.selectedSessionId,
-      sessionsSnapshot.sessions,
-    );
+      const selectedWorkspaceId = resolveSelectedWorkspaceIdFromCatalog(
+        options.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
+        workspacesSnapshot.workspaces,
+      );
+      const selectedSessionId = resolveSelectedSessionIdFromCatalog(
+        selectedWorkspaceId,
+        options.selectedSessionId ?? this.state.selectedSessionId,
+        sessionsSnapshot.sessions,
+      );
 
-    if (selectedWorkspaceId && selectedSessionId) {
-      const sessionRef = {
-        workspaceId: selectedWorkspaceId,
-        sessionId: selectedSessionId,
+      if (selectedWorkspaceId && selectedSessionId) {
+        const sessionRef = {
+          workspaceId: selectedWorkspaceId,
+          sessionId: selectedSessionId,
+        };
+        await this.ensureSessionReady(sessionRef);
+        await this.ensureComposerAttachmentsLoaded(sessionRef);
+      }
+
+      const workspaces = buildWorkspaceRecords(
+        workspacesSnapshot.workspaces,
+        worktreeEntries,
+        sessionsSnapshot.sessions,
+        this.sessionState.transcriptCache,
+        this.sessionState.runningSinceBySession,
+        this.sessionState.sessionConfigBySession,
+        this.sessionState.lastViewedAtBySession,
+      );
+      const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
+      const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
+      for (const wsId of this.runtimeByWorkspace.keys()) {
+        if (!liveWorkspaceIds.has(wsId)) {
+          this.runtimeByWorkspace.delete(wsId);
+        }
+      }
+      for (const workspaceId of this.extensionCommandCompatibilityByWorkspace.keys()) {
+        if (!liveWorkspaceIds.has(workspaceId)) {
+          this.extensionCommandCompatibilityByWorkspace.delete(workspaceId);
+        }
+      }
+
+      if (selectedWorkspaceId && !this.runtimeByWorkspace.has(selectedWorkspaceId)) {
+        await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
+      }
+      const secondaryWorkspacesToLoad = workspacesSnapshot.workspaces
+        .filter((workspace) => workspace.workspaceId !== selectedWorkspaceId)
+        .filter((workspace) => !this.runtimeByWorkspace.has(workspace.workspaceId));
+      const secondaryRuntimeLoads = await Promise.allSettled(
+        secondaryWorkspacesToLoad.map((workspace) => this.ensureRuntimeLoaded(workspace.workspaceId, workspacesSnapshot.workspaces)),
+      );
+      secondaryRuntimeLoads.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          return;
+        }
+        const failedWorkspace = secondaryWorkspacesToLoad[index];
+        console.warn(
+          `[pi-gui] Failed to preload runtime for ${failedWorkspace?.path ?? "unknown workspace"}: ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`,
+        );
+      });
+      for (const runtime of this.runtimeByWorkspace.values()) {
+        pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
+      }
+      const liveGlobalModelSettings = await this.loadLiveGlobalModelSettings(
+        workspacesSnapshot.workspaces,
+        selectedWorkspaceId || workspacesSnapshot.workspaces[0]?.workspaceId,
+      );
+      const globalModelSettings =
+        this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
+          ? this.state.globalModelSettings
+          : liveGlobalModelSettings;
+      if (
+        this.state.modelSettingsScopeMode === "per-repo" &&
+        hasStoredModelSettings(globalModelSettings) &&
+        !modelSettingsEqual(globalModelSettings, liveGlobalModelSettings)
+      ) {
+        await this.restoreGlobalModelSettings(globalModelSettings, workspacesSnapshot.workspaces, selectedWorkspaceId);
+      }
+      const scopedModelSettingsByWorkspace =
+        this.state.modelSettingsScopeMode === "per-repo"
+          ? await this.loadScopedModelSettingsByWorkspace(workspaces, workspacesSnapshot.workspaces, globalModelSettings)
+          : undefined;
+      const runtimeByWorkspace = this.serializeEffectiveRuntimeState(workspaces, scopedModelSettingsByWorkspace);
+
+      const activeView = options.activeView ?? this.state.activeView;
+      const composerDraftSync = this.resolveComposerDraftSync(selectedWorkspaceId, selectedSessionId, options);
+      this.state = {
+        ...this.state,
+        workspaces,
+        worktreesByWorkspace,
+        selectedWorkspaceId,
+        selectedSessionId,
+        activeView,
+        runtimeByWorkspace,
+        sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
+        sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
+        extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
+        lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+        workspaceOrder: this.state.workspaceOrder,
+        modelSettingsScopeMode: this.state.modelSettingsScopeMode,
+        globalModelSettings,
+        composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
+        composerDraftSyncSource: composerDraftSync.source,
+        composerDraftSyncNonce: composerDraftSync.nonce,
+        composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
+        queuedComposerMessages: this.resolveQueuedComposerMessages(selectedWorkspaceId, selectedSessionId),
+        editingQueuedMessageId: this.resolveEditingQueuedMessageId(selectedWorkspaceId, selectedSessionId),
+        lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
+        revision: this.state.revision + 1,
       };
-      await this.ensureSessionReady(sessionRef);
-      await this.ensureComposerAttachmentsLoaded(sessionRef);
-    }
 
-    const workspaces = buildWorkspaceRecords(
-      workspacesSnapshot.workspaces,
-      worktreeEntries,
-      sessionsSnapshot.sessions,
-      this.sessionState.transcriptCache,
-      this.sessionState.runningSinceBySession,
-      this.sessionState.sessionConfigBySession,
-      this.sessionState.lastViewedAtBySession,
-    );
-    const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
-    const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
-    for (const wsId of this.runtimeByWorkspace.keys()) {
-      if (!liveWorkspaceIds.has(wsId)) {
-        this.runtimeByWorkspace.delete(wsId);
+      if (options.markSelectedSessionViewed ?? true) {
+        this.markSelectedSessionViewedIfVisible();
       }
-    }
-    for (const workspaceId of this.extensionCommandCompatibilityByWorkspace.keys()) {
-      if (!liveWorkspaceIds.has(workspaceId)) {
-        this.extensionCommandCompatibilityByWorkspace.delete(workspaceId);
+
+      await this.persistUiState();
+      const snapshot = this.emit();
+      if (this.currentSelectedSessionKey() !== previousSelectedKey) {
+        this.publishSelectedTranscript();
       }
+      return snapshot;
+    } finally {
+      this.refreshStateDepth = Math.max(0, this.refreshStateDepth - 1);
     }
-
-    if (selectedWorkspaceId) {
-      await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
-    }
-    for (const runtime of this.runtimeByWorkspace.values()) {
-      pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
-    }
-    const liveGlobalModelSettings = await this.loadLiveGlobalModelSettings(
-      workspacesSnapshot.workspaces,
-      selectedWorkspaceId || workspacesSnapshot.workspaces[0]?.workspaceId,
-    );
-    const globalModelSettings =
-      this.state.modelSettingsScopeMode === "per-repo" && hasStoredModelSettings(this.state.globalModelSettings)
-        ? this.state.globalModelSettings
-        : liveGlobalModelSettings;
-    if (
-      this.state.modelSettingsScopeMode === "per-repo" &&
-      hasStoredModelSettings(globalModelSettings) &&
-      !modelSettingsEqual(globalModelSettings, liveGlobalModelSettings)
-    ) {
-      await this.restoreGlobalModelSettings(globalModelSettings, workspacesSnapshot.workspaces, selectedWorkspaceId);
-    }
-    const scopedModelSettingsByWorkspace =
-      this.state.modelSettingsScopeMode === "per-repo"
-        ? await this.loadScopedModelSettingsByWorkspace(workspaces, workspacesSnapshot.workspaces, globalModelSettings)
-        : undefined;
-    const runtimeByWorkspace = this.serializeEffectiveRuntimeState(workspaces, scopedModelSettingsByWorkspace);
-
-    const activeView = options.activeView ?? this.state.activeView;
-    this.state = {
-      ...this.state,
-      workspaces,
-      worktreesByWorkspace,
-      selectedWorkspaceId,
-      selectedSessionId,
-      activeView,
-      runtimeByWorkspace,
-      sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
-      sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
-      extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
-      lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
-      workspaceOrder: this.state.workspaceOrder,
-      modelSettingsScopeMode: this.state.modelSettingsScopeMode,
-      globalModelSettings,
-      composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
-      composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
-      lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
-      revision: this.state.revision + 1,
-    };
-
-    if (options.markSelectedSessionViewed ?? true) {
-      this.markSelectedSessionViewedIfVisible();
-    }
-
-    await this.persistUiState();
-    const snapshot = this.emit();
-    if (this.currentSelectedSessionKey() !== previousSelectedKey) {
-      this.publishSelectedTranscript();
-    }
-    return snapshot;
   }
 
   private async pruneStaleSessionSubscriptions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
@@ -876,6 +969,7 @@ export class DesktopAppStore implements AppStoreInternals {
     if (!this.sessionState.sessionSubscriptions.has(sessionKey(sessionRef))) {
       const snapshot = await this.driver.openSession(sessionRef);
       this.updateSessionConfig(sessionRef, snapshot.config);
+      this.updateQueuedComposerMessages(sessionRef, snapshot.queuedMessages);
     }
     await this.ensureSessionSubscribed(sessionRef);
   }
@@ -1162,6 +1256,8 @@ export class DesktopAppStore implements AppStoreInternals {
           this.state = {
             ...this.state,
             composerDraft: event.request.text,
+            composerDraftSyncSource: "extension-editor-text",
+            composerDraftSyncNonce: this.state.composerDraftSyncNonce + 1,
           };
         }
         break;
@@ -1190,15 +1286,17 @@ export class DesktopAppStore implements AppStoreInternals {
         event.type === "runCompleted" ||
         event.type === "hostUiRequest")
     ) {
-      const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
-      await this.refreshState({
-        selectedWorkspaceId:
-          this.state.selectedWorkspaceId === event.sessionRef.workspaceId
-            ? event.sessionRef.workspaceId
-            : this.state.selectedWorkspaceId,
-        selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
-        clearLastError: true,
-      });
+      if (this.refreshStateDepth === 0) {
+        const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
+        await this.refreshState({
+          selectedWorkspaceId:
+            this.state.selectedWorkspaceId === event.sessionRef.workspaceId
+              ? event.sessionRef.workspaceId
+              : this.state.selectedWorkspaceId,
+          selectedSessionId: shouldFollowSessionMutation ? event.sessionRef.sessionId : this.state.selectedSessionId,
+          clearLastError: true,
+        });
+      }
     }
 
     switch (event.type) {
@@ -1208,10 +1306,12 @@ export class DesktopAppStore implements AppStoreInternals {
       case "sessionOpened":
       case "runCompleted":
         this.updateSessionConfig(event.sessionRef, event.snapshot.config);
+        this.updateQueuedComposerMessages(event.sessionRef, event.snapshot.queuedMessages);
         await this.refreshSessionCommands(event.sessionRef);
         break;
       case "sessionUpdated":
         this.updateSessionConfig(event.sessionRef, event.snapshot.config);
+        this.updateQueuedComposerMessages(event.sessionRef, event.snapshot.queuedMessages);
         if (event.snapshot.status !== "running") {
           await this.refreshSessionCommands(event.sessionRef);
         }
@@ -1229,6 +1329,8 @@ export class DesktopAppStore implements AppStoreInternals {
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
+        this.sessionState.queuedComposerMessagesBySession.delete(key);
+        this.sessionState.queuedComposerEditsBySession.delete(key);
         this.clearPendingAutoTitle(event.sessionRef);
         this.pendingRuntimeCommandsBySession.delete(key);
         this.reportedCompatibilityIssuesBySession.delete(key);
@@ -1431,6 +1533,8 @@ export class DesktopAppStore implements AppStoreInternals {
         key,
         this.sessionState.lastViewedAtBySession.get(key),
       ),
+      queuedComposerMessages: this.resolveQueuedComposerMessages(state.selectedWorkspaceId, state.selectedSessionId),
+      editingQueuedMessageId: this.resolveEditingQueuedMessageId(state.selectedWorkspaceId, state.selectedSessionId),
       lastError: this.resolveSelectedSessionError(state.selectedWorkspaceId, state.selectedSessionId, false),
     };
   }
@@ -1716,13 +1820,19 @@ export class DesktopAppStore implements AppStoreInternals {
       selectedSessionId: sessionRef.sessionId,
       activeView: "threads",
       composerDraft: this.resolveComposerDraft(sessionRef.workspaceId, sessionRef.sessionId),
+      composerDraftSyncSource: "selection",
+      composerDraftSyncNonce: this.state.composerDraftSyncNonce + 1,
       composerAttachments: this.resolveComposerAttachments(sessionRef.workspaceId, sessionRef.sessionId),
       lastError: undefined,
       revision: this.state.revision + 1,
     };
-    this.markSessionViewed(sessionRef, new Date().toISOString());
+    this.markSessionViewed(sessionRef);
     this.schedulePersistUiState();
-    return this.emit();
+    const snapshot = this.emit();
+    if (this.sessionState.loadedTranscriptKeys.has(sessionKey(sessionRef))) {
+      this.publishSelectedTranscript();
+    }
+    return snapshot;
   }
 
   private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
@@ -1742,11 +1852,12 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    this.markSessionViewed(sessionRef, new Date().toISOString());
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
+    this.markSessionViewed(sessionRef);
     this.schedulePersistUiState();
     this.emit();
+    this.publishSelectedTranscriptFor(sessionRef);
   }
 
   private async handleSelectedSessionHydrationError(
@@ -1785,7 +1896,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    this.markSessionViewed(sessionRef, new Date().toISOString());
+    this.markSessionViewed(sessionRef);
   }
 
   private markSessionViewedIfActivelyViewed(sessionRef: SessionRef): boolean {
@@ -1794,11 +1905,12 @@ export class DesktopAppStore implements AppStoreInternals {
       return false;
     }
 
-    return this.markSessionViewed(sessionRef, new Date().toISOString());
+    return this.markSessionViewed(sessionRef);
   }
 
-  private markSessionViewed(sessionRef: SessionRef, viewedAt: string): boolean {
+  private markSessionViewed(sessionRef: SessionRef, fallbackViewedAt = new Date().toISOString()): boolean {
     const key = sessionKey(sessionRef);
+    const viewedAt = this.resolveViewedAt(sessionRef, fallbackViewedAt);
     const current = this.sessionState.lastViewedAtBySession.get(key);
     if (current && current >= viewedAt) {
       return false;
@@ -1826,6 +1938,25 @@ export class DesktopAppStore implements AppStoreInternals {
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
     };
     return true;
+  }
+
+  private resolveViewedAt(sessionRef: SessionRef, fallbackViewedAt: string): string {
+    const session = this.findSessionRecord(sessionRef);
+    if (!session) {
+      return fallbackViewedAt;
+    }
+
+    const activityAt = latestSessionActivityAt(
+      session.updatedAt,
+      this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [],
+    );
+    return activityAt > fallbackViewedAt ? activityAt : fallbackViewedAt;
+  }
+
+  private findSessionRecord(sessionRef: SessionRef) {
+    return this.state.workspaces
+      .find((workspace) => workspace.id === sessionRef.workspaceId)
+      ?.sessions.find((session) => session.id === sessionRef.sessionId);
   }
 
   private clearSessionError(sessionRef: SessionRef): void {
@@ -1856,6 +1987,37 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.sessionState.composerDraftsBySession.get(sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId })) ?? "";
   }
 
+  private resolveComposerDraftSync(
+    selectedWorkspaceId: string,
+    selectedSessionId: string,
+    options: RefreshStateOptions,
+  ): {
+    readonly source: ComposerDraftSyncSource;
+    readonly nonce: number;
+  } {
+    if (options.composerDraftSyncSource) {
+      return {
+        source: options.composerDraftSyncSource,
+        nonce: this.state.composerDraftSyncNonce + 1,
+      };
+    }
+
+    if (
+      selectedWorkspaceId !== this.state.selectedWorkspaceId ||
+      selectedSessionId !== this.state.selectedSessionId
+    ) {
+      return {
+        source: "selection",
+        nonce: this.state.composerDraftSyncNonce + 1,
+      };
+    }
+
+    return {
+      source: this.state.composerDraftSyncSource,
+      nonce: this.state.composerDraftSyncNonce,
+    };
+  }
+
   private resolveComposerAttachments(
     selectedWorkspaceId: string,
     selectedSessionId: string,
@@ -1867,6 +2029,35 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.sessionState.composerAttachmentsBySession.get(
       sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
     )?.map(cloneComposerAttachment) ?? [];
+  }
+
+  private resolveQueuedComposerMessages(
+    selectedWorkspaceId: string,
+    selectedSessionId: string,
+  ): readonly QueuedComposerMessage[] {
+    if (!selectedWorkspaceId || !selectedSessionId) {
+      return [];
+    }
+
+    return this.sessionState.queuedComposerMessagesBySession.get(
+      sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
+    )?.map((message) => ({
+      ...message,
+      attachments: cloneComposerAttachments(message.attachments),
+    })) ?? [];
+  }
+
+  private resolveEditingQueuedMessageId(
+    selectedWorkspaceId: string,
+    selectedSessionId: string,
+  ): string | undefined {
+    if (!selectedWorkspaceId || !selectedSessionId) {
+      return undefined;
+    }
+
+    return this.sessionState.queuedComposerEditsBySession.get(
+      sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
+    )?.messageId;
   }
 
   private resolveSelectedSessionError(
@@ -1894,6 +2085,38 @@ export class DesktopAppStore implements AppStoreInternals {
     } else {
       this.sessionState.sessionConfigBySession.delete(key);
     }
+  }
+
+  updateQueuedComposerMessages(sessionRef: SessionRef, queuedMessages: readonly SessionQueuedMessage[] | undefined): void {
+    const key = sessionKey(sessionRef);
+    const next = mergeQueuedComposerMessages(this.sessionState.queuedComposerMessagesBySession.get(key), queuedMessages);
+    if (next.length > 0) {
+      this.sessionState.queuedComposerMessagesBySession.set(key, next);
+    } else {
+      this.sessionState.queuedComposerMessagesBySession.delete(key);
+    }
+
+    const editState = this.sessionState.queuedComposerEditsBySession.get(key);
+    if (editState && !next.some((message) => message.id === editState.messageId)) {
+      this.sessionState.queuedComposerEditsBySession.delete(key);
+    }
+  }
+
+  getQueuedComposerMessages(sessionRef: SessionRef): readonly QueuedComposerMessage[] {
+    return this.sessionState.queuedComposerMessagesBySession.get(sessionKey(sessionRef)) ?? [];
+  }
+
+  setQueuedComposerEditState(sessionRef: SessionRef, editState: QueuedComposerEditState | undefined): void {
+    const key = sessionKey(sessionRef);
+    if (editState) {
+      this.sessionState.queuedComposerEditsBySession.set(key, editState);
+    } else {
+      this.sessionState.queuedComposerEditsBySession.delete(key);
+    }
+  }
+
+  getQueuedComposerEditState(sessionRef: SessionRef): QueuedComposerEditState | undefined {
+    return this.sessionState.queuedComposerEditsBySession.get(sessionKey(sessionRef));
   }
 
   private syncSelectedSessionHydrationState(

@@ -7,6 +7,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   selectSession,
+  streamAssistantDeltas,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -121,6 +122,41 @@ test("navigates across folders and sessions through the sidebar", async () => {
     const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
     expect(selectedWorkspace?.path).toBeTruthy();
     expect(state.selectedSessionId).not.toBe("");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("switching sessions republishes the selected transcript", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("session-switch-transcript-workspace");
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+
+    await createNamedThread(window, "Thread one");
+    await streamAssistantDeltas(harness, window, ["alpha response"]);
+    await expect(window.getByTestId("transcript")).toContainText("alpha response");
+
+    await createNamedThread(window, "Thread two");
+    await streamAssistantDeltas(harness, window, ["beta response"]);
+    await expect(window.getByTestId("transcript")).toContainText("beta response");
+
+    await selectSession(window, "Thread one");
+    await expect(window.locator(".topbar__session")).toHaveText("Thread one");
+    await expect(window.getByTestId("transcript")).toContainText("alpha response");
+    await expect(window.getByTestId("transcript")).not.toContainText("Loading transcript");
+
+    await selectSession(window, "Thread two");
+    await expect(window.locator(".topbar__session")).toHaveText("Thread two");
+    await expect(window.getByTestId("transcript")).toContainText("beta response");
+    await expect(window.getByTestId("transcript")).not.toContainText("Loading transcript");
   } finally {
     await harness.close();
   }

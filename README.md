@@ -8,7 +8,7 @@ This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is no
 
 ## Status
 
-- Beta (macOS arm64, Linux x64 AppImage)
+- Beta (macOS arm64, Linux AppImage)
 - Public source repo
 
 ## Install
@@ -17,20 +17,32 @@ This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is no
 
 Download the latest `.dmg` or `.AppImage` from [Releases](https://github.com/minghinmatthewlam/pi-gui/releases).
 
-macOS releases are signed and notarized. Linux releases ship as AppImages.
+Signed and notarized beta releases are the primary direct install path. Drag `pi-gui.app` into `/Applications`, then launch it normally.
+
+Linux releases ship as AppImages.
+
+To update a DMG install, download the latest release and replace the app in `/Applications`.
 
 ### With Homebrew
 
-Homebrew installation will be published from [`minghinmatthewlam/homebrew-tap`](https://github.com/minghinmatthewlam/homebrew-tap) once the first signed release artifacts are available.
+Install from [`minghinmatthewlam/homebrew-tap`](https://github.com/minghinmatthewlam/homebrew-tap):
 
 ```bash
 brew tap minghinmatthewlam/tap
 brew install --cask pi-gui
 ```
 
+To update a Homebrew install:
+
+```bash
+brew upgrade --cask pi-gui
+```
+
+Homebrew upgrades may behave more like reinstall than in-place patching on macOS. During beta, you may need to re-confirm Dock placement or some permission prompts after upgrading.
+
 ### From Source
 
-See [Development](#development) below.
+See [Development](#development) below. Source install is intended for contributors and local development, not the primary end-user install path.
 
 ## What It Does
 
@@ -111,7 +123,7 @@ pnpm --filter @pi-gui/desktop demo:readme
 
 - The app currently relies on upstream `pi` behavior and local auth state.
 - Live end-to-end validation may require model credentials not stored in this repo.
-- Package manifests remain `private: true`; this repo is intended for source collaboration first.
+- Homebrew beta upgrades may require macOS to re-confirm some app permissions or Dock placement.
 
 ## Acknowledgements
 

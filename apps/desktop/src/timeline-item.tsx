@@ -69,6 +69,17 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
     );
   }
 
+  if (item.role === "branchSummary" || item.role === "compactionSummary") {
+    return (
+      <article className="timeline-item timeline-item--summary-card">
+        <div className="timeline-item__summary-eyebrow">
+          {item.role === "branchSummary" ? "Branch summary" : "Compaction summary"}
+        </div>
+        <MessageMarkdown text={item.text} />
+      </article>
+    );
+  }
+
   return (
     <article className="timeline-item timeline-item--assistant">
       <MessageMarkdown text={item.text} />
