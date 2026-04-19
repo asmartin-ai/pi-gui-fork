@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
   shell,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
@@ -62,6 +63,17 @@ const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
 
+// Resolve the bundled application icon. In dev the repo's `resources/icon.png`
+// sits two levels up from the compiled `out/main/main.js`; in a packaged build
+// it is copied to `process.resourcesPath` via `extraResources` in
+// electron-builder.yml. On macOS packaged builds the window/dock icon already
+// comes from `icon.icns` in the app bundle, so we only need the PNG for dev
+// and for Linux/Windows window chrome.
+const appIconPath = app.isPackaged
+  ? path.join(process.resourcesPath, "icon.png")
+  : path.join(__dirname, "..", "..", "resources", "icon.png");
+const appIcon = nativeImage.createFromPath(appIconPath);
+
 function readClipboardImageAttachment(): ComposerImageAttachment | null {
   const image = clipboard.readImage();
   if (image.isEmpty()) {
@@ -98,6 +110,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 18 },
     show: false,
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
@@ -310,6 +323,13 @@ function installApplicationMenu(): void {
 app.setName("pi");
 
 app.whenReady().then(async () => {
+  // On macOS, packaged builds already render the dock icon from `icon.icns`
+  // in the app bundle. In dev we override the generic Electron dock icon with
+  // the real PNG so the running app looks right end-to-end.
+  if (process.platform === "darwin" && !app.isPackaged) {
+    app.dock?.setIcon(appIcon);
+  }
+
   const userDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
   let generateThreadTitleOverride:
     | ((workspace: WorkspaceRef, options: GenerateThreadTitleOptions) => Promise<string | null | undefined>)
