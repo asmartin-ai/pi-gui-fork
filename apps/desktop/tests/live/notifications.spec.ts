@@ -1,108 +1,14 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import type { SessionDriverEvent } from "@pi-gui/session-driver";
-import { emitTestSessionEvent, getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
-import { createThread, selectSessionByTitle, setSessionVisibilityOverride, type SessionContext } from "./session-event-test-helpers";
-
-async function notificationLog(logPath: string): Promise<string> {
-  try {
-    return await readFile(logPath, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-async function emitRunningEvent(
-  harness: Awaited<ReturnType<typeof launchDesktop>>,
-  session: SessionContext,
-  label: string,
-): Promise<string> {
-  const startedAt = new Date().toISOString();
-  const runId = `${label.toLowerCase()}-${Date.now()}`;
-  const runningEvent: Extract<SessionDriverEvent, { type: "sessionUpdated" }> = {
-    type: "sessionUpdated",
-    sessionRef: session.sessionRef,
-    timestamp: startedAt,
-    runId,
-    snapshot: {
-      ref: session.sessionRef,
-      workspace: session.workspace,
-      title: session.title,
-      status: "running",
-      updatedAt: startedAt,
-      preview: `${label} running`,
-      runningRunId: runId,
-    },
-  };
-  await emitTestSessionEvent(harness, runningEvent);
-  return runId;
-}
-
-async function emitCompletedEvent(
-  harness: Awaited<ReturnType<typeof launchDesktop>>,
-  session: SessionContext,
-  label: string,
-  runId?: string,
-): Promise<void> {
-  const completedAt = new Date(Date.now() + 1_000).toISOString();
-  const completedEvent: Extract<SessionDriverEvent, { type: "runCompleted" }> = {
-    type: "runCompleted",
-    sessionRef: session.sessionRef,
-    timestamp: completedAt,
-    runId: runId ?? `${label.toLowerCase()}-${Date.now()}`,
-    snapshot: {
-      ref: session.sessionRef,
-      workspace: session.workspace,
-      title: session.title,
-      status: "idle",
-      updatedAt: completedAt,
-      preview: `${label} complete`,
-    },
-  };
-  await emitTestSessionEvent(harness, completedEvent);
-}
-
-async function emitFailedEvent(
-  harness: Awaited<ReturnType<typeof launchDesktop>>,
-  session: SessionContext,
-  label: string,
-  message: string,
-): Promise<void> {
-  const runId = await emitRunningEvent(harness, session, label);
-  const failedAt = new Date(Date.now() + 1_000).toISOString();
-  const failedEvent: Extract<SessionDriverEvent, { type: "runFailed" }> = {
-    type: "runFailed",
-    sessionRef: session.sessionRef,
-    timestamp: failedAt,
-    runId,
-    error: {
-      message,
-    },
-  };
-  await emitTestSessionEvent(harness, failedEvent);
-}
-
-async function emitAttentionRequest(
-  harness: Awaited<ReturnType<typeof launchDesktop>>,
-  session: SessionContext,
-  label: string,
-  title: string,
-): Promise<void> {
-  await emitRunningEvent(harness, session, label);
-  const requestEvent: Extract<SessionDriverEvent, { type: "hostUiRequest" }> = {
-    type: "hostUiRequest",
-    sessionRef: session.sessionRef,
-    timestamp: new Date().toISOString(),
-    request: {
-      kind: "confirm",
-      requestId: `${label.toLowerCase()}-${Date.now()}`,
-      title,
-      message: `${title} message`,
-    },
-  };
-  await emitTestSessionEvent(harness, requestEvent);
-}
+import { getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import {
+  emitAttentionRequest,
+  emitCompletedEvent,
+  emitFailedEvent,
+  emitRunningEvent,
+  readOptionalLog,
+} from "../helpers/notification-events";
+import { createThread, selectSessionByTitle, setSessionVisibilityOverride } from "./session-event-test-helpers";
 
 test("does not log a notification or blue dot for a focused selected session completion", async () => {
   const userDataDir = await makeUserDataDir();
@@ -132,7 +38,7 @@ test("does not log a notification or blue dot for a focused selected session com
       .toBe("idle");
 
     await expect(row).toHaveAttribute("data-sidebar-indicator", "none");
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 5_000 }).toBe("");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 5_000 }).toBe("");
   } finally {
     await harness.close();
   }
@@ -166,8 +72,8 @@ test("logs a completion notification and blue dot for a focused different sessio
       })
       .toBe("idle");
 
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Session A");
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("Session A");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain(
       '"body":"Agent finished responding"',
     );
     await expect(window.locator(".session-row", { hasText: "Session A" })).toHaveAttribute(
@@ -211,8 +117,8 @@ test("logs a completion notification and blue dot for a selected session after t
       })
       .toBe("idle");
 
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Selected Session");
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("Selected Session");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain(
       '"body":"Agent finished responding"',
     );
     await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
@@ -248,8 +154,8 @@ test("logs a failure notification and blue dot for a focused different session",
       })
       .toBe("failed");
 
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Failed Session A");
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("The run failed");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("Failed Session A");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("The run failed");
     await expect(window.locator(".session-row", { hasText: "Failed Session A" })).toHaveAttribute(
       "data-sidebar-indicator",
       "unseen",
@@ -279,8 +185,8 @@ test("logs an attention-needed notification and blue dot for a focused different
 
     await emitAttentionRequest(harness, sessionA, "Attention", "Needs your approval");
 
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain("Attention Session A");
-    await expect.poll(() => notificationLog(notificationLogPath), { timeout: 30_000 }).toContain(
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("Attention Session A");
+    await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain(
       "Needs your approval",
     );
     await expect(window.locator(".session-row", { hasText: "Attention Session A" })).toHaveAttribute(

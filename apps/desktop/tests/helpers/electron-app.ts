@@ -115,7 +115,8 @@ export async function launchPackagedDesktop(
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
-  const executablePath = await resolvePackagedAppExecutable();
+  const releaseDir = resolvePackagedReleaseDir(process.env.PI_APP_TEST_RELEASE_DIR);
+  const executablePath = await resolvePackagedAppExecutable(releaseDir);
   return launchDesktopExecutable(executablePath, env);
 }
 
@@ -210,6 +211,14 @@ function buildDesktopLaunchEnv(
   }
 
   return env;
+}
+
+function resolvePackagedReleaseDir(rawPath: string | undefined): string | undefined {
+  const trimmed = rawPath?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return resolve(desktopDir, trimmed);
 }
 
 async function prepareAgentDir(

@@ -15,7 +15,8 @@ export class NotificationManager {
   private latestState: DesktopAppState | undefined;
   private trackedWindow: BrowserWindow | null = null;
   private stopTrackingWindow: (() => void) | undefined;
-  private lastActivelyViewedRunningSession: SessionRef | undefined;
+  private lastActivelyViewedSession: SessionRef | undefined;
+  private backgroundCandidateSession: SessionRef | undefined;
   private permissionRequestPending = false;
 
   constructor(
@@ -26,7 +27,6 @@ export class NotificationManager {
   start(): () => void {
     const stopState = this.store.subscribe((state) => {
       this.latestState = state;
-      this.syncWindowTracking();
       const selectedSession = getSelectedSession(state);
       const window = this.getWindow();
       if (
@@ -45,12 +45,11 @@ export class NotificationManager {
           sessionId: state.selectedSessionId,
         });
       }
-      void this.handleVisibilityChange();
+      void this.reevaluateOnboardingState();
     });
     const stopEvents = this.store.subscribeToSessionEvents((event, state) => {
       this.latestState = state;
-      this.syncWindowTracking();
-      void this.handleVisibilityChange();
+      void this.reevaluateOnboardingState();
       void this.handleEvent(event);
     });
     return () => {
@@ -67,13 +66,22 @@ export class NotificationManager {
 
     this.stopTrackingWindow?.();
     this.stopTrackingWindow = undefined;
+    if (!window) {
+      this.trackedWindow = null;
+      this.lastActivelyViewedSession = undefined;
+      this.backgroundCandidateSession = undefined;
+      return;
+    }
+
     this.trackedWindow = window && !window.isDestroyed() ? window : null;
     if (!this.trackedWindow) {
+      this.lastActivelyViewedSession = undefined;
+      this.backgroundCandidateSession = undefined;
       return;
     }
 
     const reevaluateVisibility = () => {
-      void this.handleVisibilityChange();
+      void this.reevaluateOnboardingState(false);
     };
     const clearTrackedWindow = () => {
       this.trackWindow(null);
@@ -154,41 +162,60 @@ export class NotificationManager {
     return !isSessionActivelyViewed(this.latestState, event.sessionRef, window);
   }
 
-  private async handleVisibilityChange(): Promise<void> {
-    this.syncWindowTracking();
+  private async reevaluateOnboardingState(syncWindow = true): Promise<void> {
+    if (syncWindow && this.syncWindowTracking()) {
+      return;
+    }
     if (!Notification.isSupported()) {
-      this.lastActivelyViewedRunningSession = undefined;
+      this.lastActivelyViewedSession = undefined;
+      this.backgroundCandidateSession = undefined;
       return;
     }
 
     const state = this.latestState;
     if (!state) {
-      this.lastActivelyViewedRunningSession = undefined;
+      this.lastActivelyViewedSession = undefined;
+      this.backgroundCandidateSession = undefined;
       return;
     }
 
     const window = this.getWindow();
-    const nextActivelyViewedRunningSession = this.getActivelyViewedRunningSession(state, window);
-    const previousActivelyViewedRunningSession = this.lastActivelyViewedRunningSession;
-    this.lastActivelyViewedRunningSession = nextActivelyViewedRunningSession;
+    const nextActivelyViewedSession = this.getActivelyViewedSession(state, window);
+    const previousActivelyViewedSession = this.lastActivelyViewedSession;
+    this.lastActivelyViewedSession = nextActivelyViewedSession;
 
-    if (
-      !previousActivelyViewedRunningSession ||
-      sameSessionRef(previousActivelyViewedRunningSession, nextActivelyViewedRunningSession)
-    ) {
-      return;
+    if (previousActivelyViewedSession && !sameSessionRef(previousActivelyViewedSession, nextActivelyViewedSession)) {
+      this.backgroundCandidateSession = previousActivelyViewedSession;
     }
 
+    await this.maybeRequestNotificationPermission(state, window);
+  }
+
+  private async maybeRequestNotificationPermission(
+    state: DesktopAppState,
+    window: BrowserWindow | null,
+  ): Promise<void> {
     if (!this.notificationPreferencesEnabled(state)) {
       return;
     }
 
-    const previousSession = this.sessionFromLatestState(previousActivelyViewedRunningSession);
-    if (!previousSession || previousSession.status !== "running") {
+    const candidateSessionRef = this.backgroundCandidateSession;
+    if (!candidateSessionRef) {
       return;
     }
 
-    if (isSessionActivelyViewed(state, previousActivelyViewedRunningSession, window)) {
+    const candidateSession = this.sessionFromLatestState(candidateSessionRef);
+    if (!candidateSession) {
+      this.backgroundCandidateSession = undefined;
+      return;
+    }
+
+    if (isSessionActivelyViewed(state, candidateSessionRef, window)) {
+      this.backgroundCandidateSession = undefined;
+      return;
+    }
+
+    if (candidateSession.status !== "running") {
       return;
     }
 
@@ -200,6 +227,7 @@ export class NotificationManager {
     try {
       await ensureNotificationPermission(window);
     } finally {
+      this.backgroundCandidateSession = undefined;
       this.permissionRequestPending = false;
     }
   }
@@ -266,12 +294,12 @@ export class NotificationManager {
     return workspace?.sessions.find((entry) => entry.id === sessionRef.sessionId);
   }
 
-  private getActivelyViewedRunningSession(
+  private getActivelyViewedSession(
     state: DesktopAppState,
     window: BrowserWindow | null,
   ): SessionRef | undefined {
     const selectedSession = getSelectedSession(state);
-    if (!selectedSession || selectedSession.status !== "running") {
+    if (!selectedSession) {
       return undefined;
     }
 
@@ -287,11 +315,13 @@ export class NotificationManager {
     return preferences.backgroundCompletion || preferences.backgroundFailure || preferences.attentionNeeded;
   }
 
-  private syncWindowTracking(): void {
+  private syncWindowTracking(): boolean {
     const window = this.getWindow();
     if (window !== this.trackedWindow) {
       this.trackWindow(window);
+      return true;
     }
+    return false;
   }
 
   private titleForSession(sessionRef: SessionRef): string {
