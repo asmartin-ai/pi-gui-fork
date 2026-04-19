@@ -39,6 +39,7 @@ test("requests notification permission in the packaged app when active work move
     testMode: "background",
     envOverrides: {
       PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "default",
+      PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST: "1",
       PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_LOG_PATH: requestLogPath,
     },
   });

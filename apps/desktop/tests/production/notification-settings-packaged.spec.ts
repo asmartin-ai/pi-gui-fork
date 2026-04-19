@@ -21,6 +21,7 @@ test("shows notification recovery actions in the packaged app", async () => {
     envOverrides: {
       PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RESULT: "granted",
       PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "denied",
+      PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST: "1",
       PI_APP_TEST_NOTIFICATION_SETTINGS_LOG_PATH: settingsLogPath,
     },
   });
@@ -51,6 +52,51 @@ test("shows notification recovery actions in the packaged app", async () => {
 
     await window.getByRole("button", { name: "Ask macOS", exact: true }).click();
     await expect(window.locator(".settings-view")).toContainText("Enabled");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps showing turned off when Ask macOS does not change packaged macOS notification access", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("notification-settings-packaged-stale-request-workspace");
+  const harness = await launchPackagedDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+    envOverrides: {
+      PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "denied",
+    },
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await window.evaluate(() => {
+      const NotificationCtor = globalThis.Notification;
+      if (!NotificationCtor) {
+        throw new Error("Notification API is unavailable");
+      }
+
+      Object.defineProperty(NotificationCtor, "permission", {
+        configurable: true,
+        get: () => "granted",
+      });
+      Object.defineProperty(NotificationCtor, "requestPermission", {
+        configurable: true,
+        value: async () => "granted",
+      });
+    });
+
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Notifications", exact: true }).click();
+
+    await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("denied");
+    await expect(window.locator(".settings-view")).toContainText("Turned off");
+
+    await window.getByRole("button", { name: "Ask macOS", exact: true }).click();
+
+    await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("denied");
+    await expect(window.locator(".settings-view")).toContainText("Turned off");
+    await expect(window.getByRole("button", { name: "Ask macOS", exact: true })).toHaveCount(1);
   } finally {
     await harness.close();
   }

@@ -11,6 +11,7 @@ const TEST_REQUEST_RESULT_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RES
 const TEST_REQUEST_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_LOG_PATH";
 const TEST_SETTINGS_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_SETTINGS_LOG_PATH";
 const TEST_HELPER_STATUS_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS";
+const TEST_HELPER_FOLLOWS_REQUEST_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST";
 const NOTIFICATION_STATUS_HELPER_NAME = "pi-gui-notification-status-helper";
 
 let testPermissionStatus = normalizePermissionStatus(process.env[TEST_STATUS_ENV]);
@@ -55,7 +56,7 @@ export async function requestNotificationPermission(
       testPermissionStatus = normalized;
     }
     updatePackagedHelperOverrideStatus(normalized);
-    return normalized;
+    return getNotificationPermissionStatus(window);
   } catch {
     return "unknown";
   }
@@ -146,6 +147,9 @@ async function logPermissionRequestAttempt(): Promise<void> {
 
 function updatePackagedHelperOverrideStatus(status: DesktopNotificationPermissionStatus): void {
   if (!(TEST_HELPER_STATUS_ENV in process.env) || !normalizePermissionStatus(process.env[TEST_HELPER_STATUS_ENV])) {
+    return;
+  }
+  if (process.env[TEST_HELPER_FOLLOWS_REQUEST_ENV] !== "1") {
     return;
   }
 
