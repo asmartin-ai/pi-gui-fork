@@ -314,7 +314,10 @@ export async function resolveAppBundleExecutable(appBundle: string): Promise<str
 
 export async function resolvePackagedReleaseZip(releaseDir = packagedReleaseDir): Promise<string> {
   const entries = await readdir(releaseDir, { withFileTypes: true });
-  const zipEntry = entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip"));
+  const zipEntry =
+    entries.find((entry) => entry.isFile() && entry.name.endsWith("-arm64.zip")) ??
+    entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip")) ??
+    entries.find((entry) => entry.isFile() && entry.name.endsWith(".zip"));
 
   if (!zipEntry) {
     throw new Error(`No packaged macOS release zip found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package first.`);
