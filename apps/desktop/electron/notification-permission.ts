@@ -193,6 +193,18 @@ async function requestNotificationPermissionInternal(
 ): Promise<DesktopNotificationPermissionStatus> {
   await logPermissionRequestAttempt();
   const override = normalizePermissionStatus(process.env[TEST_REQUEST_RESULT_ENV]);
+  if (process.platform === "darwin" && app.isPackaged) {
+    if (override) {
+      await updatePackagedHelperOverrideStatus(override);
+      return readNotificationPermissionStatus(window);
+    }
+
+    const packagedMacOsStatus = await requestPackagedMacOsNotificationPermission();
+    if (packagedMacOsStatus) {
+      return packagedMacOsStatus;
+    }
+  }
+
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
     if (override) {
       testPermissionStatus = override;
@@ -216,6 +228,23 @@ async function requestNotificationPermissionInternal(
     return readNotificationPermissionStatus(window);
   } catch {
     return "unknown";
+  }
+}
+
+async function requestPackagedMacOsNotificationPermission(): Promise<DesktopNotificationPermissionStatus | undefined> {
+  const helperPath = resolveNotificationStatusHelperPath();
+  if (!helperPath) {
+    return undefined;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(helperPath, ["--request"], {
+      env: process.env,
+    });
+    const parsed = JSON.parse(stdout) as { status?: unknown };
+    return normalizePermissionStatus(parsed.status) ?? "unknown";
+  } catch {
+    return undefined;
   }
 }
 
@@ -267,11 +296,10 @@ async function readRendererNotificationPermission(
 }
 
 async function readPackagedMacOsNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus | undefined> {
-  if (process.platform !== "darwin" || !app.isPackaged) {
+  const helperPath = resolveNotificationStatusHelperPath();
+  if (!helperPath) {
     return undefined;
   }
-
-  const helperPath = path.join(process.resourcesPath, "..", "MacOS", NOTIFICATION_STATUS_HELPER_NAME);
   try {
     const { stdout } = await execFileAsync(helperPath, [], {
       env: process.env,
@@ -281,6 +309,14 @@ async function readPackagedMacOsNotificationPermissionStatus(): Promise<DesktopN
   } catch {
     return undefined;
   }
+}
+
+function resolveNotificationStatusHelperPath(): string | undefined {
+  if (process.platform !== "darwin" || !app.isPackaged) {
+    return undefined;
+  }
+
+  return path.join(process.resourcesPath, "..", "MacOS", NOTIFICATION_STATUS_HELPER_NAME);
 }
 
 async function logPermissionRequestAttempt(): Promise<void> {

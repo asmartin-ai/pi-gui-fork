@@ -16,28 +16,6 @@ async function openNotificationSettings(window: Page): Promise<void> {
   await window.getByRole("button", { name: "Notifications", exact: true }).click();
 }
 
-async function installNotificationRequestSpy(window: Page): Promise<void> {
-  await window.evaluate(() => {
-    const NotificationCtor = globalThis.Notification;
-    if (!NotificationCtor) {
-      throw new Error("Notification API is unavailable");
-    }
-
-    let permissionState = "default";
-    Object.defineProperty(NotificationCtor, "permission", {
-      configurable: true,
-      get: () => permissionState,
-    });
-    Object.defineProperty(NotificationCtor, "requestPermission", {
-      configurable: true,
-      value: async () => {
-        permissionState = "granted";
-        return permissionState;
-      },
-    });
-  });
-}
-
 test("shows not enabled yet in the packaged app and enables after Ask macOS updates the authoritative macOS status", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("notification-settings-packaged-default-workspace");
@@ -49,12 +27,12 @@ test("shows not enabled yet in the packaged app and enables after Ask macOS upda
     envOverrides: {
       PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS_FILE: helperStatusFilePath,
       PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST: "1",
+      PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RESULT: "granted",
     },
   });
 
   try {
     const window = await harness.firstWindow();
-    await installNotificationRequestSpy(window);
     await openNotificationSettings(window);
 
     await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("default");
@@ -81,12 +59,12 @@ test("keeps showing not enabled yet when Ask macOS does not change packaged macO
     testMode: "background",
     envOverrides: {
       PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS: "default",
+      PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_RESULT: "granted",
     },
   });
 
   try {
     const window = await harness.firstWindow();
-    await installNotificationRequestSpy(window);
     await openNotificationSettings(window);
 
     await expect.poll(() => window.evaluate(() => window.piApp.getNotificationPermissionStatus())).toBe("default");
