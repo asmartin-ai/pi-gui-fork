@@ -71,6 +71,7 @@ export const desktopIpc = {
   getNotificationPermissionStatus: "pi-gui:get-notification-permission-status",
   requestNotificationPermission: "pi-gui:request-notification-permission",
   openSystemNotificationSettings: "pi-gui:open-system-notification-settings",
+  notificationPermissionStatusChanged: "pi-gui:notification-permission-status-changed",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
   addComposerAttachments: "pi-gui:add-composer-attachments",
@@ -200,6 +201,9 @@ export interface PiDesktopApi {
   getNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus>;
   requestNotificationPermission(): Promise<DesktopNotificationPermissionStatus>;
   openSystemNotificationSettings(): Promise<void>;
+  onNotificationPermissionStatusChanged(
+    callback: (status: DesktopNotificationPermissionStatus) => void,
+  ): () => void;
   pickComposerAttachments(): Promise<DesktopAppState>;
   readClipboardImage(): ComposerImageAttachment | null;
   addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState>;

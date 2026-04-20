@@ -207,6 +207,17 @@ export default function App() {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    const piApi = window.piApp;
+    if (!piApi?.onNotificationPermissionStatusChanged) {
+      return;
+    }
+
+    return piApi.onNotificationPermissionStatusChanged((status) => {
+      setNotificationPermissionStatus(status);
+    });
+  }, []);
+
   const refreshNotificationPermissionStatus = useCallback(() => {
     if (!api?.getNotificationPermissionStatus) {
       return Promise.resolve("unknown" as DesktopNotificationPermissionStatus);
@@ -224,15 +235,7 @@ export default function App() {
     }
 
     void refreshNotificationPermissionStatus();
-    const handleRefresh = () => {
-      void refreshNotificationPermissionStatus();
-    };
-    window.addEventListener("focus", handleRefresh);
-    document.addEventListener("visibilitychange", handleRefresh);
-    return () => {
-      window.removeEventListener("focus", handleRefresh);
-      document.removeEventListener("visibilitychange", handleRefresh);
-    };
+    return undefined;
   }, [refreshNotificationPermissionStatus, settingsSection, snapshot?.activeView]);
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;

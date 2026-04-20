@@ -20,9 +20,7 @@ import { listWorkspaceFiles } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import {
-  getNotificationPermissionStatus,
-  openSystemNotificationSettings,
-  requestNotificationPermission,
+  NotificationPermissionService,
 } from "./notification-permission";
 import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
@@ -50,6 +48,7 @@ let store: DesktopAppStore;
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let notificationManager: NotificationManager | undefined;
+let notificationPermissionService: NotificationPermissionService | undefined;
 let stopPublishingState: (() => void) | undefined;
 let stopPublishingSelectedTranscript: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
@@ -379,7 +378,13 @@ app.whenReady().then(async () => {
       },
     });
   }
-  notificationManager = new NotificationManager(store, () => mainWindow);
+  notificationPermissionService = new NotificationPermissionService(() => mainWindow);
+  notificationPermissionService.subscribe((status) => {
+    if (mainWindow && canPublishToWindow(mainWindow)) {
+      mainWindow.webContents.send(desktopIpc.notificationPermissionStatusChanged, status);
+    }
+  });
+  notificationManager = new NotificationManager(store, () => mainWindow, notificationPermissionService);
   stopNotifications = notificationManager.start();
   if (!isDev) {
     stopUpdateChecker = initUpdateChecker();
@@ -480,12 +485,14 @@ app.whenReady().then(async () => {
     store.setNotificationPreferences(preferences),
   );
   ipcMain.handle(desktopIpc.getNotificationPermissionStatus, () =>
-    getNotificationPermissionStatus(mainWindow),
+    notificationPermissionService?.getCurrentStatus() ?? Promise.resolve("unknown"),
   );
   ipcMain.handle(desktopIpc.requestNotificationPermission, () =>
-    requestNotificationPermission(mainWindow),
+    notificationPermissionService?.requestPermission() ?? Promise.resolve("unknown"),
   );
-  ipcMain.handle(desktopIpc.openSystemNotificationSettings, () => openSystemNotificationSettings());
+  ipcMain.handle(desktopIpc.openSystemNotificationSettings, () =>
+    notificationPermissionService?.openSystemSettings() ?? Promise.resolve(),
+  );
   ipcMain.handle(desktopIpc.createSession, (_event, input: CreateSessionInput) =>
     store.createSession(input),
   );
@@ -597,15 +604,19 @@ app.whenReady().then(async () => {
 
   mainWindow = createWindow();
   notificationManager.trackWindow(mainWindow);
+  notificationPermissionService.trackWindow(mainWindow);
   themeManager.setWindow(mainWindow);
   attachStatePublisher(mainWindow);
+  void notificationPermissionService.getCurrentStatus();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
       notificationManager?.trackWindow(mainWindow);
+      notificationPermissionService?.trackWindow(mainWindow);
       themeManager.setWindow(mainWindow);
       attachStatePublisher(mainWindow);
+      void notificationPermissionService?.getCurrentStatus();
     }
   });
 });
@@ -615,6 +626,8 @@ app.on("window-all-closed", () => {
     stopNotifications?.();
     stopNotifications = undefined;
     notificationManager = undefined;
+    notificationPermissionService?.dispose();
+    notificationPermissionService = undefined;
     stopUpdateChecker?.();
     stopUpdateChecker = undefined;
     app.quit();
@@ -625,6 +638,8 @@ app.on("before-quit", (event) => {
   stopNotifications?.();
   stopNotifications = undefined;
   notificationManager = undefined;
+  notificationPermissionService?.dispose();
+  notificationPermissionService = undefined;
   stopUpdateChecker?.();
   stopUpdateChecker = undefined;
   if (quittingAfterStoreFlush || !store) {

@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 
 let helperStatusEnv = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS"
+let helperStatusFileEnv = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS_FILE"
 
 struct HelperOutput: Encodable {
     let status: String
@@ -40,6 +41,13 @@ func emit(_ output: HelperOutput) -> Never {
 
 if let overrideStatus = normalizeStatus(ProcessInfo.processInfo.environment[helperStatusEnv]) {
     emit(HelperOutput(status: overrideStatus))
+}
+
+if let statusFilePath = ProcessInfo.processInfo.environment[helperStatusFileEnv],
+   !statusFilePath.isEmpty,
+   let fileContents = try? String(contentsOfFile: statusFilePath, encoding: .utf8),
+   let fileStatus = normalizeStatus(fileContents.trimmingCharacters(in: .whitespacesAndNewlines)) {
+    emit(HelperOutput(status: fileStatus))
 }
 
 let semaphore = DispatchSemaphore(value: 0)

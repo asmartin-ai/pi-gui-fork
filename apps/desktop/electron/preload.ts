@@ -167,6 +167,13 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.requestNotificationPermission) as Promise<DesktopNotificationPermissionStatus>,
   openSystemNotificationSettings: () =>
     ipcRenderer.invoke(desktopIpc.openSystemNotificationSettings) as Promise<void>,
+  onNotificationPermissionStatusChanged: (callback: (status: DesktopNotificationPermissionStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: DesktopNotificationPermissionStatus) => callback(status);
+    ipcRenderer.on(desktopIpc.notificationPermissionStatusChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(desktopIpc.notificationPermissionStatusChanged, handler);
+    };
+  },
   pickComposerAttachments: () => ipcRenderer.invoke(desktopIpc.pickComposerAttachments) as Promise<DesktopAppState>,
   readClipboardImage: () => ipcRenderer.sendSync(desktopIpc.readClipboardImage) as ComposerImageAttachment | null,
   addComposerAttachments: (attachments: readonly ComposerAttachment[]) =>
