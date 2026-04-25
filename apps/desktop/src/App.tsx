@@ -34,6 +34,7 @@ import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { TerminalPanel } from "./terminal-panel";
 import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
@@ -98,6 +99,11 @@ function updateSnapshot(
     setSnapshot(state);
     return state;
   });
+}
+
+function isEventInsideTerminal(event: globalThis.KeyboardEvent): boolean {
+  const target = event.target;
+  return target instanceof Element && Boolean(target.closest("[data-pi-terminal]"));
 }
 
 function useRunningLabel(startedAt: string | undefined) {
@@ -186,6 +192,10 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalHostSessionKey, setTerminalHostSessionKey] = useState<string | null>(null);
+  const [isTerminalTakeover, setIsTerminalTakeover] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(340);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
   const threadSearch = useThreadSearch(timelinePaneRef);
@@ -341,7 +351,8 @@ export default function App() {
   const queuedComposerMessages = snapshot?.queuedComposerMessages ?? [];
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
-  const selectedSessionKey = `${selectedWorkspace?.id ?? ""}:${selectedSession?.id ?? ""}`;
+  const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
+  const isTerminalVisibleForSelectedThread = showTerminal && Boolean(selectedSessionKey) && terminalHostSessionKey === selectedSessionKey;
   const activeTranscript =
     selectedTranscript &&
     selectedWorkspace &&
@@ -360,6 +371,13 @@ export default function App() {
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
+  useEffect(() => {
+    if (snapshot && snapshot.workspaces.length === 0) {
+      setShowTerminal(false);
+      setTerminalHostSessionKey(null);
+      setIsTerminalTakeover(false);
+    }
+  }, [snapshot]);
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -374,6 +392,18 @@ export default function App() {
       composerRef.current?.focus();
     });
   };
+  const toggleTerminal = useCallback(() => {
+    if (!selectedSessionKey) {
+      return;
+    }
+    if (showTerminal && terminalHostSessionKey === selectedSessionKey) {
+      setShowTerminal(false);
+      setIsTerminalTakeover(false);
+      return;
+    }
+    setTerminalHostSessionKey(selectedSessionKey);
+    setShowTerminal(true);
+  }, [selectedSessionKey, showTerminal, terminalHostSessionKey]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -889,6 +919,8 @@ export default function App() {
         openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
       } else if (command === desktopCommands.openNewThread) {
         openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+      } else if (command === desktopCommands.toggleTerminal) {
+        toggleTerminal();
       }
     };
 
@@ -899,6 +931,19 @@ export default function App() {
     });
     const removeClipboardImageListener = window.piApp?.onClipboardImagePasted?.(handlePastedClipboardImage);
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (isEventInsideTerminal(event)) {
+        const command = getDesktopCommandFromShortcut({
+          modifier: event.metaKey || event.ctrlKey,
+          shift: event.shiftKey,
+          key: event.key,
+          code: event.code,
+        });
+        if (command === desktopCommands.toggleTerminal) {
+          event.preventDefault();
+          handleCommand(command);
+        }
+        return;
+      }
       // Cmd+F toggles thread search
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !event.shiftKey) {
         event.preventDefault();
@@ -933,7 +978,7 @@ export default function App() {
       removeClipboardImageListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId, threadSearch, api, toggleDiffPanel]);
+  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId, threadSearch, api, toggleDiffPanel, toggleTerminal]);
 
   useLayoutEffect(() => {
     setShowJumpToLatest(false);
@@ -1164,6 +1209,26 @@ export default function App() {
       </div>
     );
   }
+
+  const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeover && Boolean(selectedWorkspace);
+  const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (
+    <TerminalPanel
+      workspace={selectedWorkspace}
+      height={terminalHeight}
+      isTakeover={isTerminalTakeover}
+      onHeightChange={(nextHeight) => {
+        setTerminalHeight(nextHeight);
+        setIsTerminalTakeover(false);
+      }}
+      onToggleTakeover={() => setIsTerminalTakeover((current) => !current)}
+      onHide={() => {
+        setShowTerminal(false);
+        setTerminalHostSessionKey(null);
+        setIsTerminalTakeover(false);
+        focusComposer();
+      }}
+    />
+  ) : null;
 
   const setActiveView = (view: AppView) => {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
@@ -1514,6 +1579,10 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 
+  const handleSetIntegratedTerminalShell = (shellPath: string) => {
+    void updateSnapshot(api, setSnapshot, () => api.setIntegratedTerminalShell(shellPath));
+  };
+
   const handleRequestNotificationPermission = () => {
     if (!api?.requestNotificationPermission) {
       return;
@@ -1756,6 +1825,7 @@ export default function App() {
           notificationPermissionStatus={notificationPermissionStatus}
           notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
+          integratedTerminalShell={snapshot.integratedTerminalShell}
           themeMode={themeMode}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
@@ -1764,6 +1834,7 @@ export default function App() {
           onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
+          onSetIntegratedTerminalShell={handleSetIntegratedTerminalShell}
           onRequestNotificationPermission={handleRequestNotificationPermission}
           onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
@@ -1888,10 +1959,17 @@ export default function App() {
           api={api}
           setSnapshot={setSnapshot}
           updateSnapshot={updateSnapshot}
+          terminalAvailable={Boolean(selectedSessionKey)}
+          terminalVisible={isTerminalVisibleForSelectedThread}
+          onToggleTerminal={toggleTerminal}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
         />
 
+        {showTerminalTakeover ? (
+          terminalPanel
+        ) : (
+          <>
         {snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
             <NewThreadView
@@ -2078,6 +2156,8 @@ export default function App() {
           </section>
         )}
 
+        {terminalPanel}
+
         {showDiffPanel && selectedWorkspace ? (
           <DiffPanel
             workspaceId={selectedWorkspace.id}
@@ -2085,6 +2165,8 @@ export default function App() {
             sessionStatus={selectedSession?.status}
           />
         ) : null}
+          </>
+        )}
       </main>
     </div>
   );
