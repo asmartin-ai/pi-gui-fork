@@ -2077,10 +2077,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.sessionState.queuedComposerMessagesBySession.get(
       sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
-    )?.map((message) => ({
-      ...message,
-      attachments: cloneComposerAttachments(message.attachments),
-    })) ?? [];
+    )?.filter((message) => message.mode === "followUp")
+      .map((message) => ({
+        ...message,
+        attachments: cloneComposerAttachments(message.attachments),
+      })) ?? [];
   }
 
   private resolveEditingQueuedMessageId(

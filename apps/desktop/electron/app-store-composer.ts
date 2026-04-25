@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionConfig, SessionRef } from "@pi-gui/session-driver";
+import type { SessionConfig, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
 import type { ComposerAttachment, DesktopAppState, QueuedComposerMessage, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
@@ -10,7 +10,7 @@ import {
   parseComposerCommand,
   resolveRuntimeSlashCommand,
 } from "../src/composer-commands";
-import { appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
+import { appendQueuedUserMessage, appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
 import {
   cloneComposerAttachments,
   makeActivityItem,
@@ -276,6 +276,7 @@ export async function submitComposer(
   const selectedSession = store.sessionFromState(sessionRef);
   const isRunning = selectedSession?.status === "running";
   const editingState = store.getQueuedComposerEditState(sessionRef);
+  let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
     if (resolvedRuntimeSlashCommand) {
       const learnedCompatibility = store.getLearnedRuntimeCommandCompatibility(sessionRef.workspaceId, resolvedRuntimeSlashCommand);
@@ -301,31 +302,39 @@ export async function submitComposer(
 
     if (isRunning && !resolvedRuntimeSlashCommand) {
       const deliverAs = options.deliverAs ?? "followUp";
+      const nextMessage = buildQueuedComposerMessage({
+        existing: editingState
+          ? store.getQueuedComposerMessages(sessionRef).find((message) => message.id === editingState.messageId)
+          : undefined,
+        text,
+        attachments,
+        mode: deliverAs,
+      });
       const nextQueuedMessages = editingState
         ? replaceQueuedComposerMessage(
             store.getQueuedComposerMessages(sessionRef),
             editingState.messageId,
-            buildQueuedComposerMessage({
-              existing: store.getQueuedComposerMessages(sessionRef).find((message) => message.id === editingState.messageId),
-              text,
-              attachments,
-              mode: deliverAs,
-            }),
+            nextMessage,
           )
         : [
             ...store.getQueuedComposerMessages(sessionRef),
-            buildQueuedComposerMessage({
-              text,
-              attachments,
-              mode: deliverAs,
-            }),
+            nextMessage,
           ];
 
       store.sessionState.composerDraftsBySession.delete(key);
       store.sessionState.composerAttachmentsBySession.delete(key);
       store.setQueuedComposerEditState(sessionRef, undefined);
       await store.persistComposerAttachments(key, []);
-      await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(nextQueuedMessages));
+      const nextSessionQueuedMessages = toSessionQueuedMessages(nextQueuedMessages);
+      optimisticSteerMessage = deliverAs === "steer"
+        ? nextSessionQueuedMessages.find((message) => message.id === nextMessage.id)
+        : undefined;
+      if (optimisticSteerMessage) {
+        appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
+        store.publishSelectedTranscriptFor(sessionRef);
+        store.persistTranscriptCacheForSession(sessionRef);
+      }
+      await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
       return store.refreshState({
         clearLastError: true,
         markSelectedSessionViewed: false,
@@ -356,6 +365,16 @@ export async function submitComposer(
     }
     if (editingState) {
       store.setQueuedComposerEditState(sessionRef, editingState);
+    }
+    if (optimisticSteerMessage) {
+      const optimisticMessageId = optimisticSteerMessage.id;
+      const transcript = store.sessionState.transcriptCache.get(key) ?? [];
+      store.sessionState.transcriptCache.set(
+        key,
+        transcript.filter((message) => message.id !== optimisticMessageId),
+      );
+      store.publishSelectedTranscriptFor(sessionRef);
+      store.persistTranscriptCacheForSession(sessionRef);
     }
     return store.withError(error);
   }
