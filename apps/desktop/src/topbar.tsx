@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import { DiffIcon, FolderIcon, TerminalIcon } from "./icons";
-import type { PiDesktopApi } from "./ipc";
+import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
 interface TopbarProps {
@@ -48,7 +48,7 @@ export function Topbar(props: TopbarProps) {
     showDiffPanel,
     onToggleDiffPanel,
   } = props;
-  const terminalShortcut = api.platform === "darwin" ? "⌘J" : "Ctrl+J";
+  const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -132,7 +132,7 @@ export function Topbar(props: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
-        <div className="topbar__tooltip-wrap">
+        <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
           <button
             aria-label="Toggle terminal"
             className={`icon-button topbar__icon ${terminalVisible ? "icon-button--active" : ""}`}
@@ -142,7 +142,7 @@ export function Topbar(props: TopbarProps) {
           >
             <TerminalIcon />
           </button>
-          <span className="topbar__tooltip" role="tooltip">
+          <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
             <span>Toggle terminal</span>
             <kbd>{terminalShortcut}</kbd>
           </span>

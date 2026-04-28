@@ -53,6 +53,7 @@ export const desktopIpc = {
   startThread: "pi-gui:start-thread",
   cancelCurrentRun: "pi-gui:cancel-current-run",
   setActiveView: "pi-gui:set-active-view",
+  setSidebarCollapsed: "pi-gui:set-sidebar-collapsed",
   refreshRuntime: "pi-gui:refresh-runtime",
   setModelSettingsScopeMode: "pi-gui:set-model-settings-scope-mode",
   setDefaultModel: "pi-gui:set-default-model",
@@ -114,7 +115,12 @@ export const desktopCommands = {
   openSettings: "open-settings",
   openNewThread: "open-new-thread",
   toggleTerminal: "toggle-terminal",
+  toggleSidebar: "toggle-sidebar",
 } as const;
+
+export function getDesktopShortcutLabel(platform: NodeJS.Platform, key: string): string {
+  return `${platform === "darwin" ? "⌘" : "Ctrl+"}${key.toUpperCase()}`;
+}
 
 export type PiDesktopStateListener = (state: DesktopAppState) => void;
 export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
@@ -177,6 +183,7 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
 
   const lowerKey = input.key.toLowerCase();
   const isComma = input.key === "," || input.code === "Comma";
+  const isB = lowerKey === "b" || input.code === "KeyB";
   const isJ = lowerKey === "j" || input.code === "KeyJ";
   const isShiftO = input.shift && (lowerKey === "o" || input.code === "KeyO");
 
@@ -186,6 +193,10 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
 
   if (!input.shift && isJ) {
     return desktopCommands.toggleTerminal;
+  }
+
+  if (!input.shift && isB) {
+    return desktopCommands.toggleSidebar;
   }
 
   if (isShiftO) {
@@ -226,6 +237,7 @@ export interface PiDesktopApi {
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
+  setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
   refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
   setModelSettingsScopeMode(mode: ModelSettingsScopeMode): Promise<DesktopAppState>;
   setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState>;

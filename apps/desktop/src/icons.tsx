@@ -25,6 +25,16 @@ export function TerminalIcon() {
   );
 }
 
+export function SidebarToggleIcon() {
+  return (
+    <Icon>
+      <rect x="3.4" y="4.1" width="13.2" height="11.8" rx="2.2" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M7.4 4.2v11.6" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M11 8.1 8.9 10l2.1 1.9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
 export function MaximizeIcon() {
   return (
     <Icon>

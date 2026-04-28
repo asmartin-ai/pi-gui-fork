@@ -22,6 +22,7 @@ import { parseTreeComposerCommand } from "./composer-commands";
 import {
   desktopCommands,
   getDesktopCommandFromShortcut,
+  getDesktopShortcutLabel,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
 } from "./ipc";
@@ -33,6 +34,7 @@ import { SecondarySurface } from "./secondary-surface";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
+import { SidebarToggleButton } from "./sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
 import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
@@ -104,6 +106,10 @@ function updateSnapshot(
 function isEventInsideTerminal(event: globalThis.KeyboardEvent): boolean {
   const target = event.target;
   return target instanceof Element && Boolean(target.closest("[data-pi-terminal]"));
+}
+
+function canTogglePrimarySidebar(view: AppView | undefined): boolean {
+  return view === "threads" || view === "new-thread";
 }
 
 function useRunningLabel(startedAt: string | undefined) {
@@ -199,6 +205,20 @@ export default function App() {
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
   const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
+  const sidebarToggleStateRef = useRef<{
+    readonly api: typeof window.piApp;
+    readonly activeView: AppView | undefined;
+    readonly sidebarCollapsed: boolean;
+  }>({
+    api,
+    activeView: undefined,
+    sidebarCollapsed: false,
+  });
+  sidebarToggleStateRef.current = {
+    api,
+    activeView: snapshot?.activeView,
+    sidebarCollapsed: snapshot?.sidebarCollapsed ?? false,
+  };
 
   useEffect(() => {
     const piApi = window.piApp;
@@ -919,15 +939,33 @@ export default function App() {
     setNewThreadComposerError(undefined);
   };
 
+  const primarySidebarToggleVisible = canTogglePrimarySidebar(snapshot?.activeView);
+  const handleTogglePrimarySidebar = useCallback(() => {
+    const sidebarState = sidebarToggleStateRef.current;
+    const sidebarApi = sidebarState.api;
+    if (!sidebarApi || !canTogglePrimarySidebar(sidebarState.activeView)) {
+      return false;
+    }
+    void updateSnapshot(sidebarApi, setSnapshot, () => sidebarApi.setSidebarCollapsed(!sidebarState.sidebarCollapsed));
+    return true;
+  }, []);
+  const sidebarToggleShortcutLabel = api ? getDesktopShortcutLabel(api.platform, "B") : "";
+
   useEffect(() => {
-    const handleCommand = (command: PiDesktopCommand) => {
+    const handleCommand = (command: PiDesktopCommand): boolean => {
       if (command === desktopCommands.openSettings) {
         openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+        return true;
       } else if (command === desktopCommands.openNewThread) {
         openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+        return true;
       } else if (command === desktopCommands.toggleTerminal) {
         toggleTerminal();
+        return true;
+      } else if (command === desktopCommands.toggleSidebar) {
+        return handleTogglePrimarySidebar();
       }
+      return false;
     };
 
     const removeCommandListener = window.piApp?.onCommand?.(handleCommand);
@@ -972,9 +1010,8 @@ export default function App() {
         key: event.key,
         code: event.code,
       });
-      if (command) {
+      if (command && handleCommand(command)) {
         event.preventDefault();
-        handleCommand(command);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -984,7 +1021,15 @@ export default function App() {
       removeClipboardImageListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedWorkspace?.id, selectedWorkspace?.rootWorkspaceId, threadSearch, api, toggleDiffPanel, toggleTerminal]);
+  }, [
+    selectedWorkspace?.id,
+    selectedWorkspace?.rootWorkspaceId,
+    threadSearch,
+    api,
+    toggleDiffPanel,
+    toggleTerminal,
+    handleTogglePrimarySidebar,
+  ]);
 
   useLayoutEffect(() => {
     setShowJumpToLatest(false);
@@ -1950,28 +1995,39 @@ export default function App() {
     );
   }
 
+  const shellClassName = `shell${snapshot.sidebarCollapsed ? " shell--sidebar-collapsed" : ""}`;
+
   return (
-    <div className="shell">
-      <Sidebar
-        activeView={snapshot.activeView}
-        selectedWorkspace={selectedWorkspace}
-        selectedSession={selectedSession}
-        visibleWorkspaces={visibleWorkspaces}
-        threadGroups={threadGroups}
-        linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
-        wsMenu={wsMenu}
-        api={api}
-        setSnapshot={setSnapshot}
-        updateSnapshot={updateSnapshot}
-        onNewThread={() => openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
-        onSetActiveView={setActiveView}
-        onOpenSkills={openSkills}
-        onOpenExtensions={openExtensions}
-        onOpenSettings={openSettings}
-        onArchiveSession={handleArchiveSession}
-        onSelectSession={handleSelectSession}
-        onUnarchiveSession={handleUnarchiveSession}
-      />
+    <div className={shellClassName}>
+      {primarySidebarToggleVisible ? (
+        <SidebarToggleButton
+          collapsed={snapshot.sidebarCollapsed}
+          shortcutLabel={sidebarToggleShortcutLabel}
+          onToggle={handleTogglePrimarySidebar}
+        />
+      ) : null}
+      {!snapshot.sidebarCollapsed ? (
+        <Sidebar
+          activeView={snapshot.activeView}
+          selectedWorkspace={selectedWorkspace}
+          selectedSession={selectedSession}
+          visibleWorkspaces={visibleWorkspaces}
+          threadGroups={threadGroups}
+          linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
+          wsMenu={wsMenu}
+          api={api}
+          setSnapshot={setSnapshot}
+          updateSnapshot={updateSnapshot}
+          onNewThread={() => openNewThreadSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
+          onSetActiveView={setActiveView}
+          onOpenSkills={openSkills}
+          onOpenExtensions={openExtensions}
+          onOpenSettings={openSettings}
+          onArchiveSession={handleArchiveSession}
+          onSelectSession={handleSelectSession}
+          onUnarchiveSession={handleUnarchiveSession}
+        />
+      ) : null}
 
       <main className={`main ${showDiffPanel ? "main--with-diff" : ""}`}>
         <Topbar

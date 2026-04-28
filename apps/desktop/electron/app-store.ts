@@ -447,6 +447,21 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setSidebarCollapsed(sidebarCollapsed: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.sidebarCollapsed === sidebarCollapsed) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      sidebarCollapsed,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState> {
     await this.initialize();
     this.state = {
@@ -730,6 +745,7 @@ export class DesktopAppStore implements AppStoreInternals {
         integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
+        sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -1672,6 +1688,7 @@ export class DesktopAppStore implements AppStoreInternals {
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
+      sidebarCollapsed: this.state.sidebarCollapsed || undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

@@ -525,6 +525,9 @@ app.whenReady().then(async () => {
     store.unarchiveSession(target),
   );
   ipcMain.handle(desktopIpc.setActiveView, (_event, activeView) => store.setActiveView(activeView));
+  ipcMain.handle(desktopIpc.setSidebarCollapsed, (_event, collapsed: boolean) =>
+    store.setSidebarCollapsed(collapsed),
+  );
   ipcMain.handle(desktopIpc.refreshRuntime, (_event, workspaceId?: string) => store.refreshRuntime(workspaceId));
   ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));
   ipcMain.handle(desktopIpc.setSessionModel, (_event, workspaceId: string, sessionId: string, provider: string, modelId: string) =>
