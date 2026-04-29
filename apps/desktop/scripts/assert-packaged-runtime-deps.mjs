@@ -36,27 +36,23 @@ if (!existsSync(asarPath)) {
   throw new Error(`Packaged app.asar not found at ${asarPath}. Run the packaging step first.`);
 }
 
-const asarListing = execFileSync(pnpmBinary, ["exec", "asar", "list", asarPath], {
-  cwd: desktopDir,
-  encoding: "utf8",
-});
-
-const missingPackages = requiredPackages.filter((packageName) => {
-  const escaped = packageName.replace("/", "\\/");
-  const pattern = new RegExp(`^/node_modules/${escaped}(/|$)`, "m");
-  return !pattern.test(asarListing);
-});
-
-if (missingPackages.length > 0) {
-  throw new Error(`Packaged app is missing runtime dependencies: ${missingPackages.join(", ")}`);
-}
-
 if (notificationHelperPath && !existsSync(notificationHelperPath)) {
   throw new Error(`Packaged app is missing notification helper: ${notificationHelperPath}`);
 }
 
-await verifyNativeNodePty(asarPath);
-await verifyPackagedPiRuntime(asarPath);
+const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
+try {
+  execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
+    cwd: desktopDir,
+    stdio: "pipe",
+  });
+
+  verifyRequiredPackages(extractedDir);
+  await verifyPackagedPiRuntime(extractedDir);
+  await verifyNativeNodePty(asarPath);
+} finally {
+  rmSync(extractedDir, { recursive: true, force: true });
+}
 
 console.log(`Verified packaged runtime dependencies in ${asarPath}`);
 
@@ -82,31 +78,31 @@ function resolveAsarPath(desktopDir, packagePlatform) {
   throw new Error(`Unsupported packaged runtime dependency target: ${packagePlatform}`);
 }
 
-async function verifyPackagedPiRuntime(asarPath) {
-  const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
-  try {
-    execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
-      cwd: desktopDir,
-      stdio: "pipe",
-    });
+function verifyRequiredPackages(extractedDir) {
+  const missingPackages = requiredPackages.filter(
+    (packageName) => !existsSync(path.join(extractedDir, "node_modules", packageName)),
+  );
 
-    const packageJsonPath = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-    if (packageJson.version !== requiredPiCodingAgentVersion) {
-      throw new Error(
-        `Packaged app has @mariozechner/pi-coding-agent ${packageJson.version}; expected ${requiredPiCodingAgentVersion}.`,
-      );
-    }
+  if (missingPackages.length > 0) {
+    throw new Error(`Packaged app is missing runtime dependencies: ${missingPackages.join(", ")}`);
+  }
+}
 
-    const runtimeEntry = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "dist", "index.js");
-    const { AuthStorage, ModelRegistry } = await import(pathToFileURL(runtimeEntry).href);
-    const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
-    const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
-    if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
-      throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
-    }
-  } finally {
-    rmSync(extractedDir, { recursive: true, force: true });
+async function verifyPackagedPiRuntime(extractedDir) {
+  const packageJsonPath = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  if (packageJson.version !== requiredPiCodingAgentVersion) {
+    throw new Error(
+      `Packaged app has @mariozechner/pi-coding-agent ${packageJson.version}; expected ${requiredPiCodingAgentVersion}.`,
+    );
+  }
+
+  const runtimeEntry = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "dist", "index.js");
+  const { AuthStorage, ModelRegistry } = await import(pathToFileURL(runtimeEntry).href);
+  const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+  const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
+  if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
+    throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
   }
 }
 
