@@ -31,6 +31,10 @@
   grid-column: 1;
 }
 
+.main--with-terminal {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
 .main--with-diff > .terminal-panel {
   grid-column: 1;
 }
@@ -681,6 +685,10 @@
   overflow: hidden;
   grid-column: 2;
   grid-row: 2 / -1;
+}
+
+.main--with-diff.main--with-terminal > .diff-panel {
+  grid-row: 2 / span 3;
 }
 
 .diff-panel__header {

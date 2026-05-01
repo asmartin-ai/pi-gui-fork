@@ -1271,6 +1271,7 @@ export default function App() {
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
+    isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
   const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (

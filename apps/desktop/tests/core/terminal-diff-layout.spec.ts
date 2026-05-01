@@ -23,6 +23,7 @@ async function expectTerminalAndChangesSplit(window: Page): Promise<void> {
   }
 
   expect(terminalBox.x + terminalBox.width).toBeLessThanOrEqual(diffPanelBox.x + 1);
+  expect(diffPanelBox.y + diffPanelBox.height).toBeGreaterThanOrEqual(terminalBox.y + terminalBox.height - 1);
   expect(diffPanelBox.width).toBeGreaterThanOrEqual(320);
   expect(terminalBox.width).toBeGreaterThan(300);
 }
