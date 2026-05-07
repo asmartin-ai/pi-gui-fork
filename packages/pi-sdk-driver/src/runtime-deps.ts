@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { AuthStorage, ModelRegistry, getAgentDir } from "@mariozechner/pi-coding-agent";
+import { AuthStorage, ModelRegistry, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { RuntimeSupervisorOptions } from "./runtime-supervisor.js";
 
 export interface RuntimeDependencies {

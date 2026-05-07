@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { SessionInfo } from "@mariozechner/pi-coding-agent";
+import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type {
   SessionAttachment,
   SessionConfig,

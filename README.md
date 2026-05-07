@@ -2,7 +2,7 @@
 
 Electron desktop shell for `pi` sessions. Built for local agent workflows.
 
-This repo packages a desktop UI around `@mariozechner/pi-coding-agent`. It is not a standalone coding agent runtime. The app depends on the upstream `pi` package for session management, model/auth setup, and agent execution.
+This repo packages a desktop UI around `@earendil-works/pi-coding-agent`. It is not a standalone coding agent runtime. The app depends on the upstream `pi` package for session management, model/auth setup, and agent execution.
 
 ![pi-gui demo](./docs/readme/demo.gif)
 
@@ -117,7 +117,7 @@ pnpm --filter @pi-gui/desktop demo:readme
 - `apps/desktop`: Electron app and renderer UI
 - `packages/session-driver`: shared session driver types
 - `packages/catalogs`: lightweight workspace/session catalog state
-- `packages/pi-sdk-driver`: adapter from the desktop app to `@mariozechner/pi-coding-agent`
+- `packages/pi-sdk-driver`: adapter from the desktop app to `@earendil-works/pi-coding-agent`
 
 ## Known Limitations
 
@@ -127,8 +127,8 @@ pnpm --filter @pi-gui/desktop demo:readme
 
 ## Acknowledgements
 
-- Built on top of [`@mariozechner/pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
-- Upstream runtime and ecosystem by [`badlogic/pi-mono`](https://github.com/badlogic/pi-mono)
+- Built on top of [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
+- Upstream runtime and ecosystem by [`earendil-works/pi`](https://github.com/earendil-works/pi)
 
 ## License
 

@@ -7,18 +7,33 @@ import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const requiredPackages = [
+  // Keep packaging-sensitive runtime transitive deps explicit; electron-builder
+  // can omit hoisted pnpm dependencies even when local development resolves them.
+  "@aws-sdk/token-providers",
+  "@smithy/is-array-buffer",
+  "@smithy/util-buffer-from",
+  "@smithy/util-utf8",
   "@xterm/addon-clipboard",
   "@xterm/addon-fit",
   "@xterm/addon-web-links",
   "@xterm/xterm",
+  "ansi-regex",
   "balanced-match",
   "brace-expansion",
   "chalk",
+  "data-uri-to-buffer",
   "glob",
   "hosted-git-info",
   "lru-cache",
+  "mime-types",
   "minimatch",
   "node-pty",
+  "parse5",
+  "parse5-htmlparser2-tree-adapter",
+  "proxy-agent",
+  "retry",
+  "strip-ansi",
+  "yargs",
 ];
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -30,7 +45,14 @@ const notificationHelperPath =
     ? path.join(desktopDir, "release", "mac-arm64", "pi-gui.app", "Contents", "MacOS", "pi-gui-notification-status-helper")
     : undefined;
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const requiredPiCodingAgentVersion = "0.70.2";
+const piCodingAgentPackageName = "@earendil-works/pi-coding-agent";
+const requiredPiCodingAgentVersion = "0.74.0";
+const packagedRuntimeImportChecks = [
+  ["@earendil-works", "pi-ai", "dist", "providers", "google.js"],
+  ["@earendil-works", "pi-ai", "dist", "bedrock-provider.js"],
+  ["cli-highlight", "dist", "index.js"],
+  ["proxy-agent", "dist", "index.js"],
+];
 
 if (!existsSync(asarPath)) {
   throw new Error(`Packaged app.asar not found at ${asarPath}. Run the packaging step first.`);
@@ -49,6 +71,7 @@ try {
 
   verifyRequiredPackages(extractedDir);
   await verifyPackagedPiRuntime(extractedDir);
+  await verifyPackagedRuntimeImports(extractedDir);
   await verifyNativeNodePty(asarPath);
 } finally {
   rmSync(extractedDir, { recursive: true, force: true });
@@ -89,20 +112,27 @@ function verifyRequiredPackages(extractedDir) {
 }
 
 async function verifyPackagedPiRuntime(extractedDir) {
-  const packageJsonPath = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
+  const packageJsonPath = path.join(extractedDir, "node_modules", ...piCodingAgentPackageName.split("/"), "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   if (packageJson.version !== requiredPiCodingAgentVersion) {
     throw new Error(
-      `Packaged app has @mariozechner/pi-coding-agent ${packageJson.version}; expected ${requiredPiCodingAgentVersion}.`,
+      `Packaged app has ${piCodingAgentPackageName} ${packageJson.version}; expected ${requiredPiCodingAgentVersion}.`,
     );
   }
 
-  const runtimeEntry = path.join(extractedDir, "node_modules", "@mariozechner", "pi-coding-agent", "dist", "index.js");
+  const runtimeEntry = path.join(extractedDir, "node_modules", ...piCodingAgentPackageName.split("/"), "dist", "index.js");
   const { AuthStorage, ModelRegistry } = await import(pathToFileURL(runtimeEntry).href);
   const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
   const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
   if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
     throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
+  }
+}
+
+async function verifyPackagedRuntimeImports(extractedDir) {
+  for (const modulePath of packagedRuntimeImportChecks) {
+    const runtimeEntry = path.join(extractedDir, "node_modules", ...modulePath);
+    await import(pathToFileURL(runtimeEntry).href);
   }
 }
 

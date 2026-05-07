@@ -8,7 +8,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionOptions,
   type CreateAgentSessionRuntimeResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 export function isGlobalNpmLookupError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
