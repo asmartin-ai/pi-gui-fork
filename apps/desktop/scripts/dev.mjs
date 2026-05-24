@@ -7,7 +7,11 @@ const desktopDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(desktopDir, "..", "..");
 const rawArgs = process.argv.slice(2);
 const extraArgs = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
-const packageFilters = ["@pi-gui/session-driver", "@pi-gui/pi-sdk-driver", "@pi-gui/catalogs"];
+const packagePaths = [
+  path.resolve(repoRoot, "packages/session-driver"),
+  path.resolve(repoRoot, "packages/pi-sdk-driver"),
+  path.resolve(repoRoot, "packages/catalogs"),
+];
 
 async function run(cmd, args, cwd) {
   await new Promise((resolve, reject) => {
@@ -38,32 +42,15 @@ function start(cmd, args, cwd) {
 }
 
 async function main() {
-  await run(
-    "pnpm",
-    ["--dir", repoRoot, "--filter", packageFilters[0], "--filter", packageFilters[1], "--filter", packageFilters[2], "run", "build"],
-    desktopDir,
-  );
+  for (const pkgPath of packagePaths) {
+    await run("bun", ["run", "build"], pkgPath);
+  }
 
   const children = [
-    start(
-      "pnpm",
-      [
-        "--dir",
-        repoRoot,
-        "--parallel",
-        "--filter",
-        packageFilters[0],
-        "--filter",
-        packageFilters[1],
-        "--filter",
-        packageFilters[2],
-        "run",
-        "build",
-        "--watch",
-      ],
-      desktopDir,
+    ...packagePaths.map((pkgPath) =>
+      start("bun", ["x", "tsc", "-w", "-p", "tsconfig.json"], pkgPath),
     ),
-    start("pnpm", ["exec", "electron-vite", "dev", "--watch", ...extraArgs], desktopDir),
+    start("bun", ["x", "electron-vite", "dev", "--watch", ...extraArgs], desktopDir),
   ];
 
   let exiting = false;

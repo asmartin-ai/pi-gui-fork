@@ -378,7 +378,7 @@ app.setName("pi");
 const configuredUserDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
 app.setPath("userData", configuredUserDataDir);
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const hasSingleInstanceLock = process.env.PI_APP_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 }
