@@ -26,6 +26,7 @@ export interface PersistedUiState {
   readonly appGlobalModelSettings?: ModelSettingsSnapshot;
   readonly sidebarCollapsed?: boolean;
   readonly allowMultiple?: boolean;
+  readonly enableTransparency?: boolean;
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -74,6 +75,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       appGlobalModelSettings: toPersistedModelSettingsSnapshot(parsed.appGlobalModelSettings),
       sidebarCollapsed: typeof parsed.sidebarCollapsed === "boolean" ? parsed.sidebarCollapsed : undefined,
       allowMultiple: typeof parsed.allowMultiple === "boolean" ? parsed.allowMultiple : undefined,
+      enableTransparency: typeof parsed.enableTransparency === "boolean" ? parsed.enableTransparency : undefined,
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };

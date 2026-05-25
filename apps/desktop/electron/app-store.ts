@@ -493,6 +493,21 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setEnableTransparency(enabled: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.enableTransparency === enabled) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      enableTransparency: enabled,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setAllowMultiple(allowMultiple: boolean): Promise<DesktopAppState> {
     await this.initialize();
     if (this.state.allowMultiple === allowMultiple) {
@@ -1707,6 +1722,7 @@ export class DesktopAppStore implements AppStoreInternals {
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       allowMultiple: this.state.allowMultiple,
+      enableTransparency: this.state.enableTransparency,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

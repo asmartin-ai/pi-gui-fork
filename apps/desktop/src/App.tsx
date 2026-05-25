@@ -241,6 +241,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (snapshot) {
+      document.documentElement.classList.toggle("enable-transparency", snapshot.enableTransparency);
+    }
+  }, [snapshot?.enableTransparency]);
+
+  useEffect(() => {
     const piApi = window.piApp;
     if (!piApi?.onNotificationPermissionStatusChanged) {
       return;
@@ -1917,6 +1923,7 @@ export default function App() {
           integratedTerminalShell={snapshot.integratedTerminalShell}
           allowMultiple={snapshot.allowMultiple}
           themeMode={themeMode}
+          enableTransparency={snapshot.enableTransparency}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onSetProviderApiKey={handleSetProviderApiKey}
@@ -1932,6 +1939,9 @@ export default function App() {
           onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
+          onSetEnableTransparency={(enabled) => {
+            void updateSnapshot(api, setSnapshot, () => api.setEnableTransparency(enabled));
+          }}
         />
       </SecondarySurface>
     );

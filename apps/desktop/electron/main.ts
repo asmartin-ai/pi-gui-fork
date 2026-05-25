@@ -119,13 +119,16 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
 
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
+  const enableTransparency = store ? store.state.enableTransparency : false;
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
     minWidth: 1200,
     minHeight: 760,
-    backgroundColor: "#f3f4f8",
+    transparent: true,
+    vibrancy: process.platform === "darwin" && enableTransparency ? "under-window" : undefined,
     titleBarStyle: "hiddenInset",
+    backgroundColor: '#00000000',
     trafficLightPosition: { x: 18, y: 18 },
     show: false,
     icon: appIcon,
@@ -593,6 +596,15 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setAllowMultiple, (_event, allowMultiple: boolean) =>
     store.setAllowMultiple(allowMultiple),
   );
+  ipcMain.handle(desktopIpc.setAppearanceEffects, async (_event, enabled: boolean) => {
+    const nextState = await store.setEnableTransparency(enabled);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (process.platform === "darwin") {
+        mainWindow.setVibrancy(enabled ? "under-window" : null);
+      }
+    }
+    return nextState;
+  });
   ipcMain.handle(desktopIpc.terminalEnsurePanel, (event, workspaceId: string, terminalScopeId: string, size) => {
     return getTerminalService().ensurePanel(event.sender, workspaceId, terminalScopeId, size);
   });
