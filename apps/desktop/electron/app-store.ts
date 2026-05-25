@@ -493,6 +493,21 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setAllowMultiple(allowMultiple: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.allowMultiple === allowMultiple) {
+      return this.emit();
+    }
+    this.state = {
+      ...this.state,
+      allowMultiple,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setModelSettingsScopeMode(modelSettingsScopeMode: ModelSettingsScopeMode): Promise<DesktopAppState> {
     await this.initialize();
     if (this.state.modelSettingsScopeMode === modelSettingsScopeMode) {
@@ -731,8 +746,8 @@ export class DesktopAppStore implements AppStoreInternals {
   /* ── Internal infrastructure (AppStoreInternals) ───────── */
 
   private async initializeInternal(): Promise<void> {
+    const persisted = await this.readUiState();
     try {
-      const persisted = await this.readUiState();
       this.state = {
         ...this.state,
         activeView: persisted.activeView ?? this.state.activeView,
@@ -746,6 +761,7 @@ export class DesktopAppStore implements AppStoreInternals {
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
+        allowMultiple: persisted.allowMultiple ?? this.state.allowMultiple,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -796,6 +812,7 @@ export class DesktopAppStore implements AppStoreInternals {
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
+        allowMultiple: persisted.allowMultiple ?? false,
         lastError: error instanceof Error ? error.message : String(error),
         revision: 1,
       };
@@ -1689,6 +1706,7 @@ export class DesktopAppStore implements AppStoreInternals {
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
+      allowMultiple: this.state.allowMultiple,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

@@ -12,6 +12,7 @@ import {
 } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
@@ -378,12 +379,26 @@ app.setName("pi");
 const configuredUserDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
 app.setPath("userData", configuredUserDataDir);
 
-const hasSingleInstanceLock = process.env.PI_APP_ALLOW_MULTIPLE === "1" || app.requestSingleInstanceLock();
+function getPersistedAllowMultiple(): boolean {
+  if (process.env.PI_APP_ALLOW_MULTIPLE === "1") {
+    return true;
+  }
+  try {
+    const uiStatePath = path.join(configuredUserDataDir, "ui-state.json");
+    const raw = readFileSync(uiStatePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed.allowMultiple === "boolean" ? parsed.allowMultiple : false;
+  } catch {
+    return false;
+  }
+}
+
+const hasSingleInstanceLock = getPersistedAllowMultiple() || app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-app.on("second-instance", () => {
+app.on("second-instance", async () => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
@@ -574,6 +589,9 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.setIntegratedTerminalShell, (_event, shellPath: string) =>
     store.setIntegratedTerminalShell(shellPath),
+  );
+  ipcMain.handle(desktopIpc.setAllowMultiple, (_event, allowMultiple: boolean) =>
+    store.setAllowMultiple(allowMultiple),
   );
   ipcMain.handle(desktopIpc.terminalEnsurePanel, (event, workspaceId: string, terminalScopeId: string, size) => {
     return getTerminalService().ensurePanel(event.sender, workspaceId, terminalScopeId, size);
