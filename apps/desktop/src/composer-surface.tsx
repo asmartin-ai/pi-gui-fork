@@ -422,20 +422,27 @@ function MentionMenuItem({
       <div
         className={`mention-menu__item mention-menu__item--extension ${active ? "mention-menu__item--active" : ""} ${option.enabled ? "" : "mention-menu__item--disabled"}`}
       >
-        <button className="mention-menu__item-main" type="button" onClick={() => {
-          if (option.enabled) {
-            onSelect(option);
-            return;
-          }
-          onEnableExtension(option);
-        }}>
+        <button
+          className="mention-menu__item-main"
+          disabled={option.enabling}
+          type="button"
+          onClick={() => {
+            if (option.enabled) {
+              onSelect(option);
+              return;
+            }
+            onEnableExtension(option);
+          }}
+        >
           <span className="mention-menu__icon" aria-hidden="true">
             <ExtensionIcon />
           </span>
           <span className="mention-menu__content">
             <span className="mention-menu__line">
               <span className="mention-menu__filename">{option.displayName}</span>
-              {option.enabled ? null : <span className="mention-menu__badge">Disabled</span>}
+              {option.enabled ? null : (
+                <span className="mention-menu__badge">{option.enabling ? "Enabling" : "Disabled"}</span>
+              )}
             </span>
             <span className="mention-menu__description">{option.description}</span>
           </span>
@@ -444,10 +451,11 @@ function MentionMenuItem({
           <button
             aria-label={`Enable ${option.displayName}`}
             className="mention-menu__enable"
+            disabled={option.enabling}
             type="button"
             onClick={() => onEnableExtension(option)}
           >
-            Enable
+            {option.enabling ? "Enabling" : "Enable"}
           </button>
         )}
       </div>

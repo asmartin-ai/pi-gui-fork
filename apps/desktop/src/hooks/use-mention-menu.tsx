@@ -3,20 +3,21 @@ import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-dr
 import type { PiDesktopApi } from "../ipc";
 import { nextMenuIndex } from "./use-slash-menu";
 
-const computerUseExtensionSlug = "computer-use-extension";
-
 export type MentionOption =
   | {
       readonly kind: "extension";
       readonly id: string;
       readonly displayName: string;
       readonly description: string;
+      readonly insertText: string;
       readonly enabled: boolean;
+      readonly enabling: boolean;
       readonly path: string;
     }
   | {
       readonly kind: "file";
       readonly id: string;
+      readonly insertText: string;
       readonly filePath: string;
     };
 
@@ -61,8 +62,11 @@ export function useMentionMenu({
   onEnableExtension,
 }: UseMentionMenuParams): MentionMenuState {
   const [allFiles, setAllFiles] = useState<readonly string[]>([]);
+  const [pendingEnablePaths, setPendingEnablePaths] = useState<ReadonlySet<string>>(() => new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [suppressed, setSuppressed] = useState(false);
+  const composerDraftRef = useRef(composerDraft);
+  composerDraftRef.current = composerDraft;
 
   // Fetch file list when workspace changes
   useEffect(() => {
@@ -78,6 +82,25 @@ export function useMentionMenu({
     setSuppressed(false);
   }, [composerDraft]);
 
+  useEffect(() => {
+    setPendingEnablePaths((current) => {
+      if (current.size === 0) {
+        return current;
+      }
+      const enabledPaths = new Set(
+        (runtime?.extensions ?? []).filter((extension) => extension.enabled).map((extension) => extension.path),
+      );
+      let next: Set<string> | undefined;
+      for (const path of current) {
+        if (enabledPaths.has(path)) {
+          next ??= new Set(current);
+          next.delete(path);
+        }
+      }
+      return next ?? current;
+    });
+  }, [runtime?.extensions]);
+
   // Detect active @ mention from the draft text
   const mentionMatch = useMemo(() => {
     if (suppressed) {
@@ -91,17 +114,18 @@ export function useMentionMenu({
       return [];
     }
     const lowerQuery = mentionMatch.query.toLowerCase();
-    const extensionOptions = buildExtensionMentionOptions(runtime?.extensions ?? [], lowerQuery);
+    const extensionOptions = buildExtensionMentionOptions(runtime?.extensions ?? [], lowerQuery, pendingEnablePaths);
     const fileOptions = allFiles
       .filter((file) => file.toLowerCase().includes(lowerQuery))
       .slice(0, 10)
       .map<MentionOption>((filePath) => ({
         kind: "file",
         id: `file:${filePath}`,
+        insertText: filePath,
         filePath,
       }));
     return [...extensionOptions, ...fileOptions];
-  }, [allFiles, mentionMatch, runtime?.extensions]);
+  }, [allFiles, mentionMatch, pendingEnablePaths, runtime?.extensions]);
 
   const showMentionMenu = mentionOptions.length > 0;
 
@@ -110,14 +134,11 @@ export function useMentionMenu({
     setSelectedIndex(0);
   }, [mentionOptions.length]);
 
-  const insertMention = useCallback(
-    (option: MentionOption) => {
-      if (!mentionMatch) {
-        return;
-      }
-      const before = composerDraft.slice(0, mentionMatch.atIndex);
-      const afterCursor = composerDraft.slice(mentionMatch.atIndex + 1 + mentionMatch.query.length);
-      const inserted = `@${mentionOptionText(option)} `;
+  const insertMentionAt = useCallback(
+    (option: MentionOption, draft: string, match: { query: string; atIndex: number }) => {
+      const before = draft.slice(0, match.atIndex);
+      const afterCursor = draft.slice(match.atIndex + 1 + match.query.length);
+      const inserted = `@${option.insertText} `;
       const newDraft = `${before}${inserted}${afterCursor}`;
       setComposerDraft(newDraft);
       setSuppressed(true);
@@ -129,7 +150,17 @@ export function useMentionMenu({
         }
       });
     },
-    [composerDraft, composerRef, setComposerDraft, mentionMatch],
+    [composerRef, setComposerDraft],
+  );
+
+  const insertMention = useCallback(
+    (option: MentionOption) => {
+      if (!mentionMatch) {
+        return;
+      }
+      insertMentionAt(option, composerDraft, mentionMatch);
+    },
+    [composerDraft, insertMentionAt, mentionMatch],
   );
 
   const enableMentionExtension = useCallback(
@@ -138,14 +169,40 @@ export function useMentionMenu({
         insertMention(option);
         return;
       }
+      if (option.enabling || !mentionMatch) {
+        return;
+      }
 
+      const draftBeforeEnable = composerDraft;
+      const mentionBeforeEnable = mentionMatch;
+      setPendingEnablePaths((current) => {
+        if (current.has(option.path)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.add(option.path);
+        return next;
+      });
       void onEnableExtension(option.path)
         .then(() => {
-          insertMention(option);
+          if (composerDraftRef.current !== draftBeforeEnable) {
+            return;
+          }
+          insertMentionAt(option, draftBeforeEnable, mentionBeforeEnable);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          setPendingEnablePaths((current) => {
+            if (!current.has(option.path)) {
+              return current;
+            }
+            const next = new Set(current);
+            next.delete(option.path);
+            return next;
+          });
+        });
     },
-    [insertMention, onEnableExtension],
+    [composerDraft, insertMention, insertMentionAt, mentionMatch, onEnableExtension],
   );
 
   const handleMentionKeyDown = useCallback(
@@ -200,31 +257,39 @@ export function useMentionMenu({
 function buildExtensionMentionOptions(
   extensions: readonly RuntimeExtensionRecord[],
   lowerQuery: string,
+  pendingEnablePaths: ReadonlySet<string>,
 ): MentionOption[] {
   return extensions
-    .filter((extension) => {
+    .map((extension) => ({
+      extension,
+      insertText: extensionMentionText(extension),
+      description: describeExtension(extension),
+      enabling: pendingEnablePaths.has(extension.path),
+    }))
+    .filter((option) => {
       if (!lowerQuery) {
         return true;
       }
-      return [
-        extension.displayName,
-        extension.sourceInfo.source,
-      ].some((value) => value.toLowerCase().includes(lowerQuery));
+      return [option.extension.displayName, option.insertText, option.extension.sourceInfo.source].some((value) =>
+        value.toLowerCase().includes(lowerQuery),
+      );
     })
     .slice(0, 8)
-      .map((extension) => ({
-        kind: "extension",
-        id: `extension:${extension.path}`,
-        displayName: extensionMentionDisplayName(extension),
-        description: describeExtension(extension),
-        enabled: extension.enabled,
-        path: extension.path,
-      }));
+    .map(({ extension, insertText, description, enabling }) => ({
+      kind: "extension",
+      id: `extension:${extension.path}`,
+      displayName: extension.displayName,
+      description,
+      insertText,
+      enabled: extension.enabled,
+      enabling,
+      path: extension.path,
+    }));
 }
 
 function describeExtension(extension: RuntimeExtensionRecord): string {
-  if (isComputerUseExtension(extension)) {
-    return "Control Mac apps from pi";
+  if (extension.description) {
+    return extension.description;
   }
 
   const contributionParts = [
@@ -237,22 +302,47 @@ function describeExtension(extension: RuntimeExtensionRecord): string {
   return `${extension.sourceInfo.scope} ${extension.sourceInfo.origin}`;
 }
 
-function extensionMentionDisplayName(extension: RuntimeExtensionRecord): string {
-  return isComputerUseExtension(extension) ? "Computer Use" : extension.displayName;
+function extensionMentionText(extension: RuntimeExtensionRecord): string {
+  if (extension.sourceInfo.origin === "package") {
+    return normalizeMentionText(packageMentionName(extension));
+  }
+  return normalizeMentionText(extension.displayName);
 }
 
-function isComputerUseExtension(extension: RuntimeExtensionRecord): boolean {
-  return [
-    extension.displayName,
-    extension.path,
-    extension.sourceInfo.source,
-  ].some((value) => value.toLowerCase().includes(computerUseExtensionSlug));
+function packageMentionName(extension: RuntimeExtensionRecord): string {
+  const source = extension.sourceInfo.source.trim();
+  if (source.startsWith("npm:")) {
+    return stripNpmPackageVersion(source.slice("npm:".length).trim());
+  }
+
+  return stripGitSuffix(lastResourceSegment(extension.sourceInfo.baseDir ?? source));
+}
+
+function stripNpmPackageVersion(value: string): string {
+  if (value.startsWith("@")) {
+    const scopeSeparator = value.indexOf("/", 1);
+    if (scopeSeparator < 0) {
+      return value;
+    }
+    const versionIndex = value.indexOf("@", scopeSeparator + 1);
+    return versionIndex >= 0 ? value.slice(0, versionIndex) : value;
+  }
+  const versionIndex = value.indexOf("@");
+  return versionIndex >= 0 ? value.slice(0, versionIndex) : value;
+}
+
+function stripGitSuffix(value: string): string {
+  return value.replace(/\.git$/i, "");
+}
+
+function lastResourceSegment(value: string): string {
+  return value.split(/[/\\]+/).filter(Boolean).at(-1) ?? value;
+}
+
+function normalizeMentionText(value: string): string {
+  return value.trim().replace(/^@+/, "").replace(/[/\\]+/g, "-").replace(/\s+/g, "-");
 }
 
 function pluralizeContribution(count: number, label: string): string {
   return `${count} ${label}${count === 1 ? "" : "s"}`;
-}
-
-function mentionOptionText(option: MentionOption): string {
-  return option.kind === "extension" ? option.displayName : option.filePath;
 }

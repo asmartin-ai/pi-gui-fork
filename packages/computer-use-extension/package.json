@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Pi GUI built-in macOS Computer Use extension.",
+  "displayName": "Computer Use",
+  "description": "Control Mac apps from pi",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

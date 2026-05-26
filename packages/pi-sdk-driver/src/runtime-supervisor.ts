@@ -57,6 +57,11 @@ export interface RuntimeSupervisorOptions {
 type ResourceScope = "user" | "project";
 type ToggleableResourceKind = "extension" | "skill";
 
+interface PackageMetadata {
+  readonly displayName?: string;
+  readonly description?: string;
+}
+
 export class RuntimeSupervisor implements RuntimeResourceDriver {
   private readonly agentDir: string;
   private readonly authStorage: AuthStorage;
@@ -540,7 +545,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     resolvedExtensions: readonly ResolvedResource[],
   ): Promise<readonly RuntimeExtensionRecord[]> {
     const loadedResult = context.resourceLoader.getExtensions();
-    const packageDisplayNameCache = new Map<string, Promise<string | undefined>>();
+    const packageMetadataCache = new Map<string, Promise<PackageMetadata>>();
     const loadedByPath = new Map(
       loadedResult.extensions.map((extension) => [resolve(extension.resolvedPath || extension.path), extension] as const),
     );
@@ -560,9 +565,11 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       resolvedExtensions.map<Promise<RuntimeExtensionRecord>>(async (resource) => {
         const path = resolve(resource.path);
         const loaded = loadedByPath.get(path);
+        const packageMetadata = await inferExtensionPackageMetadata(resource.metadata, packageMetadataCache);
         return {
           path,
-          displayName: await inferExtensionDisplayName(path, resource.metadata, packageDisplayNameCache),
+          displayName: packageMetadata?.displayName ?? inferExtensionEntryName(path),
+          ...(packageMetadata?.description ? { description: packageMetadata.description } : {}),
           enabled: resource.enabled,
           sourceInfo: toRuntimeSourceInfo(path, resource.metadata),
           commands: loaded ? [...loaded.commands.keys()].sort((left, right) => left.localeCompare(right)) : [],
@@ -740,50 +747,54 @@ function inferSkillName(filePath: string): string {
   return basename(filePath).replace(/\.md$/i, "");
 }
 
-async function inferExtensionDisplayName(
-  filePath: string,
+async function inferExtensionPackageMetadata(
   metadata: PathMetadata,
-  packageDisplayNameCache: Map<string, Promise<string | undefined>>,
-): Promise<string> {
+  packageMetadataCache: Map<string, Promise<PackageMetadata>>,
+): Promise<PackageMetadata | undefined> {
   if (metadata.origin === "package" && metadata.baseDir) {
-    const packageDisplayName = await inferPackageDisplayName(metadata.baseDir, packageDisplayNameCache);
-    if (packageDisplayName) {
-      return packageDisplayName;
-    }
+    return inferPackageMetadata(metadata.baseDir, packageMetadataCache);
   }
-
-  return inferExtensionEntryName(filePath);
+  return undefined;
 }
 
 function inferExtensionEntryName(filePath: string): string {
   return basename(filePath).replace(/\.(c|m)?(t|j)sx?$/i, "");
 }
 
-async function inferPackageDisplayName(
+async function inferPackageMetadata(
   packageRoot: string,
-  packageDisplayNameCache: Map<string, Promise<string | undefined>>,
-): Promise<string | undefined> {
+  packageMetadataCache: Map<string, Promise<PackageMetadata>>,
+): Promise<PackageMetadata> {
   const normalizedRoot = resolve(packageRoot);
-  const cached = packageDisplayNameCache.get(normalizedRoot);
+  const cached = packageMetadataCache.get(normalizedRoot);
   if (cached) {
     return cached;
   }
 
-  const pending = readPackageDisplayName(normalizedRoot);
-  packageDisplayNameCache.set(normalizedRoot, pending);
+  const pending = readPackageMetadata(normalizedRoot);
+  packageMetadataCache.set(normalizedRoot, pending);
   return pending;
 }
 
-async function readPackageDisplayName(packageRoot: string): Promise<string | undefined> {
+async function readPackageMetadata(packageRoot: string): Promise<PackageMetadata> {
   const folderName = basename(packageRoot).trim();
   const packageJson = await readJsonRecord(join(packageRoot, "package.json")) as {
     readonly displayName?: unknown;
+    readonly description?: unknown;
   };
-  if (typeof packageJson.displayName === "string" && packageJson.displayName.trim()) {
-    return packageJson.displayName.trim();
-  }
+  const displayName =
+    typeof packageJson.displayName === "string" && packageJson.displayName.trim()
+      ? packageJson.displayName.trim()
+      : folderName;
+  const description =
+    typeof packageJson.description === "string" && packageJson.description.trim()
+      ? packageJson.description.trim()
+      : undefined;
 
-  return folderName || undefined;
+  return {
+    ...(displayName ? { displayName } : {}),
+    ...(description ? { description } : {}),
+  };
 }
 
 const DESKTOP_API_KEY_PROVIDER_IDS = new Set([
