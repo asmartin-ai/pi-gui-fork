@@ -804,7 +804,13 @@ func postUnicode(_ text: String) {
 }
 
 func postKey(_ rawKey: String) throws {
-    let pieces = rawKey.split(separator: "+").map { String($0).lowercased() }
+    let trimmedKey = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let stroke = keyStrokeByName[trimmedKey.lowercased()] {
+        postKeyCode(stroke.keyCode, flags: stroke.flags)
+        return
+    }
+
+    let pieces = trimmedKey.split(separator: "+").map { String($0).lowercased() }
     guard let keyName = pieces.last else {
         throw HelperError.message("key is required.")
     }
@@ -831,16 +837,24 @@ func postKey(_ rawKey: String) throws {
         return
     }
 
-    guard let keyCode = keyCodeByCharacter[keyName] ?? keyCodeByName[keyName] else {
+    if let stroke = keyStrokeByName[keyName] {
+        postKeyCode(stroke.keyCode, flags: flags.union(stroke.flags))
+        return
+    }
+
+    guard let keyCode = keyCodeByCharacter[keyName] else {
         throw HelperError.message("Unsupported key: \(rawKey)")
     }
-    let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
-    down?.flags = flags
-    down?.post(tap: .cghidEventTap)
-    Thread.sleep(forTimeInterval: 0.04)
-    let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-    up?.flags = flags
-    up?.post(tap: .cghidEventTap)
+    postKeyCode(keyCode, flags: flags)
+}
+
+struct KeyStroke {
+    let keyCode: CGKeyCode
+    let flags: CGEventFlags
+}
+
+func keyStroke(_ keyCode: CGKeyCode, flags: CGEventFlags = []) -> KeyStroke {
+    KeyStroke(keyCode: keyCode, flags: flags)
 }
 
 let keyCodeByCharacter: [String: CGKeyCode] = [
@@ -852,12 +866,60 @@ let keyCodeByCharacter: [String: CGKeyCode] = [
     "\\": 0x2A, ",": 0x2B, "/": 0x2C, "n": 0x2D, "m": 0x2E, ".": 0x2F, " ": 0x31, "`": 0x32,
 ]
 
-let keyCodeByName: [String: CGKeyCode] = [
-    "return": 0x24, "enter": 0x24, "tab": 0x30, "space": 0x31, "delete": 0x33, "backspace": 0x33,
-    "escape": 0x35, "esc": 0x35, "left": 0x7B, "right": 0x7C, "down": 0x7D, "up": 0x7E,
-    "home": 0x73, "end": 0x77, "page_up": 0x74, "pageup": 0x74, "page_down": 0x79, "pagedown": 0x79,
-    "kp_0": 0x52, "kp_1": 0x53, "kp_2": 0x54, "kp_3": 0x55, "kp_4": 0x56, "kp_5": 0x57,
-    "kp_6": 0x58, "kp_7": 0x59, "kp_8": 0x5B, "kp_9": 0x5C,
+let keyStrokeByName: [String: KeyStroke] = [
+    "+": keyStroke(0x18, flags: .maskShift),
+    "plus": keyStroke(0x18, flags: .maskShift),
+    "add": keyStroke(0x45),
+    "kp_add": keyStroke(0x45),
+    "numpad_add": keyStroke(0x45),
+    "equal": keyStroke(0x18),
+    "equals": keyStroke(0x18),
+    "subtract": keyStroke(0x4E),
+    "kp_subtract": keyStroke(0x4E),
+    "numpad_subtract": keyStroke(0x4E),
+    "multiply": keyStroke(0x43),
+    "kp_multiply": keyStroke(0x43),
+    "numpad_multiply": keyStroke(0x43),
+    "divide": keyStroke(0x4B),
+    "kp_divide": keyStroke(0x4B),
+    "numpad_divide": keyStroke(0x4B),
+    "decimal": keyStroke(0x41),
+    "kp_decimal": keyStroke(0x41),
+    "numpad_decimal": keyStroke(0x41),
+    "clear": keyStroke(0x47),
+    "kp_clear": keyStroke(0x47),
+    "kp_enter": keyStroke(0x4C),
+    "numpad_enter": keyStroke(0x4C),
+    "kp_equal": keyStroke(0x51),
+    "numpad_equal": keyStroke(0x51),
+    "return": keyStroke(0x24),
+    "enter": keyStroke(0x24),
+    "tab": keyStroke(0x30),
+    "space": keyStroke(0x31),
+    "delete": keyStroke(0x33),
+    "backspace": keyStroke(0x33),
+    "escape": keyStroke(0x35),
+    "esc": keyStroke(0x35),
+    "left": keyStroke(0x7B),
+    "right": keyStroke(0x7C),
+    "down": keyStroke(0x7D),
+    "up": keyStroke(0x7E),
+    "home": keyStroke(0x73),
+    "end": keyStroke(0x77),
+    "page_up": keyStroke(0x74),
+    "pageup": keyStroke(0x74),
+    "page_down": keyStroke(0x79),
+    "pagedown": keyStroke(0x79),
+    "kp_0": keyStroke(0x52),
+    "kp_1": keyStroke(0x53),
+    "kp_2": keyStroke(0x54),
+    "kp_3": keyStroke(0x55),
+    "kp_4": keyStroke(0x56),
+    "kp_5": keyStroke(0x57),
+    "kp_6": keyStroke(0x58),
+    "kp_7": keyStroke(0x59),
+    "kp_8": keyStroke(0x5B),
+    "kp_9": keyStroke(0x5C),
 ]
 
 func postKeyCode(_ keyCode: CGKeyCode, flags: CGEventFlags = []) {

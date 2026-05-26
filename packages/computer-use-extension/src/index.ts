@@ -249,7 +249,7 @@ const pressKeyTool: ComputerUseTool = {
   name: "press_key",
   label: "Press Key",
   description:
-    "Press a key or key-combination on the keyboard using xdotool-style syntax, such as Return, Tab, super+c, Up, or KP_0.",
+    "Press a key or key-combination on the keyboard using xdotool-style syntax, such as Return, Tab, super+c, Up, plus, equals, or KP_0.",
   promptSnippet: "Press a key or key combination in a Mac app",
   parameters: objectSchema({
     ...AppParams,
