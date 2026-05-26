@@ -774,12 +774,26 @@ export default function App() {
     onRunTreeCommand: openTreeModal,
   });
 
+  const enableSelectedMentionExtension = useCallback(
+    (filePath: string) => {
+      if (!api || !selectedWorkspace) {
+        return Promise.resolve();
+      }
+      return updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(selectedWorkspace.id, filePath, true)).then(
+        () => undefined,
+      );
+    },
+    [api, selectedWorkspace],
+  );
+
   const mentionMenu = useMentionMenu({
     composerDraft,
     setComposerDraft,
     composerRef,
     workspaceId: selectedWorkspace?.id,
+    runtime: selectedRuntime,
     api,
+    onEnableExtension: enableSelectedMentionExtension,
   });
 
   const newThreadSlashMenu = useSlashMenu({
@@ -819,12 +833,26 @@ export default function App() {
     },
   });
 
+  const enableNewThreadMentionExtension = useCallback(
+    (filePath: string) => {
+      if (!api || !newThreadWorkspace) {
+        return Promise.resolve();
+      }
+      return updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(newThreadWorkspace.id, filePath, true)).then(
+        () => undefined,
+      );
+    },
+    [api, newThreadWorkspace],
+  );
+
   const newThreadMentionMenu = useMentionMenu({
     composerDraft: newThreadPrompt,
     setComposerDraft: setNewThreadPrompt,
     composerRef: newThreadComposerRef,
     workspaceId: newThreadWorkspace?.id,
+    runtime: newThreadRuntime,
     api,
+    onEnableExtension: enableNewThreadMentionExtension,
   });
 
   const wsMenu = useWorkspaceMenu({
@@ -2110,6 +2138,7 @@ export default function App() {
                 newThreadSlashMenu.applySlashOptionSelection(option);
               }}
               onSelectMention={newThreadMentionMenu.insertMention}
+              onEnableMentionExtension={newThreadMentionMenu.enableMentionExtension}
               onAddAttachments={handleNewThreadAddAttachments}
               onRemoveAttachment={handleNewThreadRemoveAttachment}
               onSubmit={handleStartThread}
@@ -2208,6 +2237,7 @@ export default function App() {
               mentionOptions={mentionMenu.mentionOptions}
               selectedMentionIndex={mentionMenu.selectedIndex}
               onSelectMention={mentionMenu.insertMention}
+              onEnableMentionExtension={mentionMenu.enableMentionExtension}
               extensionDock={selectedExtensionDock}
               extensionDockExpanded={isSelectedExtensionDockExpanded}
               onToggleExtensionDock={handleToggleExtensionDock}

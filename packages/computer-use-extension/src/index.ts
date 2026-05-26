@@ -94,8 +94,8 @@ const listAppsTool: ComputerUseTool = {
   promptSnippet: "List local Mac apps available for Computer Use",
   parameters: objectSchema({}),
   executionMode: "sequential",
-  async execute(_toolCallId, _params, signal, _onUpdate, ctx) {
-    return withComputerUseStatus(ctx, "Listing apps", signal, () => callHelper("list_apps", {}, signal));
+  async execute(_toolCallId, _params, signal, _onUpdate, _ctx) {
+    return runComputerUseAction(signal, () => callHelper("list_apps", {}, signal));
   },
 };
 
@@ -113,9 +113,7 @@ const getAppStateTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Inspecting ${params.app}`, signal, () =>
-      callHelper("get_app_state", params, signal),
-    );
+    return runComputerUseAction(signal, () => callHelper("get_app_state", params, signal));
   },
 };
 
@@ -139,7 +137,7 @@ const clickTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Clicking in ${params.app}`, signal, () => callHelper("click", params, signal));
+    return runComputerUseAction(signal, () => callHelper("click", params, signal));
   },
 };
 
@@ -156,9 +154,7 @@ const performSecondaryActionTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Performing ${params.action} in ${params.app}`, signal, () =>
-      callHelper("perform_secondary_action", params, signal),
-    );
+    return runComputerUseAction(signal, () => callHelper("perform_secondary_action", params, signal));
   },
 };
 
@@ -175,9 +171,7 @@ const setValueTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Setting a value in ${params.app}`, signal, () =>
-      callHelper("set_value", params, signal),
-    );
+    return runComputerUseAction(signal, () => callHelper("set_value", params, signal));
   },
 };
 
@@ -202,9 +196,7 @@ const selectTextTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Selecting text in ${params.app}`, signal, () =>
-      callHelper("select_text", params, signal),
-    );
+    return runComputerUseAction(signal, () => callHelper("select_text", params, signal));
   },
 };
 
@@ -222,7 +214,7 @@ const scrollTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Scrolling ${params.app}`, signal, () => callHelper("scroll", params, signal));
+    return runComputerUseAction(signal, () => callHelper("scroll", params, signal));
   },
 };
 
@@ -241,7 +233,7 @@ const dragTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Dragging in ${params.app}`, signal, () => callHelper("drag", params, signal));
+    return runComputerUseAction(signal, () => callHelper("drag", params, signal));
   },
 };
 
@@ -258,9 +250,7 @@ const pressKeyTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Pressing ${params.key} in ${params.app}`, signal, () =>
-      callHelper("press_key", params, signal),
-    );
+    return runComputerUseAction(signal, () => callHelper("press_key", params, signal));
   },
 };
 
@@ -276,7 +266,7 @@ const typeTextTool: ComputerUseTool = {
   executionMode: "sequential",
   async execute(_toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return withComputerUseStatus(ctx, `Typing in ${params.app}`, signal, () => callHelper("type_text", params, signal));
+    return runComputerUseAction(signal, () => callHelper("type_text", params, signal));
   },
 };
 
@@ -292,12 +282,7 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
   pi.registerTool(pressKeyTool);
   pi.registerTool(typeTextTool);
 
-  pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.setStatus("computer-use", "Computer Use ready");
-  });
-
   pi.on("turn_end", async (_event, ctx) => {
-    ctx.ui.setStatus("computer-use", "Computer Use ready");
     ctx.ui.setWidget("computer-use", undefined);
   });
 }
@@ -324,25 +309,14 @@ async function ensureAppAllowed(ctx: ExtensionContext, app: string): Promise<voi
   allowedApps.add(app);
 }
 
-async function withComputerUseStatus(
-  ctx: ExtensionContext,
-  status: string,
+async function runComputerUseAction(
   signal: AbortSignal | undefined,
   action: () => Promise<AgentToolResult<unknown>>,
 ): Promise<AgentToolResult<unknown>> {
-  ctx.ui.setStatus("computer-use", status);
-  ctx.ui.setWidget("computer-use", ["Pi is using your computer", "Stop the run to cancel."], {
-    placement: "aboveEditor",
-  });
-  try {
-    if (signal?.aborted) {
-      throw new Error("Computer Use action was cancelled.");
-    }
-    return await action();
-  } finally {
-    ctx.ui.setStatus("computer-use", "Computer Use ready");
-    ctx.ui.setWidget("computer-use", undefined);
+  if (signal?.aborted) {
+    throw new Error("Computer Use action was cancelled.");
   }
+  return action();
 }
 
 async function callHelper(

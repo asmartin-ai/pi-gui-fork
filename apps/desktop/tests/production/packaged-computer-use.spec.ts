@@ -46,6 +46,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
 
   const extensionSource = extractFile(appAsar, "out/computer-use-extension/dist/index.js").toString("utf8");
   expect(extensionSource).not.toContain("@earendil-works/");
+  expect(extensionSource).not.toContain("Computer Use ready");
+  expect(extensionSource).not.toContain("Pi is using your computer");
   expect(extensionSource).toContain("plus, equals");
   for (const toolName of expectedComputerUseTools) {
     expect(extensionSource).toContain(`name: "${toolName}"`);

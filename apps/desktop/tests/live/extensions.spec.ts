@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   createSessionViaIpc,
+  commitAllInGitRepo,
   getDesktopState,
+  initGitRepo,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -158,6 +160,82 @@ test("labels local package extensions by package root instead of index entrypoin
     await expect(window.locator(".skill-detail h2")).toHaveText("local-package-extension");
     await expect(window.locator(".skill-detail")).toContainText("package-named-command");
     await expect(window.locator(".skill-detail")).toContainText(packagePath);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("shows extensions above files in @ mentions and enables disabled extensions from the composer", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("extension-mention-workspace");
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
+  const extensionPath = await writeProjectExtension(workspacePath, "demo-extension.ts", extensionSource);
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createSessionViaIpc(window, workspacePath, "Mention extension surface");
+    const composer = window.getByTestId("composer");
+    await expect(composer).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const workspace = state.workspaces.find((entry) => entry.path === workspacePath);
+        return Boolean(workspace && state.runtimeByWorkspace[workspace.id]?.extensions.some((entry) => entry.path === extensionPath));
+      })
+      .toBe(true);
+
+    await window.evaluate(async ({ targetWorkspacePath, targetExtensionPath }) => {
+      const app = (window as any).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      const state = await app.getState();
+      const workspace = state.workspaces.find((entry) => entry.path === targetWorkspacePath);
+      if (!workspace) {
+        throw new Error(`Workspace not found: ${targetWorkspacePath}`);
+      }
+      await app.setExtensionEnabled(workspace.id, targetExtensionPath, false);
+    }, { targetWorkspacePath: workspacePath, targetExtensionPath: extensionPath });
+
+    await composer.fill("@");
+    const mentionMenu = window.getByTestId("mention-menu");
+    await expect(mentionMenu).toBeVisible();
+    await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Extensions", "Files"]);
+    await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("Computer Use");
+    await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("demo-extension");
+    await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("Disabled");
+    await expect(mentionMenu.locator(".mention-menu__section").first().getByRole("button", { name: /Enable demo-extension/ })).toBeVisible();
+
+    await composer.fill("@demo");
+    await expect(mentionMenu.locator(".mention-menu__section-title").first()).toHaveText("Extensions");
+    await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("demo-extension");
+    await mentionMenu.locator(".mention-menu__section").first().getByRole("button", { name: /Enable demo-extension/ }).click();
+    await expect(composer).toHaveValue("@demo-extension ");
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const workspace = state.workspaces.find((entry) => entry.path === workspacePath);
+        const extension = workspace
+          ? state.runtimeByWorkspace[workspace.id]?.extensions.find((entry) => entry.path === extensionPath)
+          : undefined;
+        return extension?.enabled ?? false;
+      })
+      .toBe(true);
+
+    await composer.fill("@READ");
+    await expect(mentionMenu).toBeVisible();
+    await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Files"]);
+    await expect(mentionMenu.locator(".mention-menu__filename")).toContainText("README.md");
+    await composer.press("Tab");
+    await expect(composer).toHaveValue("@README.md ");
   } finally {
     await harness.close();
   }

@@ -23,6 +23,9 @@ test("shows workspace file mentions from the composer and inserts the selected f
 
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
+    envOverrides: {
+      PI_GUI_DISABLE_BUILTIN_COMPUTER_USE: "1",
+    },
     testMode: "background",
   });
 
@@ -36,6 +39,7 @@ test("shows workspace file mentions from the composer and inserts the selected f
 
     const mentionMenu = window.getByTestId("mention-menu");
     await expect(mentionMenu).toBeVisible();
+    await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Files"]);
     await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(2);
 
     await composer.pressSequentially("READ");

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -52,7 +53,58 @@ function resolveComputerUsePackageDir(options: ConfigureComputerUseRuntimeOption
   if (options.isPackaged) {
     return path.join(options.resourcesPath, "app.asar", "out", "computer-use-extension");
   }
-  return path.dirname(require.resolve(`${computerUsePackageName}/package.json`));
+
+  const linkedPackageDir = tryResolveLinkedComputerUsePackageDir();
+  if (linkedPackageDir) {
+    return linkedPackageDir;
+  }
+
+  const fallbackDirs = [
+    path.join(__dirname, "..", "computer-use-extension"),
+    path.resolve(__dirname, "..", "..", "..", "..", "packages", "computer-use-extension"),
+  ];
+  const fallbackDir = fallbackDirs.find(hasComputerUsePackageManifest);
+  if (fallbackDir) {
+    return fallbackDir;
+  }
+
+  throw new Error(`Unable to resolve ${computerUsePackageName}. Searched ${fallbackDirs.join(", ")}.`);
+}
+
+function tryResolveLinkedComputerUsePackageDir(): string | undefined {
+  try {
+    return findComputerUsePackageDir(require.resolve(computerUsePackageName));
+  } catch (error) {
+    if (isModuleResolutionError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function findComputerUsePackageDir(resolvedEntry: string): string {
+  let currentDir = path.dirname(resolvedEntry);
+  while (currentDir !== path.dirname(currentDir)) {
+    if (hasComputerUsePackageManifest(currentDir)) {
+      return currentDir;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+  throw new Error(`Unable to locate package root for ${computerUsePackageName} from ${resolvedEntry}.`);
+}
+
+function hasComputerUsePackageManifest(directory: string): boolean {
+  return existsSync(path.join(directory, "package.json"));
+}
+
+function isModuleResolutionError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ((error as { code?: string }).code === "MODULE_NOT_FOUND" ||
+      (error as { code?: string }).code === "ERR_PACKAGE_PATH_NOT_EXPORTED")
+  );
 }
 
 async function ensureComputerUsePackageEnabled(agentDir: string, packageDir: string): Promise<void> {
