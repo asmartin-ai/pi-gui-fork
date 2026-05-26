@@ -390,7 +390,10 @@ func typeText(_ request: Request) throws -> Response {
 
 func stateResponse(for app: ResolvedApp) throws -> Response {
     if !AXIsProcessTrusted() {
-        throw HelperError.message("Accessibility permission is not granted for pi-gui or its Computer Use helper.")
+        requestAccessibilityPermission()
+        throw HelperError.message(
+            "Accessibility permission is not granted for pi-gui. In macOS System Settings > Privacy & Security > Accessibility, enable pi-gui. If pi-gui is already enabled after replacing or rebuilding the app, toggle it off and back on, then relaunch pi-gui."
+        )
     }
     activate(app)
     Thread.sleep(forTimeInterval: 0.2)
@@ -428,6 +431,11 @@ func stateResponse(for app: ResolvedApp) throws -> Response {
         ],
         error: nil
     )
+}
+
+func requestAccessibilityPermission() {
+    let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+    AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
 }
 
 func indexedElement(_ request: Request, app: ResolvedApp) throws -> AXUIElement? {
