@@ -257,10 +257,16 @@ const pressKeyTool: ComputerUseTool = {
 const typeTextTool: ComputerUseTool = {
   name: "type_text",
   label: "Type Text",
-  description: "Type literal text using keyboard input.",
+  description:
+    "Type literal text. Provide element_index for text fields when available so Pi can type through Accessibility without activating the app.",
   promptSnippet: "Type literal text into a Mac app",
+  promptGuidelines: [
+    "Prefer element_index for visible text fields or text areas from the latest get_app_state result; this keeps typing background-friendly.",
+    "Omit element_index only when the app must receive literal keyboard input or the accessibility tree cannot target the text destination.",
+  ],
   parameters: objectSchema({
     ...AppParams,
+    element_index: optional(stringSchema({ description: "Editable text element index to type into" })),
     text: stringSchema({ description: "Literal text to type" }),
   }),
   executionMode: "sequential",

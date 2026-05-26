@@ -49,6 +49,7 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(extensionSource).not.toContain("Computer Use ready");
   expect(extensionSource).not.toContain("Pi is using your computer");
   expect(extensionSource).toContain("plus, equals");
+  expect(extensionSource).toContain("element_index for visible text fields");
   for (const toolName of expectedComputerUseTools) {
     expect(extensionSource).toContain(`name: "${toolName}"`);
   }
@@ -59,6 +60,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   }
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_SHOW_CURSOR");
   expect(helperSource).toContain("AXScrollDown");
+  expect(helperSource).toContain("AXTextArea");
+  expect(helperSource).toContain("AXSelectedTextRange");
   expect(helperSource).toContain("all clear");
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");

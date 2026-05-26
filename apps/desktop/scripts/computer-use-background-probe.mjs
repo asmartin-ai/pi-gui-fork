@@ -1,5 +1,6 @@
 import { spawn, execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -13,6 +14,8 @@ const helperPath = process.argv[2] ?? (await firstExistingPath([defaultHelperPat
 const configuredHelperTimeoutMs = Number.parseInt(process.env.PI_GUI_COMPUTER_USE_PROBE_TIMEOUT_MS ?? "", 10);
 const helperTimeoutMs =
   Number.isFinite(configuredHelperTimeoutMs) && configuredHelperTimeoutMs > 0 ? configuredHelperTimeoutMs : 15_000;
+const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === "1";
+const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
 
 await access(helperPath);
 await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
@@ -26,7 +29,7 @@ if (frontmostBefore === "Calculator") {
 
 await execFileAsync("open", ["-g", "-a", "Calculator"]);
 await waitForApp("Calculator");
-await assertFrontmostUnchanged("launch Calculator in background", frontmostBefore);
+await assertTargetDidNotBecomeFrontmost("launch Calculator in background", frontmostBefore, "Calculator");
 
 await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
 
@@ -40,8 +43,10 @@ if (!calculatorDisplays(finalText, "15")) {
   throw new Error("Calculator did not expose result 15 after 7 + 8.");
 }
 
+await runTextEditTypingProbe();
+
 console.log(
-  `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator frontmost=${frontmostBefore} result=15 helper=${helperPath}`,
+  `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
 );
 
 async function firstExistingPath(paths) {
@@ -68,7 +73,7 @@ async function runWithFocusGuard(request, action) {
     throw new Error(`Could not put a non-target app in front before ${action}.`);
   }
   const response = await runHelper(request);
-  await assertFrontmostUnchanged(action, before);
+  await assertTargetDidNotBecomeFrontmost(action, before, request.app);
   return response;
 }
 
@@ -83,6 +88,71 @@ async function waitForApp(appName) {
   }
   await throwIfLocked(appName);
   throw new Error(`${appName} did not appear as running in Computer Use list_apps output.`);
+}
+
+async function runTextEditTypingProbe() {
+  const textEditWasRunning = await isTextEditRunning();
+  if (textEditWasRunning && !allowTextEditTakeover) {
+    throw new Error(
+      "TextEdit is already running; close it before this probe, or set PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER=1 to allow the probe to quit it without saving.",
+    );
+  }
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), "pi-gui-computer-use-textedit-"));
+  const documentPath = path.join(tempDir, "background-typing.txt");
+  await writeFile(documentPath, "Alpha", "utf8");
+
+  try {
+    if (textEditWasRunning) {
+      await quitTextEditWithoutSaving();
+      await sleep(500);
+    }
+    await activateFinder();
+    const before = await frontmostApp();
+    if (before === "TextEdit") {
+      throw new Error("Could not put a non-target app in front before the TextEdit probe.");
+    }
+
+    await execFileAsync("open", ["-g", "-a", "TextEdit", documentPath]);
+    await waitForApp("TextEdit");
+    await assertTargetDidNotBecomeFrontmost("launch TextEdit in background", before, "TextEdit");
+
+    const initialState = await runWithFocusGuard({ command: "get_app_state", app: "TextEdit" }, "TextEdit get_app_state");
+    const initialText = stateText(initialState);
+    const textElementIndex = findEditableTextElementIndex(initialText, "Alpha");
+    await runWithFocusGuard(
+      {
+        command: "select_text",
+        app: "TextEdit",
+        element_index: textElementIndex,
+        text: "Alpha",
+        selection: "cursor_after",
+      },
+      "TextEdit select_text",
+    );
+    const finalState = await runWithFocusGuard(
+      { command: "type_text", app: "TextEdit", element_index: textElementIndex, text: " Beta" },
+      "TextEdit type_text",
+    );
+    if (!stateText(finalState).includes("Alpha Beta")) {
+      throw new Error("TextEdit did not expose typed background text Alpha Beta.");
+    }
+  } finally {
+    await quitTextEditWithoutSaving();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function isTextEditRunning() {
+  const { stdout } = await execFileAsync("osascript", ["-e", 'application "TextEdit" is running']);
+  return stdout.trim() === "true";
+}
+
+async function quitTextEditWithoutSaving() {
+  await execFileAsync("osascript", [
+    "-e",
+    'if application "TextEdit" is running then tell application "TextEdit" to quit saving no',
+  ]);
 }
 
 async function throwIfLocked(appName) {
@@ -108,9 +178,12 @@ async function frontmostApp() {
   return appName;
 }
 
-async function assertFrontmostUnchanged(action, expected) {
+async function assertTargetDidNotBecomeFrontmost(action, expected, targetApp) {
   const actual = await frontmostApp();
-  if (actual !== expected) {
+  if (actual === targetApp) {
+    throw new Error(`${action} moved target app ${targetApp} to the front.`);
+  }
+  if (strictFocusGuard && actual !== expected) {
     throw new Error(`${action} changed frontmost app from ${expected} to ${actual}.`);
   }
 }
@@ -122,6 +195,20 @@ async function listApps() {
     throw new Error("list_apps returned no text content.");
   }
   return text.split("\n").filter(Boolean);
+}
+
+function stateText(response) {
+  return response.content?.filter((item) => item.type === "text").map((item) => item.text ?? "").join("\n") ?? "";
+}
+
+function findEditableTextElementIndex(text, expectedValue) {
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(text field|text area|combo box)\b.*Value:\s*(.*)$/i);
+    if (match && match[3].includes(expectedValue)) {
+      return match[1];
+    }
+  }
+  throw new Error(`Could not find editable text element containing ${expectedValue}.`);
 }
 
 function runHelper(request) {

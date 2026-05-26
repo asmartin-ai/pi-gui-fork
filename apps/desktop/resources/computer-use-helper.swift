@@ -466,6 +466,23 @@ func pressKey(_ request: Request) throws -> Response {
 func typeText(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
     let text = try require(request.text, "text")
+    if let element = try indexedElement(request, app: app) {
+        if typeTextIntoElement(element, text: text) {
+            return try stateResponse(for: app)
+        }
+        if let center = elementCenter(element) {
+            withTemporaryActivation(app, cursorPoint: center) {
+                moveMouse(to: center)
+                postClick(at: center, button: "left", count: 1)
+                for character in text {
+                    postUnicode(String(character))
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+            return try stateResponse(for: app)
+        }
+        throw HelperError.message("Element \(request.element_index ?? "") does not support background text insertion and has no typing position.")
+    }
     if try typeAccessibleText(text, app: app) {
         return try stateResponse(for: app)
     }
@@ -659,6 +676,9 @@ func withTemporaryActivation<T>(
 }
 
 func restoreUserFocus(_ previousApp: NSRunningApplication?, mouseLocation: CGPoint?, targetPid: pid_t) {
+    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid else {
+        return
+    }
     if let previousApp,
        previousApp.processIdentifier != targetPid,
        let stillRunning = NSRunningApplication(processIdentifier: previousApp.processIdentifier) {
@@ -1028,6 +1048,64 @@ func typeAccessibleText(_ text: String, app: ResolvedApp) throws -> Bool {
         Thread.sleep(forTimeInterval: 0.06)
     }
     return true
+}
+
+func typeTextIntoElement(_ element: AXUIElement, text: String) -> Bool {
+    guard isEditableTextElement(element),
+          let currentValue = editableTextValue(element) else {
+        return false
+    }
+
+    let nsValue = currentValue as NSString
+    let selectedRange = selectedTextRange(element) ?? CFRange(location: nsValue.length, length: 0)
+    let start = max(0, min(selectedRange.location, nsValue.length))
+    let length = max(0, min(selectedRange.length, nsValue.length - start))
+    let replacementRange = NSRange(location: start, length: length)
+    let nextValue = nsValue.replacingCharacters(in: replacementRange, with: text)
+
+    showAgentCursor(for: element, pressed: false)
+    let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, nextValue as CFString)
+    if error != .success {
+        return false
+    }
+
+    let cursorLocation = start + (text as NSString).length
+    var cursorRange = CFRange(location: cursorLocation, length: 0)
+    if let axRange = AXValueCreate(.cfRange, &cursorRange) {
+        AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+    }
+    Thread.sleep(forTimeInterval: 0.04)
+    return true
+}
+
+func isEditableTextElement(_ element: AXUIElement) -> Bool {
+    guard let role = copyStringAttribute(element, kAXRoleAttribute) else {
+        return false
+    }
+    return ["AXTextField", "AXTextArea", "AXComboBox"].contains(role)
+}
+
+func editableTextValue(_ element: AXUIElement) -> String? {
+    if let value = copyStringAttribute(element, kAXValueAttribute) {
+        return value
+    }
+    return nil
+}
+
+func selectedTextRange(_ element: AXUIElement) -> CFRange? {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
+    guard error == .success,
+          let value,
+          CFGetTypeID(value) == AXValueGetTypeID() else {
+        return nil
+    }
+    let axValue = value as! AXValue
+    var range = CFRange(location: 0, length: 0)
+    guard AXValueGetValue(axValue, .cfRange, &range) else {
+        return nil
+    }
+    return range
 }
 
 func supportsKeypadButtonEmulation(_ app: ResolvedApp) -> Bool {
