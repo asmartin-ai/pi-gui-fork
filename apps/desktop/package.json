@@ -7,7 +7,7 @@
   "description": "Codex-style desktop shell for pi",
   "main": "out/main/main.js",
   "scripts": {
-    "build:deps": "pnpm --dir ../.. --filter @pi-gui/session-driver --filter @pi-gui/pi-sdk-driver --filter @pi-gui/catalogs run build",
+    "build:deps": "pnpm --dir ../.. --filter @pi-gui/session-driver --filter @pi-gui/pi-sdk-driver --filter @pi-gui/catalogs --filter @pi-gui/computer-use-extension run build",
     "build:notification-helper": "node scripts/build-notification-status-helper.mjs",
     "dev": "node scripts/dev.mjs",
     "build": "pnpm run build:deps && pnpm run build:notification-helper && electron-vite build",
@@ -70,6 +70,7 @@
   "dependencies": {
     "@aws-sdk/token-providers": "^3.1036.0",
     "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@pi-gui/computer-use-extension": "workspace:*",
     "@pi-gui/pi-sdk-driver": "workspace:*",
     "@pi-gui/session-driver": "workspace:*",
     "@smithy/is-array-buffer": "^2.2.0",

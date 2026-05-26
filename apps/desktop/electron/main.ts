@@ -15,6 +15,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
+import { configureComputerUseRuntime } from "./computer-use-runtime";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -415,6 +416,11 @@ app.whenReady().then(async () => {
         reject: (error: Error) => void;
       }
     | undefined;
+  await configureComputerUseRuntime({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    execPath: process.execPath,
+  });
   store = new DesktopAppStore({
     userDataDir: configuredUserDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),

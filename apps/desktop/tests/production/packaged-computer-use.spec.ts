@@ -1,102 +1,89 @@
 import { expect, test } from "@playwright/test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { extractFile, listPackage } from "@electron/asar";
+import { spawn } from "node:child_process";
+import { access } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  createNamedThread,
-  launchPackagedDesktop,
-  makeUserDataDir,
-  makeWorkspace,
-  seedAgentDir,
-  waitForWorkspaceByPath,
-} from "../helpers/electron-app";
+import { resolvePackagedAppBundle } from "../helpers/electron-app";
 
-const computerUseLikeExtensionSource = String.raw`
-import { Type } from "@earendil-works/pi-ai";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+const expectedComputerUseTools = [
+  "click",
+  "drag",
+  "get_app_state",
+  "list_apps",
+  "perform_secondary_action",
+  "press_key",
+  "scroll",
+  "select_text",
+  "set_value",
+  "type_text",
+];
 
-const dragTool = defineTool({
-  name: "drag",
-  label: "Drag",
-  description: "Drag to a screen position",
-  parameters: Type.Object({
-    x: Type.Number(),
-    y: Type.Number(),
-  }),
-  async execute(_toolCallId, params) {
-    return {
-      content: [{ type: "text", text: "drag " + params.x + "," + params.y }],
-    };
-  },
-});
-
-export default function computerUseLikeExtension(pi) {
-  pi.registerTool(dragTool);
-
-  pi.on("session_start", async (_event, ctx) => {
-    await ctx.ui.select("Computer use permissions", ["Open System Settings"]);
-  });
-
-  pi.registerCommand("computer-use-smoke", {
-    description: "Confirm the computer-use extension loaded",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify("Packaged computer use command ready", "info");
-    },
-  });
-}
-`;
-
-async function installComputerUseLikePackage(agentDir: string, packagePath: string): Promise<void> {
-  const extensionDir = join(packagePath, "extensions");
-  await mkdir(extensionDir, { recursive: true });
-  await writeFile(
-    join(packagePath, "package.json"),
-    `${JSON.stringify(
-      {
-        name: "pi-computer-use",
-        type: "module",
-        pi: {
-          extensions: ["./extensions/computer-use.ts"],
-        },
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-  await writeFile(join(extensionDir, "computer-use.ts"), `${computerUseLikeExtensionSource}\n`, "utf8");
-
-  const settingsPath = join(agentDir, "settings.json");
-  const settings = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
-  settings.packages = [packagePath];
-  await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+interface HelperResponse {
+  readonly ok: boolean;
+  readonly content?: ReadonlyArray<{ readonly type: string; readonly text?: string }>;
 }
 
-test("packaged app loads a pi-computer-use-like package without blocking startup", async () => {
-  test.setTimeout(120_000);
-  const userDataDir = await makeUserDataDir("pi-gui-packaged-computer-use-user-data-");
-  const workspacePath = await makeWorkspace("packaged-computer-use-workspace");
-  const packagePath = await makeWorkspace("packaged-pi-computer-use-package");
-  const agentDir = join(userDataDir, "agent");
-  await seedAgentDir(agentDir);
-  await installComputerUseLikePackage(agentDir, packagePath);
+test("packaged app carries the built-in Computer Use helper and extension", async () => {
+  test.setTimeout(60_000);
+  const appBundle = await resolvePackagedAppBundle();
+  const appAsar = join(appBundle, "Contents", "Resources", "app.asar");
+  const helperPath = join(appBundle, "Contents", "MacOS", "pi-gui-computer-use-helper");
 
-  const harness = await launchPackagedDesktop(userDataDir, {
-    agentDir,
-    initialWorkspaces: [workspacePath],
-    testMode: "background",
-  });
+  await access(helperPath);
 
-  try {
-    const window = await harness.firstWindow();
-    await waitForWorkspaceByPath(window, workspacePath);
-    await createNamedThread(window, "Packaged computer use extension session");
-    await expect(window.getByTestId("extension-dialog")).toHaveCount(0);
+  const files = listPackage(appAsar);
+  expect(files).toContain("/out/computer-use-extension/package.json");
+  expect(files).toContain("/out/computer-use-extension/dist/index.js");
 
-    const composer = window.getByTestId("composer");
-    await composer.fill("/computer-use-smoke ");
-    await composer.press("Enter");
-    await expect(window.locator(".timeline")).toContainText("Packaged computer use command ready");
-  } finally {
-    await harness.close();
+  const packageJson = JSON.parse(
+    extractFile(appAsar, "out/computer-use-extension/package.json").toString("utf8"),
+  ) as {
+    dependencies?: Record<string, string>;
+    pi?: { extensions?: string[] };
+  };
+  expect(packageJson.pi?.extensions).toEqual(["./dist/index.js"]);
+  expect(packageJson.dependencies).toBeUndefined();
+
+  const extensionSource = extractFile(appAsar, "out/computer-use-extension/dist/index.js").toString("utf8");
+  expect(extensionSource).not.toContain("@earendil-works/");
+  for (const toolName of expectedComputerUseTools) {
+    expect(extensionSource).toContain(`name: "${toolName}"`);
   }
+
+  const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
+  expect(mainSource).not.toContain("getAgentDir");
+  expect(mainSource).not.toContain("@earendil-works/pi-coding-agent");
+
+  const helperResponse = await runPackagedHelper(helperPath, { command: "list_apps" });
+  expect(helperResponse.ok).toBe(true);
+  expect(helperResponse.content?.[0]?.type).toBe("text");
+  expect(helperResponse.content?.[0]?.text).toContain("Finder");
 });
+
+function runPackagedHelper(helperPath: string, request: Record<string, unknown>): Promise<HelperResponse> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `Computer Use helper exited with code ${code}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as HelperResponse);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.stdin.end(`${JSON.stringify(request)}\n`);
+  });
+}

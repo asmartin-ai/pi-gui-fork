@@ -1,0 +1,983 @@
+import AppKit
+import ApplicationServices
+import CoreGraphics
+import Foundation
+
+struct Request: Decodable {
+    let command: String
+    let app: String?
+    let element_index: String?
+    let x: Double?
+    let y: Double?
+    let click_count: Int?
+    let mouse_button: String?
+    let from_x: Double?
+    let from_y: Double?
+    let to_x: Double?
+    let to_y: Double?
+    let direction: String?
+    let pages: Double?
+    let key: String?
+    let text: String?
+    let value: String?
+    let prefix: String?
+    let suffix: String?
+    let selection: String?
+    let action: String?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case app
+        case element_index
+        case x
+        case y
+        case click_count
+        case mouse_button
+        case from_x
+        case from_y
+        case to_x
+        case to_y
+        case direction
+        case pages
+        case key
+        case text
+        case value
+        case prefix
+        case suffix
+        case selection
+        case action
+    }
+}
+
+struct ContentItem: Encodable {
+    let type: String
+    let text: String?
+    let data: String?
+    let mimeType: String?
+
+    static func text(_ value: String) -> ContentItem {
+        ContentItem(type: "text", text: value, data: nil, mimeType: nil)
+    }
+
+    static func image(data: String, mimeType: String) -> ContentItem {
+        ContentItem(type: "image", text: nil, data: data, mimeType: mimeType)
+    }
+}
+
+struct Response: Encodable {
+    let ok: Bool
+    let content: [ContentItem]?
+    let details: [String: String]?
+    let error: String?
+}
+
+struct ResolvedApp {
+    let running: NSRunningApplication
+    let query: String
+    let displayName: String
+    let bundleIdentifier: String
+    let path: String
+}
+
+struct WindowCapture {
+    let windowId: CGWindowID?
+    let frame: CGRect?
+}
+
+final class TreeBuilder {
+    private(set) var elements: [AXUIElement] = []
+    private var lines: [String] = []
+    private let maxDepth = 10
+    private let maxNodes = 420
+
+    func build(from root: AXUIElement) -> String {
+        elements.removeAll()
+        lines.removeAll()
+        visit(root, depth: 0)
+        return lines.joined(separator: "\n")
+    }
+
+    private func visit(_ element: AXUIElement, depth: Int) {
+        if elements.count >= maxNodes || depth > maxDepth {
+            return
+        }
+
+        let index = elements.count
+        elements.append(element)
+        lines.append("\(String(repeating: "\t", count: depth))\(index) \(describe(element))")
+
+        guard let children: [AXUIElement] = copyAttribute(element, kAXChildrenAttribute) else {
+            return
+        }
+
+        for child in children.prefix(120) {
+            visit(child, depth: depth + 1)
+            if elements.count >= maxNodes {
+                break
+            }
+        }
+    }
+
+    private func describe(_ element: AXUIElement) -> String {
+        let role = normalizeRole(copyStringAttribute(element, kAXRoleAttribute) ?? "element")
+        var parts: [String] = [role]
+
+        if let title = copyStringAttribute(element, kAXTitleAttribute), !title.isEmpty {
+            parts.append(clean(title))
+        }
+        if let description = copyStringAttribute(element, kAXDescriptionAttribute), !description.isEmpty {
+            parts.append("Description: \(clean(description))")
+        }
+        if let value = describeValue(element), !value.isEmpty {
+            parts.append("Value: \(clean(value))")
+        }
+        if let help = copyStringAttribute(element, kAXHelpAttribute), !help.isEmpty {
+            parts.append("Help: \(clean(help))")
+        }
+        if let identifier = copyStringAttribute(element, kAXIdentifierAttribute), !identifier.isEmpty {
+            parts.append("ID: \(clean(identifier))")
+        }
+        if let enabled: Bool = copyAttribute(element, kAXEnabledAttribute), !enabled {
+            parts.append("(disabled)")
+        }
+
+        let secondaryActions = copyActionNames(element).map(normalizeActionName)
+        if !secondaryActions.isEmpty {
+            parts.append("Secondary Actions: \(secondaryActions.joined(separator: ", "))")
+        }
+
+        return parts.joined(separator: ", ")
+    }
+}
+
+enum HelperError: Error, CustomStringConvertible {
+    case message(String)
+
+    var description: String {
+        switch self {
+        case .message(let value):
+            return value
+        }
+    }
+}
+
+func main() {
+    do {
+        let input = FileHandle.standardInput.readDataToEndOfFile()
+        let request = try JSONDecoder().decode(Request.self, from: input)
+        let response = try handle(request)
+        emit(response)
+    } catch {
+        emit(Response(ok: false, content: nil, details: nil, error: String(describing: error)))
+    }
+}
+
+func handle(_ request: Request) throws -> Response {
+    if request.command != "list_apps" {
+        try requireUnlockedDesktop()
+    }
+
+    switch request.command {
+    case "list_apps":
+        return try listApps()
+    case "get_app_state":
+        return try getAppState(request)
+    case "click":
+        return try click(request)
+    case "perform_secondary_action":
+        return try performSecondaryAction(request)
+    case "set_value":
+        return try setValue(request)
+    case "select_text":
+        return try selectText(request)
+    case "scroll":
+        return try scroll(request)
+    case "drag":
+        return try drag(request)
+    case "press_key":
+        return try pressKey(request)
+    case "type_text":
+        return try typeText(request)
+    default:
+        throw HelperError.message("Unknown Computer Use action: \(request.command)")
+    }
+}
+
+func requireUnlockedDesktop() throws {
+    if isScreenLocked() {
+        throw HelperError.message("Computer Use is unavailable while the Mac is locked. Unlock the desktop and retry.")
+    }
+}
+
+func isScreenLocked() -> Bool {
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+        return false
+    }
+    return (session["CGSSessionScreenIsLocked"] as? Bool) == true
+}
+
+func listApps() throws -> Response {
+    var records: [String] = []
+    let runningBundleIds = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+
+    for app in NSWorkspace.shared.runningApplications
+        .filter({ $0.activationPolicy == .regular })
+        .sorted(by: { ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending }) {
+        let name = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
+        let path = app.bundleURL?.path ?? ""
+        let bundleId = app.bundleIdentifier ?? "unknown"
+        let frontmost = app.isActive ? " [frontmost, running]" : " [running]"
+        records.append("\(name) — \(path) — \(bundleId)\(frontmost)")
+    }
+
+    for appUrl in discoverInstalledApps() {
+        guard let bundle = Bundle(url: appUrl) else {
+            continue
+        }
+        let bundleId = bundle.bundleIdentifier ?? appUrl.lastPathComponent
+        if runningBundleIds.contains(bundleId) {
+            continue
+        }
+        let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? appUrl.deletingPathExtension().lastPathComponent
+        records.append("\(name) — \(appUrl.path) — \(bundleId)")
+    }
+
+    return Response(ok: true, content: [.text(records.joined(separator: "\n"))], details: nil, error: nil)
+}
+
+func getAppState(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    return try stateResponse(for: app)
+}
+
+func click(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    activate(app)
+    let clickCount = max(1, request.click_count ?? 1)
+    let button = request.mouse_button ?? "left"
+
+    if let element = try indexedElement(request, app: app) {
+        if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
+            for _ in 0..<clickCount {
+                AXUIElementPerformAction(element, kAXPressAction as CFString)
+                Thread.sleep(forTimeInterval: 0.08)
+            }
+            return try stateResponse(for: app)
+        }
+        if let center = elementCenter(element) {
+            postClick(at: center, button: button, count: clickCount)
+            return try stateResponse(for: app)
+        }
+        throw HelperError.message("Element \(request.element_index ?? "") has no clickable position.")
+    }
+
+    let point = try screenshotPoint(request, app: app, x: request.x, y: request.y)
+    postClick(at: point, button: button, count: clickCount)
+    return try stateResponse(for: app)
+}
+
+func performSecondaryAction(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    let element = try requireIndexedElement(request, app: app)
+    let action = try require(request.action, "action")
+    let axAction = canonicalActionName(action)
+    let error = AXUIElementPerformAction(element, axAction as CFString)
+    if error != .success {
+        throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
+    }
+    return try stateResponse(for: app)
+}
+
+func setValue(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    let element = try requireIndexedElement(request, app: app)
+    let value = try require(request.value, "value")
+    let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
+    if error != .success {
+        throw HelperError.message("Could not set value on element \(request.element_index ?? ""): \(error.rawValue)")
+    }
+    return try stateResponse(for: app)
+}
+
+func selectText(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    let element = try requireIndexedElement(request, app: app)
+    let target = try require(request.text, "text")
+    let value = describeValue(element) ?? ""
+    let range = findTextRange(in: value, target: target, prefix: request.prefix, suffix: request.suffix)
+    if range.location == NSNotFound {
+        throw HelperError.message("Could not find requested text in element \(request.element_index ?? "").")
+    }
+
+    let selection = request.selection ?? "text"
+    var cfRange: CFRange
+    switch selection {
+    case "cursor_before":
+        cfRange = CFRange(location: range.location, length: 0)
+    case "cursor_after":
+        cfRange = CFRange(location: range.location + range.length, length: 0)
+    default:
+        cfRange = CFRange(location: range.location, length: range.length)
+    }
+    guard let axRange = AXValueCreate(.cfRange, &cfRange) else {
+        throw HelperError.message("Could not create selected text range.")
+    }
+    let error = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
+    if error != .success {
+        throw HelperError.message("Could not select text in element \(request.element_index ?? ""): \(error.rawValue)")
+    }
+    return try stateResponse(for: app)
+}
+
+func scroll(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    activate(app)
+    let direction = try require(request.direction, "direction").lowercased()
+    let pages = request.pages ?? 1
+    let magnitude = Int32(max(1, min(2400, abs(pages) * 720)))
+    var deltaX: Int32 = 0
+    var deltaY: Int32 = 0
+
+    switch direction {
+    case "up":
+        deltaY = magnitude
+    case "down":
+        deltaY = -magnitude
+    case "left":
+        deltaX = magnitude
+    case "right":
+        deltaX = -magnitude
+    default:
+        throw HelperError.message("Unsupported scroll direction: \(direction)")
+    }
+
+    if let element = try indexedElement(request, app: app), let center = elementCenter(element) {
+        moveMouse(to: center)
+    }
+    postScroll(deltaX: deltaX, deltaY: deltaY)
+    return try stateResponse(for: app)
+}
+
+func drag(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    activate(app)
+    let from = try screenshotPoint(request, app: app, x: request.from_x, y: request.from_y)
+    let to = try screenshotPoint(request, app: app, x: request.to_x, y: request.to_y)
+    postDrag(from: from, to: to)
+    return try stateResponse(for: app)
+}
+
+func pressKey(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    activate(app)
+    let key = try require(request.key, "key")
+    try postKey(key)
+    return try stateResponse(for: app)
+}
+
+func typeText(_ request: Request) throws -> Response {
+    let app = try resolveApp(request.app)
+    activate(app)
+    let text = try require(request.text, "text")
+    for character in text {
+        postUnicode(String(character))
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    return try stateResponse(for: app)
+}
+
+func stateResponse(for app: ResolvedApp) throws -> Response {
+    if !AXIsProcessTrusted() {
+        throw HelperError.message("Accessibility permission is not granted for pi-gui or its Computer Use helper.")
+    }
+    activate(app)
+    Thread.sleep(forTimeInterval: 0.2)
+
+    let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
+    let window = focusedWindow(for: appElement) ?? appElement
+    let title = copyStringAttribute(window, kAXTitleAttribute) ?? app.displayName
+    let builder = TreeBuilder()
+    let tree = builder.build(from: window)
+    let capture = windowCapture(for: app, title: title)
+    let screenshot = capture.windowId.flatMap { captureWindowImage(windowId: $0) }
+
+    var text = "Computer Use state (Pi GUI)\n<app_state>\n"
+    text += "App=\(app.path) (bundleID \(app.bundleIdentifier), pid \(app.running.processIdentifier))\n"
+    text += "Window: \"\(clean(title))\", App: \(clean(app.displayName)).\n"
+    text += tree
+    text += "\n</app_state>"
+    if screenshot == nil {
+        text += "\n\nScreenshot unavailable. Check Screen Recording permission for pi-gui and its helper."
+    }
+
+    var content: [ContentItem] = [.text(text)]
+    if let screenshot {
+        content.append(.image(data: screenshot, mimeType: "image/png"))
+    }
+
+    return Response(
+        ok: true,
+        content: content,
+        details: [
+            "app": app.displayName,
+            "bundleIdentifier": app.bundleIdentifier,
+            "pid": String(app.running.processIdentifier),
+            "windowTitle": title,
+        ],
+        error: nil
+    )
+}
+
+func indexedElement(_ request: Request, app: ResolvedApp) throws -> AXUIElement? {
+    guard request.element_index != nil else {
+        return nil
+    }
+    return try requireIndexedElement(request, app: app)
+}
+
+func requireIndexedElement(_ request: Request, app: ResolvedApp) throws -> AXUIElement {
+    let indexText = try require(request.element_index, "element_index")
+    guard let index = Int(indexText) else {
+        throw HelperError.message("Element index must be an integer: \(indexText)")
+    }
+    let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
+    let window = focusedWindow(for: appElement) ?? appElement
+    let builder = TreeBuilder()
+    _ = builder.build(from: window)
+    guard index >= 0 && index < builder.elements.count else {
+        throw HelperError.message("Element index \(index) is not present in the current app state.")
+    }
+    return builder.elements[index]
+}
+
+func screenshotPoint(_ request: Request, app: ResolvedApp, x: Double?, y: Double?) throws -> CGPoint {
+    let x = try require(x, "x")
+    let y = try require(y, "y")
+    let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
+    let window = focusedWindow(for: appElement) ?? appElement
+    let frame = windowFrame(window) ?? windowCapture(for: app, title: nil).frame
+    guard let frame else {
+        throw HelperError.message("Cannot translate screenshot coordinates without a window frame.")
+    }
+    let screenshotScale = backingScaleFactor(for: frame)
+    return CGPoint(x: frame.origin.x + (x / screenshotScale), y: frame.origin.y + (y / screenshotScale))
+}
+
+func resolveApp(_ appQuery: String?) throws -> ResolvedApp {
+    let query = try require(appQuery, "app").trimmingCharacters(in: .whitespacesAndNewlines)
+    if query.isEmpty {
+        throw HelperError.message("app is required.")
+    }
+
+    if query.hasPrefix("/") || query.hasSuffix(".app") {
+        let url = URL(fileURLWithPath: query)
+        return try resolveAppUrl(url, query: query)
+    }
+
+    if query.contains("."),
+       let running = NSRunningApplication.runningApplications(withBundleIdentifier: query).first {
+        return resolved(running, query: query)
+    }
+
+    if let running = NSWorkspace.shared.runningApplications.first(where: {
+        ($0.localizedName ?? "").localizedCaseInsensitiveCompare(query) == .orderedSame
+            || ($0.bundleIdentifier ?? "").localizedCaseInsensitiveCompare(query) == .orderedSame
+    }) {
+        return resolved(running, query: query)
+    }
+
+    for url in discoverInstalledApps() {
+        let name = url.deletingPathExtension().lastPathComponent
+        if name.localizedCaseInsensitiveCompare(query) == .orderedSame {
+            return try resolveAppUrl(url, query: query)
+        }
+    }
+
+    throw HelperError.message("Could not find app: \(query)")
+}
+
+func resolveAppUrl(_ url: URL, query: String) throws -> ResolvedApp {
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        throw HelperError.message("App path does not exist: \(url.path)")
+    }
+    let bundle = Bundle(url: url)
+    let bundleId = bundle?.bundleIdentifier
+    if let bundleId,
+       let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+        return resolved(running, query: query)
+    }
+
+    let opened = NSWorkspace.shared.open(url)
+    if !opened {
+        throw HelperError.message("Could not launch app at \(url.path)")
+    }
+
+    let deadline = Date().addingTimeInterval(8)
+    while Date() < deadline {
+        if let bundleId,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+            return resolved(running, query: query)
+        }
+        if let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.path == url.path }) {
+            return resolved(running, query: query)
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    throw HelperError.message("App launched but no running process was found for \(url.path)")
+}
+
+func resolved(_ running: NSRunningApplication, query: String) -> ResolvedApp {
+    let displayName = running.localizedName ?? running.bundleIdentifier ?? query
+    let bundleIdentifier = running.bundleIdentifier ?? "unknown"
+    let path = running.bundleURL?.path ?? query
+    return ResolvedApp(running: running, query: query, displayName: displayName, bundleIdentifier: bundleIdentifier, path: path)
+}
+
+func activate(_ app: ResolvedApp) {
+    app.running.activate(options: [.activateAllWindows])
+}
+
+func discoverInstalledApps() -> [URL] {
+    let roots = [
+        "/Applications",
+        "/System/Applications",
+        "/System/Applications/Utilities",
+    ]
+    var urls: [URL] = []
+    let fileManager = FileManager.default
+    for root in roots {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: URL(fileURLWithPath: root),
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            continue
+        }
+        urls.append(contentsOf: entries.filter { $0.pathExtension == "app" })
+    }
+    return urls.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+}
+
+func focusedWindow(for appElement: AXUIElement) -> AXUIElement? {
+    if let focused: AXUIElement = copyAttribute(appElement, kAXFocusedWindowAttribute) {
+        return focused
+    }
+    let windows: [AXUIElement]? = copyAttribute(appElement, kAXWindowsAttribute)
+    return windows?.first
+}
+
+func windowFrame(_ element: AXUIElement) -> CGRect? {
+    guard let position = cgPointAttribute(element, kAXPositionAttribute),
+          let size = cgSizeAttribute(element, kAXSizeAttribute) else {
+        return nil
+    }
+    return CGRect(origin: position, size: size)
+}
+
+func windowCapture(for app: ResolvedApp, title: String?) -> WindowCapture {
+    guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        return WindowCapture(windowId: nil, frame: nil)
+    }
+    let pid = app.running.processIdentifier
+    let candidates = windows.filter { info in
+        guard let ownerPid = info[kCGWindowOwnerPID as String] as? pid_t else {
+            return false
+        }
+        return ownerPid == pid
+    }
+    let selected = candidates.first(where: { info in
+        guard let title,
+              let windowName = info[kCGWindowName as String] as? String else {
+            return false
+        }
+        return windowName == title
+    }) ?? candidates.max(by: { windowArea($0) < windowArea($1) })
+
+    guard let selected else {
+        return WindowCapture(windowId: nil, frame: nil)
+    }
+    let id = selected[kCGWindowNumber as String] as? UInt32
+    let frame = rectFromWindowBounds(selected[kCGWindowBounds as String])
+    return WindowCapture(windowId: id, frame: frame)
+}
+
+func windowArea(_ info: [String: Any]) -> Double {
+    guard let frame = rectFromWindowBounds(info[kCGWindowBounds as String]) else {
+        return 0
+    }
+    return Double(frame.width * frame.height)
+}
+
+func captureWindowImage(windowId: CGWindowID) -> String? {
+    let tempUrl = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pi-gui-computer-use-\(UUID().uuidString)")
+        .appendingPathExtension("png")
+    defer {
+        try? FileManager.default.removeItem(at: tempUrl)
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    process.arguments = ["-x", "-o", "-l\(windowId)", tempUrl.path]
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return nil
+    }
+
+    guard process.terminationStatus == 0,
+          let data = try? Data(contentsOf: tempUrl),
+          !data.isEmpty else {
+        return nil
+    }
+
+    return data.base64EncodedString()
+}
+
+func rectFromWindowBounds(_ rawValue: Any?) -> CGRect? {
+    guard let dictionary = rawValue as? [String: Any],
+          let x = numberValue(dictionary["X"]),
+          let y = numberValue(dictionary["Y"]),
+          let width = numberValue(dictionary["Width"]),
+          let height = numberValue(dictionary["Height"]) else {
+        return nil
+    }
+    return CGRect(x: x, y: y, width: width, height: height)
+}
+
+func numberValue(_ value: Any?) -> Double? {
+    if let number = value as? NSNumber {
+        return number.doubleValue
+    }
+    return value as? Double
+}
+
+func copyAttribute<T>(_ element: AXUIElement, _ attribute: String) -> T? {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    if error != .success {
+        return nil
+    }
+    return value as? T
+}
+
+func copyStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+    if let string: String = copyAttribute(element, attribute) {
+        return string
+    }
+    if let number: NSNumber = copyAttribute(element, attribute) {
+        return number.stringValue
+    }
+    return nil
+}
+
+func describeValue(_ element: AXUIElement) -> String? {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+    if error != .success {
+        return nil
+    }
+    if let string = value as? String {
+        return string
+    }
+    if let number = value as? NSNumber {
+        return number.stringValue
+    }
+    if let attributed = value as? NSAttributedString {
+        return attributed.string
+    }
+    return value.map { String(describing: $0) }
+}
+
+func copyActionNames(_ element: AXUIElement) -> [String] {
+    var actions: CFArray?
+    let error = AXUIElementCopyActionNames(element, &actions)
+    if error != .success {
+        return []
+    }
+    return (actions as? [String]) ?? []
+}
+
+func cgPointAttribute(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
+    guard let value: AXValue = copyAttribute(element, attribute) else {
+        return nil
+    }
+    var point = CGPoint.zero
+    guard AXValueGetValue(value, .cgPoint, &point) else {
+        return nil
+    }
+    return point
+}
+
+func cgSizeAttribute(_ element: AXUIElement, _ attribute: String) -> CGSize? {
+    guard let value: AXValue = copyAttribute(element, attribute) else {
+        return nil
+    }
+    var size = CGSize.zero
+    guard AXValueGetValue(value, .cgSize, &size) else {
+        return nil
+    }
+    return size
+}
+
+func elementCenter(_ element: AXUIElement) -> CGPoint? {
+    guard let frame = windowFrame(element) else {
+        return nil
+    }
+    return CGPoint(x: frame.midX, y: frame.midY)
+}
+
+func backingScaleFactor(for frame: CGRect) -> Double {
+    for screen in NSScreen.screens {
+        if screen.frame.intersects(frame) {
+            return Double(screen.backingScaleFactor)
+        }
+    }
+    return Double(NSScreen.main?.backingScaleFactor ?? 1)
+}
+
+func postClick(at point: CGPoint, button: String, count: Int) {
+    let mouseButton = cgMouseButton(button)
+    let downType = mouseDownType(mouseButton)
+    let upType = mouseUpType(mouseButton)
+    for _ in 0..<count {
+        moveMouse(to: point)
+        CGEvent(mouseEventSource: nil, mouseType: downType, mouseCursorPosition: point, mouseButton: mouseButton)?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.04)
+        CGEvent(mouseEventSource: nil, mouseType: upType, mouseCursorPosition: point, mouseButton: mouseButton)?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.08)
+    }
+}
+
+func moveMouse(to point: CGPoint) {
+    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+
+func postDrag(from: CGPoint, to: CGPoint) {
+    moveMouse(to: from)
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: from, mouseButton: .left)?.post(tap: .cghidEventTap)
+    let steps = 16
+    for step in 1...steps {
+        let progress = CGFloat(step) / CGFloat(steps)
+        let point = CGPoint(x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress)
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.012)
+    }
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: to, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+
+func postScroll(deltaX: Int32, deltaY: Int32) {
+    CGEvent(
+        scrollWheelEvent2Source: nil,
+        units: .pixel,
+        wheelCount: 2,
+        wheel1: deltaY,
+        wheel2: deltaX,
+        wheel3: 0
+    )?.post(tap: .cghidEventTap)
+}
+
+func postUnicode(_ text: String) {
+    var utf16 = Array(text.utf16)
+    guard !utf16.isEmpty else {
+        return
+    }
+    let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+    down?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+    down?.post(tap: .cghidEventTap)
+    let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+    up?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+    up?.post(tap: .cghidEventTap)
+}
+
+func postKey(_ rawKey: String) throws {
+    let pieces = rawKey.split(separator: "+").map { String($0).lowercased() }
+    guard let keyName = pieces.last else {
+        throw HelperError.message("key is required.")
+    }
+    var flags: CGEventFlags = []
+    for modifier in pieces.dropLast() {
+        switch modifier {
+        case "super", "cmd", "command", "meta":
+            flags.insert(.maskCommand)
+        case "ctrl", "control":
+            flags.insert(.maskControl)
+        case "shift":
+            flags.insert(.maskShift)
+        case "alt", "option":
+            flags.insert(.maskAlternate)
+        default:
+            throw HelperError.message("Unsupported key modifier: \(modifier)")
+        }
+    }
+
+    if keyName.count == 1,
+       let scalar = keyName.unicodeScalars.first,
+       keyCodeByCharacter[String(scalar)] == nil {
+        postUnicode(keyName)
+        return
+    }
+
+    guard let keyCode = keyCodeByCharacter[keyName] ?? keyCodeByName[keyName] else {
+        throw HelperError.message("Unsupported key: \(rawKey)")
+    }
+    let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
+    down?.flags = flags
+    down?.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: 0.04)
+    let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
+    up?.flags = flags
+    up?.post(tap: .cghidEventTap)
+}
+
+let keyCodeByCharacter: [String: CGKeyCode] = [
+    "a": 0x00, "s": 0x01, "d": 0x02, "f": 0x03, "h": 0x04, "g": 0x05, "z": 0x06, "x": 0x07,
+    "c": 0x08, "v": 0x09, "b": 0x0B, "q": 0x0C, "w": 0x0D, "e": 0x0E, "r": 0x0F, "y": 0x10,
+    "t": 0x11, "1": 0x12, "2": 0x13, "3": 0x14, "4": 0x15, "6": 0x16, "5": 0x17, "=": 0x18,
+    "9": 0x19, "7": 0x1A, "-": 0x1B, "8": 0x1C, "0": 0x1D, "]": 0x1E, "o": 0x1F, "u": 0x20,
+    "[": 0x21, "i": 0x22, "p": 0x23, "l": 0x25, "j": 0x26, "'": 0x27, "k": 0x28, ";": 0x29,
+    "\\": 0x2A, ",": 0x2B, "/": 0x2C, "n": 0x2D, "m": 0x2E, ".": 0x2F, " ": 0x31, "`": 0x32,
+]
+
+let keyCodeByName: [String: CGKeyCode] = [
+    "return": 0x24, "enter": 0x24, "tab": 0x30, "space": 0x31, "delete": 0x33, "backspace": 0x33,
+    "escape": 0x35, "esc": 0x35, "left": 0x7B, "right": 0x7C, "down": 0x7D, "up": 0x7E,
+    "home": 0x73, "end": 0x77, "page_up": 0x74, "pageup": 0x74, "page_down": 0x79, "pagedown": 0x79,
+    "kp_0": 0x52, "kp_1": 0x53, "kp_2": 0x54, "kp_3": 0x55, "kp_4": 0x56, "kp_5": 0x57,
+    "kp_6": 0x58, "kp_7": 0x59, "kp_8": 0x5B, "kp_9": 0x5C,
+]
+
+func postKeyCode(_ keyCode: CGKeyCode, flags: CGEventFlags = []) {
+    let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
+    down?.flags = flags
+    down?.post(tap: .cghidEventTap)
+    let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
+    up?.flags = flags
+    up?.post(tap: .cghidEventTap)
+}
+
+func cgMouseButton(_ button: String) -> CGMouseButton {
+    switch button {
+    case "right":
+        return .right
+    case "middle":
+        return .center
+    default:
+        return .left
+    }
+}
+
+func mouseDownType(_ button: CGMouseButton) -> CGEventType {
+    switch button {
+    case .right:
+        return .rightMouseDown
+    case .center:
+        return .otherMouseDown
+    default:
+        return .leftMouseDown
+    }
+}
+
+func mouseUpType(_ button: CGMouseButton) -> CGEventType {
+    switch button {
+    case .right:
+        return .rightMouseUp
+    case .center:
+        return .otherMouseUp
+    default:
+        return .leftMouseUp
+    }
+}
+
+func findTextRange(in value: String, target: String, prefix: String?, suffix: String?) -> NSRange {
+    let ns = value as NSString
+    var searchStart = 0
+    if let prefix, !prefix.isEmpty {
+        let prefixRange = ns.range(of: prefix)
+        if prefixRange.location == NSNotFound {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        searchStart = prefixRange.location + prefixRange.length
+    }
+
+    let targetRange = ns.range(of: target, options: [], range: NSRange(location: searchStart, length: ns.length - searchStart))
+    if targetRange.location == NSNotFound {
+        return targetRange
+    }
+
+    if let suffix, !suffix.isEmpty {
+        let suffixStart = targetRange.location + targetRange.length
+        let suffixRange = ns.range(of: suffix, options: [], range: NSRange(location: suffixStart, length: ns.length - suffixStart))
+        if suffixRange.location == NSNotFound {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+    }
+
+    return targetRange
+}
+
+func normalizeRole(_ role: String) -> String {
+    role
+        .replacingOccurrences(of: "AX", with: "")
+        .replacingOccurrences(of: "UIElement", with: "element")
+        .splitCamelCase()
+        .lowercased()
+}
+
+func normalizeActionName(_ action: String) -> String {
+    action
+        .replacingOccurrences(of: "AX", with: "")
+        .replacingOccurrences(of: "Action", with: "")
+        .splitCamelCase()
+}
+
+func canonicalActionName(_ action: String) -> String {
+    if action.hasPrefix("AX") {
+        return action
+    }
+    let collapsed = action.replacingOccurrences(of: " ", with: "")
+    return "AX\(collapsed)Action"
+}
+
+func clean(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func require<T>(_ value: T?, _ name: String) throws -> T {
+    guard let value else {
+        throw HelperError.message("\(name) is required.")
+    }
+    return value
+}
+
+func emit(_ response: Response) -> Never {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let data = try! encoder.encode(response)
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data([0x0A]))
+    exit(response.ok ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+extension String {
+    func splitCamelCase() -> String {
+        var result = ""
+        for scalar in unicodeScalars {
+            if CharacterSet.uppercaseLetters.contains(scalar), !result.isEmpty {
+                result.append(" ")
+            }
+            result.unicodeScalars.append(scalar)
+        }
+        return result
+    }
+}
+
+main()
