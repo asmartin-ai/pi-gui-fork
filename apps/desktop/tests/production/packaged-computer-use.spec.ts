@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { extractFile, listPackage } from "@electron/asar";
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolvePackagedAppBundle } from "../helpers/electron-app";
 
@@ -46,8 +46,14 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
 
   const extensionSource = extractFile(appAsar, "out/computer-use-extension/dist/index.js").toString("utf8");
   expect(extensionSource).not.toContain("@earendil-works/");
+  expect(extensionSource).toContain("plus, equals");
   for (const toolName of expectedComputerUseTools) {
     expect(extensionSource).toContain(`name: "${toolName}"`);
+  }
+
+  const helperSource = await readFile(helperPath, "latin1");
+  for (const keyAlias of ["plus", "equals", "kp_add", "numpad_enter"]) {
+    expect(helperSource).toContain(keyAlias);
   }
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
