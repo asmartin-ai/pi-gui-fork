@@ -57,6 +57,9 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   for (const keyAlias of ["plus", "equals", "kp_add", "numpad_enter"]) {
     expect(helperSource).toContain(keyAlias);
   }
+  expect(helperSource).toContain("PI_GUI_COMPUTER_USE_SHOW_CURSOR");
+  expect(helperSource).toContain("AXScrollDown");
+  expect(helperSource).toContain("all clear");
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
   expect(mainSource).not.toContain("getAgentDir");

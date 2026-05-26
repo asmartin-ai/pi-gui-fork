@@ -84,6 +84,51 @@ struct WindowCapture {
     let frame: CGRect?
 }
 
+private let cursorOverlayDisabledValue = "0"
+
+final class AgentCursorView: NSView {
+    private let pressed: Bool
+
+    init(frame frameRect: NSRect, pressed: Bool) {
+        self.pressed = pressed
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.allowsEdgeAntialiasing = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isOpaque: Bool {
+        false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let ringColor = pressed
+            ? NSColor(calibratedRed: 0.98, green: 0.48, blue: 0.16, alpha: 0.26)
+            : NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.96, alpha: 0.22)
+        ringColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 1, y: 5, width: 27, height: 27)).fill()
+
+        let body = NSBezierPath()
+        body.move(to: NSPoint(x: 5, y: 31))
+        body.line(to: NSPoint(x: 5, y: 5))
+        body.line(to: NSPoint(x: 12, y: 12))
+        body.line(to: NSPoint(x: 17, y: 2))
+        body.line(to: NSPoint(x: 22, y: 5))
+        body.line(to: NSPoint(x: 17, y: 15))
+        body.line(to: NSPoint(x: 28, y: 15))
+        body.close()
+
+        NSColor.white.setFill()
+        body.fill()
+        (pressed ? NSColor.systemOrange : NSColor.systemBlue).setStroke()
+        body.lineWidth = 2
+        body.stroke()
+    }
+}
+
 final class TreeBuilder {
     private(set) var elements: [AXUIElement] = []
     private var lines: [String] = []
@@ -254,12 +299,12 @@ func getAppState(_ request: Request) throws -> Response {
 
 func click(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
-    activate(app)
     let clickCount = max(1, request.click_count ?? 1)
     let button = request.mouse_button ?? "left"
 
     if let element = try indexedElement(request, app: app) {
         if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
+            showAgentCursor(for: element, pressed: true)
             for _ in 0..<clickCount {
                 AXUIElementPerformAction(element, kAXPressAction as CFString)
                 Thread.sleep(forTimeInterval: 0.08)
@@ -267,14 +312,18 @@ func click(_ request: Request) throws -> Response {
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
-            postClick(at: center, button: button, count: clickCount)
+            withTemporaryActivation(app, cursorPoint: center, restoreFocus: false) {
+                postClick(at: center, button: button, count: clickCount)
+            }
             return try stateResponse(for: app)
         }
         throw HelperError.message("Element \(request.element_index ?? "") has no clickable position.")
     }
 
     let point = try screenshotPoint(request, app: app, x: request.x, y: request.y)
-    postClick(at: point, button: button, count: clickCount)
+    withTemporaryActivation(app, cursorPoint: point, restoreFocus: false) {
+        postClick(at: point, button: button, count: clickCount)
+    }
     return try stateResponse(for: app)
 }
 
@@ -283,6 +332,7 @@ func performSecondaryAction(_ request: Request) throws -> Response {
     let element = try requireIndexedElement(request, app: app)
     let action = try require(request.action, "action")
     let axAction = canonicalActionName(action)
+    showAgentCursor(for: element, pressed: true)
     let error = AXUIElementPerformAction(element, axAction as CFString)
     if error != .success {
         throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
@@ -294,6 +344,7 @@ func setValue(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
     let element = try requireIndexedElement(request, app: app)
     let value = try require(request.value, "value")
+    showAgentCursor(for: element, pressed: false)
     let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
     if error != .success {
         throw HelperError.message("Could not set value on element \(request.element_index ?? ""): \(error.rawValue)")
@@ -324,6 +375,7 @@ func selectText(_ request: Request) throws -> Response {
     guard let axRange = AXValueCreate(.cfRange, &cfRange) else {
         throw HelperError.message("Could not create selected text range.")
     }
+    showAgentCursor(for: element, pressed: false)
     let error = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
     if error != .success {
         throw HelperError.message("Could not select text in element \(request.element_index ?? ""): \(error.rawValue)")
@@ -333,9 +385,34 @@ func selectText(_ request: Request) throws -> Response {
 
 func scroll(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
-    activate(app)
     let direction = try require(request.direction, "direction").lowercased()
     let pages = request.pages ?? 1
+    let element = try indexedElement(request, app: app)
+    let absolutePages = abs(pages)
+
+    if absolutePages >= 1,
+       absolutePages.rounded(.towardZero) == absolutePages,
+       let element,
+       let action = accessibilityScrollAction(direction: direction, element: element) {
+        let repeats = max(1, min(4, Int(absolutePages)))
+        showAgentCursor(for: element, pressed: false)
+        var didScroll = false
+        for _ in 0..<repeats {
+            let error = AXUIElementPerformAction(element, action as CFString)
+            if error != .success {
+                if didScroll {
+                    throw HelperError.message("Accessibility scroll action failed after a partial scroll: \(error.rawValue)")
+                }
+                break
+            }
+            didScroll = true
+            Thread.sleep(forTimeInterval: 0.06)
+        }
+        if didScroll {
+            return try stateResponse(for: app)
+        }
+    }
+
     let magnitude = Int32(max(1, min(2400, abs(pages) * 720)))
     var deltaX: Int32 = 0
     var deltaY: Int32 = 0
@@ -353,37 +430,50 @@ func scroll(_ request: Request) throws -> Response {
         throw HelperError.message("Unsupported scroll direction: \(direction)")
     }
 
-    if let element = try indexedElement(request, app: app), let center = elementCenter(element) {
-        moveMouse(to: center)
+    let cursorPoint = element.flatMap(elementCenter) ?? targetWindowCenter(for: app)
+    withTemporaryActivation(app, cursorPoint: cursorPoint) {
+        if let cursorPoint {
+            moveMouse(to: cursorPoint)
+        }
+        postScroll(deltaX: deltaX, deltaY: deltaY)
     }
-    postScroll(deltaX: deltaX, deltaY: deltaY)
     return try stateResponse(for: app)
 }
 
 func drag(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
-    activate(app)
     let from = try screenshotPoint(request, app: app, x: request.from_x, y: request.from_y)
     let to = try screenshotPoint(request, app: app, x: request.to_x, y: request.to_y)
-    postDrag(from: from, to: to)
+    withTemporaryActivation(app, cursorPoint: from) {
+        postDrag(from: from, to: to)
+        showAgentCursor(at: to, pressed: false)
+    }
     return try stateResponse(for: app)
 }
 
 func pressKey(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
-    activate(app)
     let key = try require(request.key, "key")
-    try postKey(key)
+    if try pressAccessibleKey(key, app: app) {
+        return try stateResponse(for: app)
+    }
+    try withTemporaryActivation(app, cursorPoint: targetWindowCenter(for: app)) {
+        try postKey(key)
+    }
     return try stateResponse(for: app)
 }
 
 func typeText(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
-    activate(app)
     let text = try require(request.text, "text")
-    for character in text {
-        postUnicode(String(character))
-        Thread.sleep(forTimeInterval: 0.01)
+    if try typeAccessibleText(text, app: app) {
+        return try stateResponse(for: app)
+    }
+    withTemporaryActivation(app, cursorPoint: targetWindowCenter(for: app)) {
+        for character in text {
+            postUnicode(String(character))
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
     return try stateResponse(for: app)
 }
@@ -395,11 +485,9 @@ func stateResponse(for app: ResolvedApp) throws -> Response {
             "Accessibility permission is not granted for pi-gui. In macOS System Settings > Privacy & Security > Accessibility, enable pi-gui. If pi-gui is already enabled after replacing or rebuilding the app, toggle it off and back on, then relaunch pi-gui."
         )
     }
-    activate(app)
-    Thread.sleep(forTimeInterval: 0.2)
-
+    Thread.sleep(forTimeInterval: 0.08)
     let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
-    let window = focusedWindow(for: appElement) ?? appElement
+    let window = targetWindow(for: appElement) ?? appElement
     let title = copyStringAttribute(window, kAXTitleAttribute) ?? app.displayName
     let builder = TreeBuilder()
     let tree = builder.build(from: window)
@@ -426,6 +514,7 @@ func stateResponse(for app: ResolvedApp) throws -> Response {
         details: [
             "app": app.displayName,
             "bundleIdentifier": app.bundleIdentifier,
+            "focusMode": "background",
             "pid": String(app.running.processIdentifier),
             "windowTitle": title,
         ],
@@ -451,7 +540,7 @@ func requireIndexedElement(_ request: Request, app: ResolvedApp) throws -> AXUIE
         throw HelperError.message("Element index must be an integer: \(indexText)")
     }
     let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
-    let window = focusedWindow(for: appElement) ?? appElement
+    let window = targetWindow(for: appElement) ?? appElement
     let builder = TreeBuilder()
     _ = builder.build(from: window)
     guard index >= 0 && index < builder.elements.count else {
@@ -464,7 +553,7 @@ func screenshotPoint(_ request: Request, app: ResolvedApp, x: Double?, y: Double
     let x = try require(x, "x")
     let y = try require(y, "y")
     let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
-    let window = focusedWindow(for: appElement) ?? appElement
+    let window = targetWindow(for: appElement) ?? appElement
     let frame = windowFrame(window) ?? windowCapture(for: app, title: nil).frame
     guard let frame else {
         throw HelperError.message("Cannot translate screenshot coordinates without a window frame.")
@@ -548,6 +637,43 @@ func activate(_ app: ResolvedApp) {
     app.running.activate(options: [.activateAllWindows])
 }
 
+func withTemporaryActivation<T>(
+    _ app: ResolvedApp,
+    cursorPoint: CGPoint?,
+    restoreFocus: Bool = true,
+    _ body: () throws -> T
+) rethrows -> T {
+    let previousApp = NSWorkspace.shared.frontmostApplication
+    let previousMouseLocation = currentMouseLocation()
+    activate(app)
+    Thread.sleep(forTimeInterval: 0.08)
+    if let cursorPoint {
+        showAgentCursor(at: cursorPoint, pressed: true)
+    }
+    defer {
+        if restoreFocus {
+            restoreUserFocus(previousApp, mouseLocation: previousMouseLocation, targetPid: app.running.processIdentifier)
+        }
+    }
+    return try body()
+}
+
+func restoreUserFocus(_ previousApp: NSRunningApplication?, mouseLocation: CGPoint?, targetPid: pid_t) {
+    if let previousApp,
+       previousApp.processIdentifier != targetPid,
+       let stillRunning = NSRunningApplication(processIdentifier: previousApp.processIdentifier) {
+        stillRunning.activate(options: [])
+        Thread.sleep(forTimeInterval: 0.08)
+    }
+    if let mouseLocation {
+        moveMouse(to: mouseLocation)
+    }
+}
+
+func currentMouseLocation() -> CGPoint? {
+    CGEvent(source: nil)?.location
+}
+
 func discoverInstalledApps() -> [URL] {
     let roots = [
         "/Applications",
@@ -569,12 +695,31 @@ func discoverInstalledApps() -> [URL] {
     return urls.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
 }
 
-func focusedWindow(for appElement: AXUIElement) -> AXUIElement? {
+func targetWindow(for appElement: AXUIElement) -> AXUIElement? {
     if let focused: AXUIElement = copyAttribute(appElement, kAXFocusedWindowAttribute) {
         return focused
     }
     let windows: [AXUIElement]? = copyAttribute(appElement, kAXWindowsAttribute)
-    return windows?.first
+    return windows?.max(by: { windowArea($0) < windowArea($1) })
+}
+
+func windowArea(_ element: AXUIElement) -> CGFloat {
+    guard let frame = windowFrame(element) else {
+        return 0
+    }
+    return frame.width * frame.height
+}
+
+func targetWindowCenter(for app: ResolvedApp) -> CGPoint? {
+    let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
+    if let window = targetWindow(for: appElement),
+       let frame = windowFrame(window) {
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+    if let frame = windowCapture(for: app, title: nil).frame {
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+    return nil
 }
 
 func windowFrame(_ element: AXUIElement) -> CGRect? {
@@ -747,6 +892,223 @@ func backingScaleFactor(for frame: CGRect) -> Double {
         }
     }
     return Double(NSScreen.main?.backingScaleFactor ?? 1)
+}
+
+func showAgentCursor(for element: AXUIElement, pressed: Bool) {
+    if let center = elementCenter(element) {
+        showAgentCursor(at: center, pressed: pressed)
+    }
+}
+
+func showAgentCursor(at point: CGPoint, pressed: Bool) {
+    guard ProcessInfo.processInfo.environment["PI_GUI_COMPUTER_USE_SHOW_CURSOR"] != cursorOverlayDisabledValue,
+          let frame = agentCursorFrame(for: point) else {
+        return
+    }
+
+    NSApplication.shared.setActivationPolicy(.accessory)
+    let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    panel.isReleasedWhenClosed = true
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.hasShadow = false
+    panel.ignoresMouseEvents = true
+    panel.level = .floating
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+    panel.contentView = AgentCursorView(frame: NSRect(origin: .zero, size: frame.size), pressed: pressed)
+    panel.orderFrontRegardless()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.14))
+    panel.orderOut(nil)
+}
+
+func agentCursorFrame(for quartzPoint: CGPoint) -> NSRect? {
+    let size = CGSize(width: 34, height: 38)
+    let tip = CGPoint(x: 5, y: 31)
+    guard let cocoaPoint = cocoaPoint(fromQuartz: quartzPoint) else {
+        return nil
+    }
+    return NSRect(
+        x: cocoaPoint.x - tip.x,
+        y: cocoaPoint.y - tip.y,
+        width: size.width,
+        height: size.height
+    )
+}
+
+func cocoaPoint(fromQuartz point: CGPoint) -> CGPoint? {
+    for screen in NSScreen.screens {
+        guard let displayBounds = quartzBounds(for: screen),
+              displayBounds.contains(point) else {
+            continue
+        }
+        return CGPoint(
+            x: screen.frame.minX + point.x - displayBounds.minX,
+            y: screen.frame.maxY - (point.y - displayBounds.minY)
+        )
+    }
+    guard let screen = NSScreen.main else {
+        return nil
+    }
+    return CGPoint(x: point.x, y: screen.frame.maxY - point.y)
+}
+
+func quartzBounds(for screen: NSScreen) -> CGRect? {
+    guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+        return nil
+    }
+    return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
+}
+
+func accessibilityScrollAction(direction: String, element: AXUIElement) -> String? {
+    let candidates: [String]
+    switch direction {
+    case "up":
+        candidates = ["AXScrollUp"]
+    case "down":
+        candidates = ["AXScrollDown"]
+    case "left":
+        candidates = ["AXScrollLeft"]
+    case "right":
+        candidates = ["AXScrollRight"]
+    default:
+        return nil
+    }
+
+    let actions = Set(copyActionNames(element))
+    return candidates.first(where: { actions.contains($0) })
+}
+
+func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
+    guard supportsKeypadButtonEmulation(app) else {
+        return false
+    }
+    let labels = accessibleLabels(forKey: rawKey)
+    guard !labels.isEmpty else {
+        return false
+    }
+    guard let element = pressableElement(in: app, labels: labels) else {
+        return false
+    }
+    showAgentCursor(for: element, pressed: true)
+    let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+    Thread.sleep(forTimeInterval: 0.06)
+    guard error == .success else {
+        throw HelperError.message("AXPress failed for \(app.displayName) key \(rawKey): \(error.rawValue)")
+    }
+    return true
+}
+
+func typeAccessibleText(_ text: String, app: ResolvedApp) throws -> Bool {
+    guard supportsKeypadButtonEmulation(app) else {
+        return false
+    }
+    let keys = text.map { String($0) }
+    guard !keys.isEmpty else {
+        return true
+    }
+
+    var elements: [AXUIElement] = []
+    for key in keys {
+        let labels = accessibleLabels(forKey: key)
+        guard !labels.isEmpty else {
+            return false
+        }
+        guard let element = pressableElement(in: app, labels: labels) else {
+            return false
+        }
+        elements.append(element)
+    }
+
+    for element in elements {
+        showAgentCursor(for: element, pressed: true)
+        let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        guard error == .success else {
+            throw HelperError.message("AXPress failed while typing text.")
+        }
+        Thread.sleep(forTimeInterval: 0.06)
+    }
+    return true
+}
+
+func supportsKeypadButtonEmulation(_ app: ResolvedApp) -> Bool {
+    app.bundleIdentifier == "com.apple.calculator" || app.displayName.caseInsensitiveCompare("Calculator") == .orderedSame
+}
+
+func pressableElement(in app: ResolvedApp, labels: [String]) -> AXUIElement? {
+    let expected = Set(labels.map(normalizeLookupLabel))
+    guard !expected.isEmpty else {
+        return nil
+    }
+
+    let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
+    let root = targetWindow(for: appElement) ?? appElement
+    let builder = TreeBuilder()
+    _ = builder.build(from: root)
+    return builder.elements.first { element in
+        copyActionNames(element).contains(kAXPressAction as String) && elementLabels(element).contains { label in
+            expected.contains(normalizeLookupLabel(label))
+        }
+    }
+}
+
+func elementLabels(_ element: AXUIElement) -> [String] {
+    [
+        copyStringAttribute(element, kAXTitleAttribute),
+        copyStringAttribute(element, kAXDescriptionAttribute),
+        describeValue(element),
+        copyStringAttribute(element, kAXHelpAttribute),
+        copyStringAttribute(element, kAXIdentifierAttribute),
+    ].compactMap { $0 }.filter { !$0.isEmpty }
+}
+
+func normalizeLookupLabel(_ value: String) -> String {
+    clean(value)
+        .lowercased()
+        .replacingOccurrences(of: "−", with: "-")
+        .replacingOccurrences(of: "×", with: "*")
+        .replacingOccurrences(of: "÷", with: "/")
+}
+
+func accessibleLabels(forKey rawKey: String) -> [String] {
+    let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    switch key {
+    case "0", "kp_0", "numpad_0":
+        return ["0"]
+    case "1", "kp_1", "numpad_1":
+        return ["1"]
+    case "2", "kp_2", "numpad_2":
+        return ["2"]
+    case "3", "kp_3", "numpad_3":
+        return ["3"]
+    case "4", "kp_4", "numpad_4":
+        return ["4"]
+    case "5", "kp_5", "numpad_5":
+        return ["5"]
+    case "6", "kp_6", "numpad_6":
+        return ["6"]
+    case "7", "kp_7", "numpad_7":
+        return ["7"]
+    case "8", "kp_8", "numpad_8":
+        return ["8"]
+    case "9", "kp_9", "numpad_9":
+        return ["9"]
+    case ".", "decimal", "kp_decimal", "numpad_decimal":
+        return [".", "decimal"]
+    case "+", "plus", "add", "kp_add", "numpad_add":
+        return ["+", "add", "plus"]
+    case "-", "subtract", "kp_subtract", "numpad_subtract":
+        return ["-", "subtract", "minus"]
+    case "*", "multiply", "kp_multiply", "numpad_multiply":
+        return ["*", "multiply"]
+    case "/", "divide", "kp_divide", "numpad_divide":
+        return ["/", "divide"]
+    case "=", "equal", "equals", "kp_equal", "numpad_equal", "kp_enter", "numpad_enter":
+        return ["=", "equals"]
+    case "clear", "kp_clear", "numpad_clear":
+        return ["clear", "all clear", "ac", "c"]
+    default:
+        return []
+    }
 }
 
 func postClick(at point: CGPoint, button: String, count: Int) {
