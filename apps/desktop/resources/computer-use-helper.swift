@@ -85,6 +85,8 @@ struct WindowCapture {
 }
 
 private let cursorOverlayDisabledValue = "0"
+private let cursorOverlayDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS"
+private let defaultCursorOverlayDuration = 0.14
 
 final class AgentCursorView: NSView {
     private let pressed: Bool
@@ -945,8 +947,18 @@ func showAgentCursor(at point: CGPoint, pressed: Bool) {
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     panel.contentView = AgentCursorView(frame: NSRect(origin: .zero, size: frame.size), pressed: pressed)
     panel.orderFrontRegardless()
-    RunLoop.current.run(until: Date().addingTimeInterval(0.14))
+    RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayDuration()))
     panel.orderOut(nil)
+}
+
+func cursorOverlayDuration() -> TimeInterval {
+    guard let rawValue = ProcessInfo.processInfo.environment[cursorOverlayDurationEnv],
+          let milliseconds = Double(rawValue),
+          milliseconds.isFinite,
+          milliseconds > 0 else {
+        return defaultCursorOverlayDuration
+    }
+    return min(milliseconds / 1000, 2)
 }
 
 func agentCursorFrame(for quartzPoint: CGPoint) -> NSRect? {
