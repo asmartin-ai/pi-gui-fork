@@ -8,9 +8,37 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
+const helperExecutableName = "pi-gui-computer-use-helper";
+const helperAppName = "pi-gui Computer Use.app";
+const defaultHelperAppExecutablePath = path.join(
+  desktopDir,
+  "build",
+  "native",
+  helperAppName,
+  "Contents",
+  "MacOS",
+  helperExecutableName,
+);
 const defaultHelperPath = path.join(desktopDir, "build", "native", "pi-gui-computer-use-helper");
+const installedHelperAppExecutablePath = path.join(
+  "/Applications",
+  "pi-gui.app",
+  "Contents",
+  "SharedSupport",
+  helperAppName,
+  "Contents",
+  "MacOS",
+  helperExecutableName,
+);
 const installedHelperPath = "/Applications/pi-gui.app/Contents/MacOS/pi-gui-computer-use-helper";
-const helperPath = process.argv[2] ?? (await firstExistingPath([defaultHelperPath, installedHelperPath]));
+const helperPath =
+  process.argv[2] ??
+  (await firstExistingPath([
+    defaultHelperAppExecutablePath,
+    defaultHelperPath,
+    installedHelperAppExecutablePath,
+    installedHelperPath,
+  ]));
 const configuredHelperTimeoutMs = Number.parseInt(process.env.PI_GUI_COMPUTER_USE_PROBE_TIMEOUT_MS ?? "", 10);
 const helperTimeoutMs =
   Number.isFinite(configuredHelperTimeoutMs) && configuredHelperTimeoutMs > 0 ? configuredHelperTimeoutMs : 15_000;

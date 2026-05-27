@@ -17,6 +17,8 @@ const expectedComputerUseTools = [
   "set_value",
   "type_text",
 ];
+const helperExecutableName = "pi-gui-computer-use-helper";
+const helperAppName = "pi-gui Computer Use.app";
 
 interface HelperResponse {
   readonly ok: boolean;
@@ -27,9 +29,17 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   test.setTimeout(60_000);
   const appBundle = await resolvePackagedAppBundle();
   const appAsar = join(appBundle, "Contents", "Resources", "app.asar");
-  const helperPath = join(appBundle, "Contents", "MacOS", "pi-gui-computer-use-helper");
+  const helperAppBundle = join(appBundle, "Contents", "SharedSupport", helperAppName);
+  const helperAppExecutable = join(helperAppBundle, "Contents", "MacOS", helperExecutableName);
+  const helperAppInfoPlist = join(helperAppBundle, "Contents", "Info.plist");
+  const helperPath = join(appBundle, "Contents", "MacOS", helperExecutableName);
 
+  await access(helperAppExecutable);
   await access(helperPath);
+
+  const helperInfo = await readFile(helperAppInfoPlist, "utf8");
+  expect(helperInfo).toMatch(/<key>LSUIElement<\/key>\s*<true\/>/);
+  expect(helperInfo).toContain("<string>com.pi-gui.desktop.computer-use-helper</string>");
 
   const files = listPackage(appAsar);
   expect(files).toContain("/out/computer-use-extension/package.json");
@@ -63,12 +73,15 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("AXTextArea");
   expect(helperSource).toContain("AXSelectedTextRange");
   expect(helperSource).toContain("all clear");
+  expect(helperSource).toContain("enable pi-gui and pi-gui Computer Use");
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
   expect(mainSource).not.toContain("getAgentDir");
   expect(mainSource).not.toContain("@earendil-works/pi-coding-agent");
+  expect(mainSource).toContain(helperAppName);
+  expect(mainSource).toContain("SharedSupport");
 
-  const helperResponse = await runPackagedHelper(helperPath, { command: "list_apps" });
+  const helperResponse = await runPackagedHelper(helperAppExecutable, { command: "list_apps" });
   expect(helperResponse.ok).toBe(true);
   expect(helperResponse.content?.[0]?.type).toBe("text");
   expect(helperResponse.content?.[0]?.text).toContain("Finder");

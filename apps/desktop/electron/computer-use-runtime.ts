@@ -6,6 +6,8 @@ import path from "node:path";
 const computerUsePackageName = "@pi-gui/computer-use-extension";
 const helperEnv = "PI_GUI_COMPUTER_USE_HELPER_PATH";
 const disableEnv = "PI_GUI_DISABLE_BUILTIN_COMPUTER_USE";
+const helperExecutableName = "pi-gui-computer-use-helper";
+const helperAppName = "pi-gui Computer Use.app";
 
 interface ConfigureComputerUseRuntimeOptions {
   readonly isPackaged: boolean;
@@ -27,11 +29,22 @@ function configureHelperPath(options: ConfigureComputerUseRuntimeOptions): void 
     return;
   }
 
-  const helperPath = options.isPackaged
-    ? path.join(path.dirname(options.execPath), "pi-gui-computer-use-helper")
-    : path.join(__dirname, "..", "..", "build", "native", "pi-gui-computer-use-helper");
+  const candidates = computerUseHelperCandidates(options);
+  process.env[helperEnv] = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
 
-  process.env[helperEnv] = helperPath;
+function computerUseHelperCandidates(options: ConfigureComputerUseRuntimeOptions): string[] {
+  if (options.isPackaged) {
+    return [
+      path.join(path.dirname(options.execPath), "..", "SharedSupport", helperAppName, "Contents", "MacOS", helperExecutableName),
+      path.join(path.dirname(options.execPath), helperExecutableName),
+    ];
+  }
+
+  return [
+    path.join(__dirname, "..", "..", "build", "native", helperAppName, "Contents", "MacOS", helperExecutableName),
+    path.join(__dirname, "..", "..", "build", "native", helperExecutableName),
+  ];
 }
 
 function resolveAgentDir(): string {
