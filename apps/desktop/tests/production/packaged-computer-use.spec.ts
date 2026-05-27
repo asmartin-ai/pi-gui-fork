@@ -75,6 +75,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("all clear");
   expect(helperSource).toContain("enable pi-gui and pi-gui Computer Use");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS");
+  expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS");
+  expect(helperSource).toContain("--cursor-overlay-daemon");
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
   expect(mainSource).not.toContain("getAgentDir");

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 struct Request: Decodable {
@@ -85,11 +86,28 @@ struct WindowCapture {
 }
 
 private let cursorOverlayDisabledValue = "0"
+private let cursorOverlayDaemonArgument = "--cursor-overlay-daemon"
 private let cursorOverlayDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS"
-private let defaultCursorOverlayDuration = 0.14
+private let cursorOverlayGlideDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS"
+private let defaultCursorOverlayDuration = 1.4
+private let defaultCursorOverlayGlideDuration = 0.22
+private let agentCursorPositionFile = FileManager.default.temporaryDirectory.appendingPathComponent("pi-gui-computer-use-agent-cursor-position")
+private let agentCursorPidFile = FileManager.default.temporaryDirectory.appendingPathComponent("pi-gui-computer-use-agent-cursor.pid")
+private let maxSavedAgentCursorPositionAge: TimeInterval = 300
+private let cursorOverlayFrameInterval: TimeInterval = 1.0 / 60.0
+
+struct AgentCursorRequest {
+    let point: CGPoint
+    let pressed: Bool
+    let timestamp: TimeInterval
+}
 
 final class AgentCursorView: NSView {
-    private let pressed: Bool
+    var pressed: Bool {
+        didSet {
+            needsDisplay = true
+        }
+    }
 
     init(frame frameRect: NSRect, pressed: Bool) {
         self.pressed = pressed
@@ -209,6 +227,10 @@ enum HelperError: Error, CustomStringConvertible {
 }
 
 func main() {
+    if CommandLine.arguments.contains(cursorOverlayDaemonArgument) {
+        runAgentCursorOverlayDaemon()
+    }
+
     do {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let request = try JSONDecoder().decode(Request.self, from: input)
@@ -932,11 +954,141 @@ func showAgentCursor(for element: AXUIElement, pressed: Bool) {
 
 func showAgentCursor(at point: CGPoint, pressed: Bool) {
     guard ProcessInfo.processInfo.environment["PI_GUI_COMPUTER_USE_SHOW_CURSOR"] != cursorOverlayDisabledValue,
-          let frame = agentCursorFrame(for: point) else {
+          agentCursorFrame(for: point) != nil else {
         return
     }
 
+    writeAgentCursorRequest(point, pressed: pressed)
+    if !ensureAgentCursorOverlayDaemon() {
+        showTransientAgentCursor(at: point, pressed: pressed)
+    }
+}
+
+func showTransientAgentCursor(at point: CGPoint, pressed: Bool) {
+    guard let targetFrame = agentCursorFrame(for: point) else {
+        return
+    }
+    let startPoint = currentMouseLocation() ?? point
+    let startFrame = agentCursorFrame(for: startPoint) ?? targetFrame
     NSApplication.shared.setActivationPolicy(.accessory)
+    let (panel, cursorView) = makeAgentCursorPanel(frame: startFrame, pressed: false)
+    panel.orderFrontRegardless()
+    glideAgentCursor(panel, from: startFrame, to: targetFrame)
+    cursorView.pressed = pressed
+    RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayDuration()))
+    panel.orderOut(nil)
+}
+
+func runAgentCursorOverlayDaemon() -> Never {
+    let currentPid = getpid()
+    try? "\(currentPid)".write(to: agentCursorPidFile, atomically: true, encoding: .utf8)
+
+    NSApplication.shared.setActivationPolicy(.accessory)
+    var panel: NSPanel?
+    var cursorView: AgentCursorView?
+    var currentFrame: NSRect?
+    var startFrame: NSRect?
+    var targetFrame: NSRect?
+    var animationStartedAt = Date()
+    var activeRequestTimestamp: TimeInterval = 0
+    var lastRequestObservedAt = Date()
+
+    while true {
+        autoreleasepool {
+            if let request = readAgentCursorRequest(),
+               request.timestamp > activeRequestTimestamp {
+                activeRequestTimestamp = request.timestamp
+                lastRequestObservedAt = Date()
+
+                if let nextTargetFrame = agentCursorFrame(for: request.point) {
+                    if panel == nil {
+                        let initialPoint = currentMouseLocation() ?? request.point
+                        let initialFrame = agentCursorFrame(for: initialPoint) ?? nextTargetFrame
+                        let cursorPanel = makeAgentCursorPanel(frame: initialFrame, pressed: request.pressed)
+                        panel = cursorPanel.panel
+                        cursorView = cursorPanel.cursorView
+                        currentFrame = initialFrame
+                        panel?.orderFrontRegardless()
+                    }
+
+                    startFrame = currentFrame ?? panel?.frame ?? nextTargetFrame
+                    targetFrame = nextTargetFrame
+                    animationStartedAt = Date()
+                    cursorView?.pressed = request.pressed
+                }
+            }
+
+            if let panel, let targetFrame {
+                let duration = cursorOverlayGlideDuration()
+                let frame: NSRect
+                if duration > 0, let startFrame, hypot(startFrame.midX - targetFrame.midX, startFrame.midY - targetFrame.midY) >= 2 {
+                    let progress = min(1, Date().timeIntervalSince(animationStartedAt) / duration)
+                    frame = interpolatedRect(from: startFrame, to: targetFrame, progress: easeInOut(progress))
+                } else {
+                    frame = targetFrame
+                }
+                panel.setFrame(frame, display: true)
+                currentFrame = frame
+            }
+        }
+
+        if Date().timeIntervalSince(lastRequestObservedAt) > cursorOverlayDuration() {
+            break
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayFrameInterval))
+    }
+
+    panel?.orderOut(nil)
+    clearAgentCursorOverlayPid(currentPid)
+    exit(EXIT_SUCCESS)
+}
+
+func ensureAgentCursorOverlayDaemon() -> Bool {
+    if isAgentCursorOverlayDaemonRunning() {
+        return true
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+    process.arguments = [cursorOverlayDaemonArgument]
+    process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
+    process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+    process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+    do {
+        try process.run()
+        try? "\(process.processIdentifier)".write(to: agentCursorPidFile, atomically: true, encoding: .utf8)
+        return true
+    } catch {
+        return false
+    }
+}
+
+func isAgentCursorOverlayDaemonRunning() -> Bool {
+    guard let pid = readAgentCursorOverlayPid(), pid > 0 else {
+        return false
+    }
+    if Darwin.kill(pid, 0) == 0 || errno == EPERM {
+        return true
+    }
+    try? FileManager.default.removeItem(at: agentCursorPidFile)
+    return false
+}
+
+func readAgentCursorOverlayPid() -> pid_t? {
+    guard let rawValue = try? String(contentsOf: agentCursorPidFile, encoding: .utf8),
+          let pid = pid_t(rawValue.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        return nil
+    }
+    return pid
+}
+
+func clearAgentCursorOverlayPid(_ pid: pid_t) {
+    if readAgentCursorOverlayPid() == pid {
+        try? FileManager.default.removeItem(at: agentCursorPidFile)
+    }
+}
+
+func makeAgentCursorPanel(frame: NSRect, pressed: Bool) -> (panel: NSPanel, cursorView: AgentCursorView) {
     let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.isReleasedWhenClosed = true
     panel.isOpaque = false
@@ -945,10 +1097,30 @@ func showAgentCursor(at point: CGPoint, pressed: Bool) {
     panel.ignoresMouseEvents = true
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-    panel.contentView = AgentCursorView(frame: NSRect(origin: .zero, size: frame.size), pressed: pressed)
-    panel.orderFrontRegardless()
-    RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayDuration()))
-    panel.orderOut(nil)
+    let cursorView = AgentCursorView(frame: NSRect(origin: .zero, size: frame.size), pressed: pressed)
+    panel.contentView = cursorView
+    return (panel, cursorView)
+}
+
+func glideAgentCursor(_ panel: NSPanel, from startFrame: NSRect, to targetFrame: NSRect) {
+    let duration = cursorOverlayGlideDuration()
+    guard duration > 0,
+          hypot(startFrame.midX - targetFrame.midX, startFrame.midY - targetFrame.midY) >= 2 else {
+        panel.setFrame(targetFrame, display: true)
+        return
+    }
+
+    let started = Date()
+    while true {
+        let elapsed = Date().timeIntervalSince(started)
+        let progress = min(1, elapsed / duration)
+        let eased = easeInOut(progress)
+        panel.setFrame(interpolatedRect(from: startFrame, to: targetFrame, progress: eased), display: true)
+        if progress >= 1 {
+            break
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayFrameInterval))
+    }
 }
 
 func cursorOverlayDuration() -> TimeInterval {
@@ -959,6 +1131,53 @@ func cursorOverlayDuration() -> TimeInterval {
         return defaultCursorOverlayDuration
     }
     return min(milliseconds / 1000, 2)
+}
+
+func cursorOverlayGlideDuration() -> TimeInterval {
+    guard let rawValue = ProcessInfo.processInfo.environment[cursorOverlayGlideDurationEnv],
+          let milliseconds = Double(rawValue),
+          milliseconds.isFinite,
+          milliseconds >= 0 else {
+        return defaultCursorOverlayGlideDuration
+    }
+    return min(milliseconds / 1000, 2)
+}
+
+func interpolatedRect(from start: NSRect, to end: NSRect, progress: Double) -> NSRect {
+    NSRect(
+        x: start.origin.x + ((end.origin.x - start.origin.x) * progress),
+        y: start.origin.y + ((end.origin.y - start.origin.y) * progress),
+        width: start.width + ((end.width - start.width) * progress),
+        height: start.height + ((end.height - start.height) * progress)
+    )
+}
+
+func easeInOut(_ progress: Double) -> Double {
+    let clamped = max(0, min(1, progress))
+    return clamped * clamped * (3 - (2 * clamped))
+}
+
+func readAgentCursorRequest() -> AgentCursorRequest? {
+    guard let rawValue = try? String(contentsOf: agentCursorPositionFile, encoding: .utf8) else {
+        return nil
+    }
+    let parts = rawValue.split(separator: ",")
+    guard parts.count == 4,
+          let x = Double(parts[0]),
+          let y = Double(parts[1]),
+          let timestamp = Double(parts[2]),
+          x.isFinite,
+          y.isFinite,
+          timestamp.isFinite,
+          Date().timeIntervalSince1970 - timestamp <= maxSavedAgentCursorPositionAge else {
+        return nil
+    }
+    return AgentCursorRequest(point: CGPoint(x: x, y: y), pressed: parts[3] == "1", timestamp: timestamp)
+}
+
+func writeAgentCursorRequest(_ point: CGPoint, pressed: Bool) {
+    let pressedValue = pressed ? "1" : "0"
+    try? "\(point.x),\(point.y),\(Date().timeIntervalSince1970),\(pressedValue)".write(to: agentCursorPositionFile, atomically: true, encoding: .utf8)
 }
 
 func agentCursorFrame(for quartzPoint: CGPoint) -> NSRect? {
