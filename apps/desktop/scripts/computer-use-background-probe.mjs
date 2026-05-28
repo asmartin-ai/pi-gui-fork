@@ -59,6 +59,7 @@ try {
 async function main() {
   await access(helperPath);
   await removeCursorRequest();
+  await assertUnlockedDesktop();
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
   await sleep(500);
   await activateFinder();
@@ -92,6 +93,17 @@ async function main() {
   console.log(
     `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
   );
+}
+
+async function assertUnlockedDesktop() {
+  try {
+    await runHelper({ command: "get_app_state", app: "Finder" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Computer Use is unavailable while the Mac is locked")) {
+      throw new Error(message);
+    }
+  }
 }
 
 async function firstExistingPath(paths) {
