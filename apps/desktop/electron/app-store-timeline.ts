@@ -195,12 +195,18 @@ export function applyTimelineEvent(
     }
     case "runFailed": {
       const metrics = currentMetrics;
+      const latestToolError = metrics ? latestErrorToolDetail(transcript, metrics.startedAt) : undefined;
+      const failureLabel = clearerRunFailureLabel(event.error.message, latestToolError);
+      const failureDetail =
+        failureLabel === event.error.message
+          ? event.error.code
+          : [event.error.code, event.error.message].filter(Boolean).join(" · ") || undefined;
       clearRunState(transcript, key, event.sessionRef, state);
       transcript.push(
-        makeActivityItem(event.error.message, {
+        makeActivityItem(failureLabel, {
           tone: "error",
           metadata: metrics ? workedForLabel(metrics.startedAt, event.timestamp) : undefined,
-          detail: event.error.code,
+          detail: failureDetail,
         }),
       );
       break;
@@ -306,6 +312,13 @@ function progressLabel(progress: number | undefined): string | undefined {
 }
 
 function detailFromOutput(output: unknown): string | undefined {
+  if (isRecord(output)) {
+    const directError =
+      stringProperty(output, "error") ?? stringProperty(output, "message") ?? stringProperty(output, "stderr");
+    if (directError) {
+      return truncate(directError);
+    }
+  }
   if (isRecord(output) && Array.isArray(output.content)) {
     const text = output.content
       .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
@@ -376,7 +389,7 @@ function inputLabel(input: unknown): string | undefined {
     return undefined;
   }
 
-  const candidates = ["path", "filePath", "query", "q", "url", "command", "text", "title"];
+  const candidates = ["path", "filePath", "query", "q", "url", "command", "text", "title", "app"];
   for (const key of candidates) {
     const value = input[key];
     if (typeof value === "string" && value.trim()) {
@@ -385,6 +398,39 @@ function inputLabel(input: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+function latestErrorToolDetail(transcript: readonly TranscriptMessage[], runStartedAt: string): string | undefined {
+  const runStartedAtMs = Date.parse(runStartedAt);
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (!item) {
+      continue;
+    }
+    if (Number.isFinite(runStartedAtMs) && Date.parse(item.createdAt) < runStartedAtMs) {
+      break;
+    }
+    if (item.kind === "tool" && item.status === "error" && item.detail) {
+      return item.detail;
+    }
+  }
+  return undefined;
+}
+
+function clearerRunFailureLabel(message: string, latestToolError: string | undefined): string {
+  if (!latestToolError) {
+    return message;
+  }
+  const normalized = message.trim().toLowerCase();
+  if (normalized === "terminated" || normalized === "failed" || normalized === "error" || normalized === "run failed") {
+    return latestToolError;
+  }
+  return message;
+}
+
+function stringProperty(record: Readonly<Record<string, unknown>>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

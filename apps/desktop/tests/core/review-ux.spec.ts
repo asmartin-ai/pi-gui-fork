@@ -217,6 +217,69 @@ test("view-in-changes button on a write tool row opens the diff panel without to
   }
 });
 
+test("tool failures surface actionable Computer Use details in collapsed timeline rows", async () => {
+  test.setTimeout(45_000);
+  const { harness, window } = await launchSeeded("Review UX tool failure");
+  try {
+    const sessionRef = await selectedSessionRef(window);
+    const timestamp = new Date().toISOString();
+    const lockedMessage = "Computer Use is unavailable while the Mac is locked. Unlock the desktop and retry.";
+    const startedEvent: Extract<SessionDriverEvent, { type: "toolStarted" }> = {
+      type: "toolStarted",
+      sessionRef,
+      timestamp,
+      toolName: "click",
+      callId: "computer-use-click-1",
+      input: { app: "Calculator" },
+    };
+    await emitTestSessionEvent(harness, startedEvent);
+
+    const toolItem = window.locator(".timeline-tool").first();
+    await expect(toolItem.locator(".timeline-tool__label")).toHaveText("Ran click: Calculator");
+
+    const finishedEvent: Extract<SessionDriverEvent, { type: "toolFinished" }> = {
+      type: "toolFinished",
+      sessionRef,
+      timestamp,
+      callId: "computer-use-click-1",
+      success: false,
+      output: { error: lockedMessage },
+    };
+    await emitTestSessionEvent(harness, finishedEvent);
+
+    await expect(toolItem).toHaveClass(/timeline-tool--error/);
+    await expect(toolItem.locator(".timeline-tool__header")).toHaveAttribute("aria-expanded", "false");
+    await expect(toolItem.locator(".timeline-tool__detail")).toHaveText(lockedMessage);
+
+    const failedEvent: Extract<SessionDriverEvent, { type: "runFailed" }> = {
+      type: "runFailed",
+      sessionRef,
+      timestamp,
+      error: { message: "terminated", code: "RUN_FAILED" },
+    };
+    await emitTestSessionEvent(harness, failedEvent);
+
+    const failureActivity = window.locator(".timeline-activity--error").last();
+    await expect(failureActivity).toContainText(lockedMessage);
+    await expect(failureActivity).toContainText("RUN_FAILED");
+    await expect(failureActivity).toContainText("terminated");
+
+    const laterGenericFailure: Extract<SessionDriverEvent, { type: "runFailed" }> = {
+      type: "runFailed",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      error: { message: "terminated", code: "RUN_FAILED" },
+    };
+    await emitTestSessionEvent(harness, laterGenericFailure);
+
+    const laterFailureActivity = window.locator(".timeline-activity--error").last();
+    await expect(laterFailureActivity).toContainText("terminated");
+    await expect(laterFailureActivity).not.toContainText(lockedMessage);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("highlighting tokens swap palettes when the dark class flips", async () => {
   test.setTimeout(45_000);
   const { harness, window } = await launchSeeded("Review UX theme");

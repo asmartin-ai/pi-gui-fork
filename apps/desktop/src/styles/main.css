@@ -501,6 +501,7 @@
   flex: 1;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   cursor: pointer;
   background: none;
@@ -544,6 +545,14 @@
   color: var(--muted-strong);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.timeline-tool__detail {
+  color: var(--error-ink);
+  font-size: 12px;
+  line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .timeline-tool__diff-stats {
