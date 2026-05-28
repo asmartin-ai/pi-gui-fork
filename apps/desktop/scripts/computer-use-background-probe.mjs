@@ -49,41 +49,50 @@ const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === 
 const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
 const cursorPositionPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor-position");
 
-await access(helperPath);
-await removeCursorRequest();
-await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
-await sleep(500);
-await activateFinder();
-
-const frontmostBefore = await frontmostApp();
-if (frontmostBefore === "Calculator") {
-  throw new Error("Could not put a non-target app in front before the Computer Use probe.");
+try {
+  await main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
 }
 
-await execFileAsync("open", ["-g", "-a", "Calculator"]);
-await waitForApp("Calculator");
-await assertTargetDidNotBecomeFrontmost("launch Calculator in background", frontmostBefore, "Calculator");
+async function main() {
+  await access(helperPath);
+  await removeCursorRequest();
+  await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
+  await sleep(500);
+  await activateFinder();
 
-const initialCalculatorState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
-await runOutOfBoundsCoordinateProbe(initialCalculatorState);
-await runCoordinateClickProbe(initialCalculatorState);
+  const frontmostBefore = await frontmostApp();
+  if (frontmostBefore === "Calculator") {
+    throw new Error("Could not put a non-target app in front before the Computer Use probe.");
+  }
 
-for (const key of ["kp_clear", "kp_clear", "7", "plus", "8", "kp_equal"]) {
-  await runWithFocusGuard({ command: "press_key", app: "Calculator", key }, `press_key ${key}`);
+  await execFileAsync("open", ["-g", "-a", "Calculator"]);
+  await waitForApp("Calculator");
+  await assertTargetDidNotBecomeFrontmost("launch Calculator in background", frontmostBefore, "Calculator");
+
+  const initialCalculatorState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
+  await runOutOfBoundsCoordinateProbe(initialCalculatorState);
+  await runCoordinateClickProbe(initialCalculatorState);
+
+  for (const key of ["kp_clear", "kp_clear", "7", "plus", "8", "kp_equal"]) {
+    await runWithFocusGuard({ command: "press_key", app: "Calculator", key }, `press_key ${key}`);
+  }
+
+  const finalState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "final get_app_state");
+  const finalText = finalState.content?.filter((item) => item.type === "text").map((item) => item.text ?? "").join("\n") ?? "";
+  if (!calculatorDisplays(finalText, "15")) {
+    throw new Error("Calculator did not expose result 15 after 7 + 8.");
+  }
+
+  await runTextEditTypingProbe();
+  await runKeyboardCursorProbe();
+
+  console.log(
+    `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
+  );
 }
-
-const finalState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "final get_app_state");
-const finalText = finalState.content?.filter((item) => item.type === "text").map((item) => item.text ?? "").join("\n") ?? "";
-if (!calculatorDisplays(finalText, "15")) {
-  throw new Error("Calculator did not expose result 15 after 7 + 8.");
-}
-
-await runTextEditTypingProbe();
-await runKeyboardCursorProbe();
-
-console.log(
-  `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
-);
 
 async function firstExistingPath(paths) {
   for (const candidate of paths) {

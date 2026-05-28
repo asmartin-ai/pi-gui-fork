@@ -89,8 +89,8 @@ private let cursorOverlayDisabledValue = "0"
 private let cursorOverlayDaemonArgument = "--cursor-overlay-daemon"
 private let cursorOverlayDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS"
 private let cursorOverlayGlideDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS"
-private let defaultCursorOverlayDuration = 1.4
-private let defaultCursorOverlayGlideDuration = 0.22
+private let defaultCursorOverlayDuration = 8.0
+private let defaultCursorOverlayGlideDuration = 0.32
 private let agentCursorPositionFile = FileManager.default.temporaryDirectory.appendingPathComponent("pi-gui-computer-use-agent-cursor-position")
 private let agentCursorPidFile = FileManager.default.temporaryDirectory.appendingPathComponent("pi-gui-computer-use-agent-cursor.pid")
 private let maxSavedAgentCursorPositionAge: TimeInterval = 300
@@ -328,7 +328,7 @@ func click(_ request: Request) throws -> Response {
 
     if let element = try indexedElement(request, app: app) {
         if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
-            showAgentCursor(for: element, pressed: true)
+            showAgentCursorAndWait(for: element, pressed: true)
             try pressElement(element, count: clickCount, failureContext: "AXPress failed for element \(request.element_index ?? "")")
             return try stateResponse(for: app)
         }
@@ -345,7 +345,7 @@ func click(_ request: Request) throws -> Response {
     if button == "left",
        let element = accessibilityElement(at: point, in: app),
        copyActionNames(element).contains(kAXPressAction as String) {
-        showAgentCursor(at: elementCenter(element) ?? point, pressed: true)
+        showAgentCursorAndWait(at: elementCenter(element) ?? point, pressed: true)
         try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
         return try stateResponse(for: app)
     }
@@ -360,7 +360,7 @@ func performSecondaryAction(_ request: Request) throws -> Response {
     let element = try requireIndexedElement(request, app: app)
     let action = try require(request.action, "action")
     let axAction = canonicalActionName(action)
-    showAgentCursor(for: element, pressed: true)
+    showAgentCursorAndWait(for: element, pressed: true)
     let error = AXUIElementPerformAction(element, axAction as CFString)
     if error != .success {
         throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
@@ -372,7 +372,7 @@ func setValue(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
     let element = try requireIndexedElement(request, app: app)
     let value = try require(request.value, "value")
-    showAgentCursor(for: element, pressed: false)
+    showAgentCursorAndWait(for: element, pressed: false)
     let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
     if error != .success {
         throw HelperError.message("Could not set value on element \(request.element_index ?? ""): \(error.rawValue)")
@@ -403,7 +403,7 @@ func selectText(_ request: Request) throws -> Response {
     guard let axRange = AXValueCreate(.cfRange, &cfRange) else {
         throw HelperError.message("Could not create selected text range.")
     }
-    showAgentCursor(for: element, pressed: false)
+    showAgentCursorAndWait(for: element, pressed: false)
     let error = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axRange)
     if error != .success {
         throw HelperError.message("Could not select text in element \(request.element_index ?? ""): \(error.rawValue)")
@@ -421,9 +421,9 @@ func scroll(_ request: Request) throws -> Response {
     if absolutePages >= 1,
        absolutePages.rounded(.towardZero) == absolutePages,
        let element,
-       let action = accessibilityScrollAction(direction: direction, element: element) {
+        let action = accessibilityScrollAction(direction: direction, element: element) {
         let repeats = max(1, min(4, Int(absolutePages)))
-        showAgentCursor(for: element, pressed: false)
+        showAgentCursorAndWait(for: element, pressed: false)
         var didScroll = false
         for _ in 0..<repeats {
             let error = AXUIElementPerformAction(element, action as CFString)
@@ -610,7 +610,9 @@ func screenshotPoint(_ request: Request, app: ResolvedApp, x: Double?, y: Double
     }
     let appElement = AXUIElementCreateApplication(app.running.processIdentifier)
     let window = targetWindow(for: appElement) ?? appElement
-    let frame = windowFrame(window) ?? windowCapture(for: app, title: nil).frame
+    let title = copyStringAttribute(window, kAXTitleAttribute) ?? app.displayName
+    let capture = windowCapture(for: app, title: title)
+    let frame = capture.frame ?? windowFrame(window)
     guard let frame else {
         throw HelperError.message("Cannot translate screenshot coordinates without a window frame.")
     }
@@ -708,11 +710,11 @@ func withTemporaryActivation<T>(
 ) rethrows -> T {
     let previousApp = NSWorkspace.shared.frontmostApplication
     let previousMouseLocation = currentMouseLocation()
+    if let cursorPoint {
+        showAgentCursorAndWait(at: cursorPoint, pressed: true)
+    }
     activate(app)
     Thread.sleep(forTimeInterval: 0.08)
-    if let cursorPoint {
-        showAgentCursor(at: cursorPoint, pressed: true)
-    }
     defer {
         if restoreFocus {
             restoreUserFocus(previousApp, mouseLocation: previousMouseLocation, targetPid: app.running.processIdentifier)
@@ -987,22 +989,49 @@ func backingScaleFactor(for frame: CGRect) -> Double {
     return Double(NSScreen.main?.backingScaleFactor ?? 1)
 }
 
-func showAgentCursor(for element: AXUIElement, pressed: Bool) {
+@discardableResult
+func showAgentCursor(for element: AXUIElement, pressed: Bool) -> Bool {
     if let center = elementCenter(element) {
-        showAgentCursor(at: center, pressed: pressed)
+        return showAgentCursor(at: center, pressed: pressed)
     }
+    return false
 }
 
-func showAgentCursor(at point: CGPoint, pressed: Bool) {
+@discardableResult
+func showAgentCursor(at point: CGPoint, pressed: Bool) -> Bool {
     guard ProcessInfo.processInfo.environment["PI_GUI_COMPUTER_USE_SHOW_CURSOR"] != cursorOverlayDisabledValue,
           agentCursorFrame(for: point) != nil else {
-        return
+        return false
     }
 
     writeAgentCursorRequest(point, pressed: pressed)
     if !ensureAgentCursorOverlayDaemon() {
         showTransientAgentCursor(at: point, pressed: pressed)
     }
+    return true
+}
+
+func showAgentCursorAndWait(for element: AXUIElement, pressed: Bool) {
+    if showAgentCursor(for: element, pressed: pressed) {
+        waitForAgentCursorGlide()
+    }
+}
+
+func showAgentCursorAndWait(at point: CGPoint, pressed: Bool) {
+    if showAgentCursor(at: point, pressed: pressed) {
+        waitForAgentCursorGlide()
+    }
+}
+
+func waitForAgentCursorGlide() {
+    guard ProcessInfo.processInfo.environment["PI_GUI_COMPUTER_USE_SHOW_CURSOR"] != cursorOverlayDisabledValue else {
+        return
+    }
+    let delay = min(cursorOverlayGlideDuration(), 0.35)
+    guard delay > 0 else {
+        return
+    }
+    RunLoop.current.run(until: Date().addingTimeInterval(delay))
 }
 
 func showTransientAgentCursor(at point: CGPoint, pressed: Bool) {
@@ -1016,7 +1045,7 @@ func showTransientAgentCursor(at point: CGPoint, pressed: Bool) {
     panel.orderFrontRegardless()
     glideAgentCursor(panel, from: startFrame, to: targetFrame)
     cursorView.pressed = pressed
-    RunLoop.current.run(until: Date().addingTimeInterval(cursorOverlayDuration()))
+    RunLoop.current.run(until: Date().addingTimeInterval(transientCursorOverlayDuration()))
     panel.orderOut(nil)
 }
 
@@ -1171,7 +1200,11 @@ func cursorOverlayDuration() -> TimeInterval {
           milliseconds > 0 else {
         return defaultCursorOverlayDuration
     }
-    return min(milliseconds / 1000, 2)
+    return min(milliseconds / 1000, 30)
+}
+
+func transientCursorOverlayDuration() -> TimeInterval {
+    min(cursorOverlayDuration(), 1.4)
 }
 
 func cursorOverlayGlideDuration() -> TimeInterval {
@@ -1289,7 +1322,7 @@ func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
     guard let element = pressableElement(in: app, labels: labels) else {
         return false
     }
-    showAgentCursor(for: element, pressed: true)
+    showAgentCursorAndWait(for: element, pressed: true)
     let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
     Thread.sleep(forTimeInterval: 0.06)
     guard error == .success else {
@@ -1353,7 +1386,7 @@ func typeTextIntoElement(_ element: AXUIElement, text: String) -> Bool {
     let replacementRange = NSRange(location: start, length: length)
     let nextValue = nsValue.replacingCharacters(in: replacementRange, with: text)
 
-    showAgentCursor(for: element, pressed: false)
+    showAgentCursorAndWait(for: element, pressed: false)
     let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, nextValue as CFString)
     if error != .success {
         return false
