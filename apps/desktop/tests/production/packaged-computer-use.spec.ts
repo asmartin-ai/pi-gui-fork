@@ -77,6 +77,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS");
   expect(helperSource).toContain("--cursor-overlay-daemon");
+  expect(helperSource).toContain("AXUIElementCopyElementAtPosition");
+  expect(helperSource).toContain("waitForFrontmost");
 
   const mainSource = extractFile(appAsar, "out/main/main.js").toString("utf8");
   expect(mainSource).not.toContain("getAgentDir");

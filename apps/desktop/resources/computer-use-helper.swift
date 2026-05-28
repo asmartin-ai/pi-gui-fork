@@ -329,14 +329,11 @@ func click(_ request: Request) throws -> Response {
     if let element = try indexedElement(request, app: app) {
         if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
             showAgentCursor(for: element, pressed: true)
-            for _ in 0..<clickCount {
-                AXUIElementPerformAction(element, kAXPressAction as CFString)
-                Thread.sleep(forTimeInterval: 0.08)
-            }
+            try pressElement(element, count: clickCount, failureContext: "AXPress failed for element \(request.element_index ?? "")")
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
-            withTemporaryActivation(app, cursorPoint: center, restoreFocus: false) {
+            withTemporaryActivation(app, cursorPoint: center) {
                 postClick(at: center, button: button, count: clickCount)
             }
             return try stateResponse(for: app)
@@ -345,7 +342,14 @@ func click(_ request: Request) throws -> Response {
     }
 
     let point = try screenshotPoint(request, app: app, x: request.x, y: request.y)
-    withTemporaryActivation(app, cursorPoint: point, restoreFocus: false) {
+    if button == "left",
+       let element = accessibilityElement(at: point, in: app),
+       copyActionNames(element).contains(kAXPressAction as String) {
+        showAgentCursor(at: elementCenter(element) ?? point, pressed: true)
+        try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
+        return try stateResponse(for: app)
+    }
+    withTemporaryActivation(app, cursorPoint: point) {
         postClick(at: point, button: button, count: clickCount)
     }
     return try stateResponse(for: app)
@@ -714,11 +718,21 @@ func restoreUserFocus(_ previousApp: NSRunningApplication?, mouseLocation: CGPoi
     if let previousApp,
        previousApp.processIdentifier != targetPid,
        let stillRunning = NSRunningApplication(processIdentifier: previousApp.processIdentifier) {
-        stillRunning.activate(options: [])
-        Thread.sleep(forTimeInterval: 0.08)
+        stillRunning.activate(options: [.activateAllWindows])
+        waitForFrontmost(processIdentifier: stillRunning.processIdentifier, timeout: 0.35)
     }
     if let mouseLocation {
         moveMouse(to: mouseLocation)
+    }
+}
+
+func waitForFrontmost(processIdentifier: pid_t, timeout: TimeInterval) {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier {
+            return
+        }
+        Thread.sleep(forTimeInterval: 0.02)
     }
 }
 
@@ -935,6 +949,23 @@ func elementCenter(_ element: AXUIElement) -> CGPoint? {
         return nil
     }
     return CGPoint(x: frame.midX, y: frame.midY)
+}
+
+func accessibilityElement(at point: CGPoint, in app: ResolvedApp) -> AXUIElement? {
+    let systemWide = AXUIElementCreateSystemWide()
+    var rawElement: AXUIElement?
+    let error = AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &rawElement)
+    guard error == .success,
+          let element = rawElement else {
+        return nil
+    }
+
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(element, &pid) == .success,
+          pid == app.running.processIdentifier else {
+        return nil
+    }
+    return element
 }
 
 func backingScaleFactor(for frame: CGRect) -> Double {
@@ -1255,6 +1286,16 @@ func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
         throw HelperError.message("AXPress failed for \(app.displayName) key \(rawKey): \(error.rawValue)")
     }
     return true
+}
+
+func pressElement(_ element: AXUIElement, count: Int, failureContext: String) throws {
+    for _ in 0..<count {
+        let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        guard error == .success else {
+            throw HelperError.message("\(failureContext): \(error.rawValue)")
+        }
+        Thread.sleep(forTimeInterval: 0.08)
+    }
 }
 
 func typeAccessibleText(_ text: String, app: ResolvedApp) throws -> Bool {

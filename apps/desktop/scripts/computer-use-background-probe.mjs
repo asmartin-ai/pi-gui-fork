@@ -1,5 +1,5 @@
 import { spawn, execFile } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,8 +44,10 @@ const helperTimeoutMs =
   Number.isFinite(configuredHelperTimeoutMs) && configuredHelperTimeoutMs > 0 ? configuredHelperTimeoutMs : 15_000;
 const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === "1";
 const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
+const cursorPositionPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor-position");
 
 await access(helperPath);
+await removeCursorRequest();
 await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
 await sleep(500);
 await activateFinder();
@@ -59,7 +61,8 @@ await execFileAsync("open", ["-g", "-a", "Calculator"]);
 await waitForApp("Calculator");
 await assertTargetDidNotBecomeFrontmost("launch Calculator in background", frontmostBefore, "Calculator");
 
-await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
+const initialCalculatorState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
+await runCoordinateClickProbe(initialCalculatorState);
 
 for (const key of ["kp_clear", "kp_clear", "7", "plus", "8", "kp_equal"]) {
   await runWithFocusGuard({ command: "press_key", app: "Calculator", key }, `press_key ${key}`);
@@ -72,6 +75,7 @@ if (!calculatorDisplays(finalText, "15")) {
 }
 
 await runTextEditTypingProbe();
+await runKeyboardCursorProbe();
 
 console.log(
   `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
@@ -94,15 +98,47 @@ async function activateFinder() {
   await sleep(300);
 }
 
-async function runWithFocusGuard(request, action) {
+async function runWithFocusGuard(request, action, options = {}) {
   await activateFinder();
   const before = await frontmostApp();
   if (before === request.app) {
     throw new Error(`Could not put a non-target app in front before ${action}.`);
   }
-  const response = await runHelper(request);
+  const response = await runHelper(request, options);
   await assertTargetDidNotBecomeFrontmost(action, before, request.app);
   return response;
+}
+
+async function runCoordinateClickProbe(initialState) {
+  const image = initialState.content?.find((item) => item.type === "image");
+  if (!image?.data) {
+    throw new Error("Calculator get_app_state did not return a screenshot for coordinate click coverage.");
+  }
+  const dimensions = pngDimensions(Buffer.from(image.data, "base64"));
+  const beforeCursor = await readCursorRequest();
+  await runWithFocusGuard(
+    {
+      command: "click",
+      app: "Calculator",
+      x: Math.round(dimensions.width / 2),
+      y: Math.round(dimensions.height / 2),
+    },
+    "Calculator coordinate click",
+    { showCursor: true },
+  );
+  const afterCursor = await readCursorRequest();
+  assertCursorAdvanced(beforeCursor, afterCursor, "Calculator coordinate click");
+}
+
+async function runKeyboardCursorProbe() {
+  const beforeCursor = await readCursorRequest();
+  await runWithFocusGuard({ command: "press_key", app: "Calculator", key: "escape" }, "Calculator keyboard-only press", {
+    showCursor: true,
+  });
+  const afterCursor = await readCursorRequest();
+  if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
+    throw new Error("Keyboard-only Computer Use action moved the agent cursor.");
+  }
 }
 
 async function waitForApp(appName) {
@@ -239,10 +275,10 @@ function findEditableTextElementIndex(text, expectedValue) {
   throw new Error(`Could not find editable text element containing ${expectedValue}.`);
 }
 
-function runHelper(request) {
+function runHelper(request, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(helperPath, [], {
-      env: { ...process.env, PI_GUI_COMPUTER_USE_SHOW_CURSOR: "0" },
+      env: helperEnv(options),
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -291,6 +327,69 @@ function runHelper(request) {
     });
     child.stdin.end(`${JSON.stringify(request)}\n`);
   });
+}
+
+function helperEnv(options) {
+  if (options.showCursor) {
+    return {
+      ...process.env,
+      PI_GUI_COMPUTER_USE_SHOW_CURSOR: "1",
+      PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS: "250",
+      PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS: "80",
+    };
+  }
+  return { ...process.env, PI_GUI_COMPUTER_USE_SHOW_CURSOR: "0" };
+}
+
+async function removeCursorRequest() {
+  try {
+    await unlink(cursorPositionPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function readCursorRequest() {
+  try {
+    const rawValue = await readFile(cursorPositionPath, "utf8");
+    const [x, y, timestamp, pressed] = rawValue.trim().split(",");
+    return {
+      x: Number.parseFloat(x),
+      y: Number.parseFloat(y),
+      timestamp: Number.parseFloat(timestamp),
+      pressed: pressed === "1",
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function assertCursorAdvanced(before, after, action) {
+  if (!after || !Number.isFinite(after.timestamp)) {
+    throw new Error(`${action} did not write an agent cursor request.`);
+  }
+  if (before && after.timestamp <= before.timestamp) {
+    throw new Error(`${action} did not advance the agent cursor request timestamp.`);
+  }
+  if (!Number.isFinite(after.x) || !Number.isFinite(after.y)) {
+    throw new Error(`${action} wrote an invalid agent cursor position.`);
+  }
+}
+
+function pngDimensions(buffer) {
+  const signature = "89504e470d0a1a0a";
+  if (buffer.length < 24 || buffer.subarray(0, 8).toString("hex") !== signature) {
+    throw new Error("Computer Use screenshot is not a PNG.");
+  }
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
 }
 
 function calculatorDisplays(stateText, expected) {
