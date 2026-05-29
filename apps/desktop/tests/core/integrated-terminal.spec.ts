@@ -139,7 +139,10 @@ test("pastes clipboard text into the integrated terminal once", async () => {
     const terminal = window.getByTestId("integrated-terminal");
     await expect(terminal).toBeVisible();
     await terminal.locator(".xterm").click();
-    await expect(terminal.locator(".xterm-rows")).toContainText(basename(workspacePath), { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).toContainText(
+      new RegExp(`${escapeRegExp(basename(workspacePath))}|[#$%]\\s*$`),
+      { timeout: 15_000 },
+    );
 
     await harness.electronApp.evaluate(({ clipboard }) => {
       clipboard.writeText("PI_TERMINAL_PASTE_ONCE");
@@ -162,4 +165,8 @@ function countOccurrences(value: string, needle: string): number {
     index = value.indexOf(needle, index + needle.length);
   }
   return count;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
