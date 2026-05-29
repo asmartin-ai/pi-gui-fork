@@ -111,6 +111,9 @@ test("new thread hides the onboarding notice after picking a thread model", asyn
     await expect(dropdown).toContainText("GPT-4o");
     const modelFilter = dropdown.locator(".model-selector__filter-input");
     await expect(modelFilter).toBeFocused();
+    await modelFilter.fill("definitely-no-model");
+    await expect(dropdown).toContainText("No matching models");
+    await expect(modelBadge).toHaveText("Pick a model");
     await modelFilter.fill("4o");
     await expect(dropdown).toContainText("GPT-4o");
     await expect(dropdown).not.toContainText("GPT-5");
