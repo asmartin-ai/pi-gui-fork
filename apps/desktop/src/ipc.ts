@@ -71,7 +71,7 @@ export const desktopIpc = {
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
   setAllowMultiple: "pi-gui:set-allow-multiple",
-  setAppearanceEffects: "pi-gui:set-enable-transparency",
+  setEnableTransparency: "pi-gui:set-enable-transparency",
   terminalEnsurePanel: "pi-gui:terminal-ensure-panel",
   terminalCreateSession: "pi-gui:terminal-create-session",
   terminalSetActiveSession: "pi-gui:terminal-set-active-session",

@@ -777,6 +777,7 @@ export class DesktopAppStore implements AppStoreInternals {
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         allowMultiple: persisted.allowMultiple ?? this.state.allowMultiple,
+        enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -828,6 +829,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.state = {
         ...createEmptyDesktopAppState(),
         allowMultiple: persisted.allowMultiple ?? false,
+        enableTransparency: persisted.enableTransparency ?? false,
         lastError: error instanceof Error ? error.message : String(error),
         revision: 1,
       };

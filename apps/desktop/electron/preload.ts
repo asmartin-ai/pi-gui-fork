@@ -185,7 +185,7 @@ contextBridge.exposeInMainWorld("piApp", {
   setAllowMultiple: (allowMultiple: boolean) =>
     ipcRenderer.invoke(desktopIpc.setAllowMultiple, allowMultiple) as Promise<DesktopAppState>,
   setEnableTransparency: (enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setAppearanceEffects, enabled) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setEnableTransparency, enabled) as Promise<DesktopAppState>,
   ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
     ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
   createTerminalSession: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
