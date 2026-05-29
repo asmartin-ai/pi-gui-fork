@@ -5,8 +5,8 @@ import {
   createAgentSession,
   type CreateAgentSessionOptions,
   type ResourceLoader,
-} from "@mariozechner/pi-coding-agent";
-import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
+import type { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { SessionModelSelection, WorkspaceRef } from "@pi-gui/session-driver";
 import { messageText as sessionMessageText } from "./session-supervisor-utils.js";
 

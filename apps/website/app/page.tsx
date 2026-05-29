@@ -259,7 +259,7 @@ export default function Page() {
                 rel="noopener noreferrer"
                 className="inline-link"
               >
-                @mariozechner/pi-coding-agent
+                @earendil-works/pi-coding-agent
               </a>
               .
             </p>

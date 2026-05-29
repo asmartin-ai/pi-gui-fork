@@ -10,7 +10,7 @@ import {
   type PathMetadata,
   type ResolvedPaths,
   type ResolvedResource,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type {
   RuntimeLoginCallbacks,
   RuntimeExtensionDiagnostic,
@@ -27,7 +27,7 @@ import type { WorkspaceRef } from "@pi-gui/session-driver";
 import { createRuntimeDependencies } from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
-import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import type { AuthStatus, AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   BUILT_IN_PROVIDER_IDS,
   CustomProviderStore,
@@ -450,7 +450,6 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     const oauthProviders = new Map(this.authStorage.getOAuthProviders().map((provider) => [provider.id, provider]));
     const providerIds = new Set<string>([
       ...this.modelRegistry.getAll().map((model) => model.provider),
-      ...getModelConfigProviderIds(this.modelRegistry),
       ...oauthProviders.keys(),
       ...this.authStorage.list(),
     ]);
@@ -461,19 +460,14 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
         const auth = this.authStorage.get(providerId);
         const oauthProvider = oauthProviders.get(providerId);
         const apiKeySetupSupported = providerSupportsDesktopApiKeySetup(providerId);
-        const hasModelConfigAuth = providerHasModelConfigAuth(this.modelRegistry, providerId);
-        const hasAuth = this.authStorage.hasAuth(providerId) || hasModelConfigAuth;
+        const providerAuthStatus = this.modelRegistry.getProviderAuthStatus(providerId);
+        const hasAuth = providerAuthStatus.configured || this.authStorage.hasAuth(providerId);
         return {
           id: providerId,
           name: oauthProvider?.name ?? providerId,
           hasAuth,
           authType: auth?.type ?? "none",
-          authSource: inferProviderAuthSource(
-            auth,
-            hasAuth,
-            apiKeySetupSupported,
-            hasModelConfigAuth,
-          ),
+          authSource: inferProviderAuthSource(auth, providerAuthStatus, apiKeySetupSupported),
           oauthSupported: Boolean(oauthProvider),
           apiKeySetupSupported,
         };
@@ -861,9 +855,8 @@ function providerSupportsDesktopApiKeySetup(providerId: string): boolean {
 
 function inferProviderAuthSource(
   auth: { readonly type: "oauth" | "api_key" } | undefined,
-  hasAuth: boolean,
+  providerAuthStatus: AuthStatus,
   apiKeySetupSupported: boolean,
-  hasModelConfigAuth: boolean,
 ): "none" | "oauth" | "auth_file" | "env" | "external" {
   if (auth?.type === "oauth") {
     return "oauth";
@@ -871,40 +864,21 @@ function inferProviderAuthSource(
   if (auth?.type === "api_key") {
     return "auth_file";
   }
-  if (!hasAuth) {
+  switch (providerAuthStatus.source) {
+    case "stored":
+      return "auth_file";
+    case "environment":
+      return "env";
+    case "fallback":
+    case "models_json_command":
+    case "models_json_key":
+    case "runtime":
+      return "external";
+  }
+  if (!providerAuthStatus.configured) {
     return "none";
   }
-  if (hasModelConfigAuth) {
-    return "external";
-  }
   return apiKeySetupSupported ? "env" : "external";
-}
-
-type ModelProviderRequestConfig = {
-  readonly apiKey?: unknown;
-  readonly headers?: unknown;
-  readonly authHeader?: unknown;
-};
-
-function getModelProviderRequestConfigs(
-  modelRegistry: ModelRegistry,
-): ReadonlyMap<string, ModelProviderRequestConfig> | undefined {
-  return (
-    modelRegistry as unknown as {
-      providerRequestConfigs?: ReadonlyMap<string, ModelProviderRequestConfig>;
-    }
-  ).providerRequestConfigs;
-}
-
-function getModelConfigProviderIds(modelRegistry: ModelRegistry): readonly string[] {
-  return [...(getModelProviderRequestConfigs(modelRegistry)?.keys() ?? [])];
-}
-
-function providerHasModelConfigAuth(modelRegistry: ModelRegistry, providerId: string): boolean {
-  const config = getModelProviderRequestConfigs(modelRegistry)?.get(providerId);
-  return Boolean(
-    config && (config.apiKey !== undefined || config.headers !== undefined || config.authHeader !== undefined),
-  );
 }
 
 function toRuntimeSourceInfo(path: string, metadata: PathMetadata): RuntimeSourceInfo {

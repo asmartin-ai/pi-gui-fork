@@ -1328,6 +1328,32 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   z-index: 20;
   padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-selector__filter {
+  padding: 4px 8px 8px;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.model-selector__filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.model-selector__filter-input:focus {
+  border-color: var(--accent);
 }
 
 .model-selector__dropdown--below {

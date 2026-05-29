@@ -12,7 +12,7 @@ import {
   type ExtensionUIContext,
   type ExtensionWidgetOptions,
   type SessionInfo,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/catalogs";
 import type {
   NavigateSessionTreeOptions,
@@ -949,6 +949,7 @@ export class SessionSupervisor {
         });
       },
       setWorkingMessage: () => {},
+      setWorkingVisible: () => {},
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content: unknown, options?: ExtensionWidgetOptions) => {
@@ -1007,6 +1008,7 @@ export class SessionSupervisor {
           (response) => ("cancelled" in response && response.cancelled ? undefined : "value" in response ? response.value : undefined),
         ),
       setEditorComponent: () => {},
+      getEditorComponent: () => undefined,
       addAutocompleteProvider: () => {},
       get theme() {
         return noOpTheme;
