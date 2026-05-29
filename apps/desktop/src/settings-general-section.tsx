@@ -7,8 +7,10 @@ interface SettingsGeneralSectionProps {
   readonly runtime?: RuntimeSnapshot;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
+  readonly allowMultiple: boolean;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
+  readonly onToggleAllowMultiple: (enabled: boolean) => void;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
 }
 
@@ -16,8 +18,10 @@ export function SettingsGeneralSection({
   runtime,
   modelSettingsScopeMode,
   integratedTerminalShell,
+  allowMultiple,
   onSetModelSettingsScopeMode,
   onSetIntegratedTerminalShell,
+  onToggleAllowMultiple,
   onToggleSkillCommands,
 }: SettingsGeneralSectionProps) {
   const connectedCount = runtime?.providers.filter((p) => p.hasAuth).length ?? 0;
@@ -84,6 +88,14 @@ export function SettingsGeneralSection({
                 event.currentTarget.blur();
               }
             }}
+          />
+        </SettingsRow>
+        <SettingsRow title="Allow multiple app instances" description="Allow launching multiple windows of the app.">
+          <input
+            aria-label="Allow multiple app instances"
+            checked={allowMultiple}
+            type="checkbox"
+            onChange={(event) => onToggleAllowMultiple(event.target.checked)}
           />
         </SettingsRow>
       </SettingsGroup>

@@ -42,15 +42,31 @@ export function ModelSelector({
   onSetThinking,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
+  const [modelFilter, setModelFilter] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
+  const filteredModels = useMemo(() => {
+    const options = buildModelOptions(runtime);
+    if (!modelFilter) return options;
+    const q = modelFilter.toLowerCase();
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        opt.description.toLowerCase().includes(q) ||
+        opt.providerId.toLowerCase().includes(q),
+    );
+  }, [runtime, modelFilter]);
+
+  const groupedModels = useMemo(() => groupByProvider(filteredModels), [filteredModels]);
   const hasModelControl = Boolean(provider && modelId) || groupedModels.length > 0;
   const shouldRenderModelControl = hasModelControl || showEmptyModelControl;
   const modelBadgeLabel = provider && modelId ? `${provider}:${modelId}` : groupedModels.length > 0 ? unselectedModelLabel : emptyModelLabel;
 
   useEffect(() => {
-    if (open === "none") return undefined;
+    if (open === "none") {
+      setModelFilter("");
+      return undefined;
+    }
 
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -93,6 +109,15 @@ export function ModelSelector({
               className={`model-selector__dropdown ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
               onWheel={(event) => event.stopPropagation()}
             >
+              <div className="model-selector__filter">
+                <input
+                  className="model-selector__filter-input"
+                  placeholder="Filter models..."
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  autoFocus
+                />
+              </div>
               {groupedModels.map((group) => (
                 <div key={group.provider}>
                   <div className="model-selector__group-title">{group.provider}</div>
