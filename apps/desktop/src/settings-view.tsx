@@ -21,6 +21,7 @@ interface SettingsViewProps {
   readonly integratedTerminalShell: string;
   readonly allowMultiple: boolean;
   readonly themeMode: "system" | "light" | "dark";
+  readonly enableTransparency: boolean;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
@@ -36,6 +37,7 @@ interface SettingsViewProps {
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
+  readonly onSetEnableTransparency: (enabled: boolean) => void;
 }
 
 export function SettingsView({
@@ -49,6 +51,7 @@ export function SettingsView({
   integratedTerminalShell,
   allowMultiple,
   themeMode,
+  enableTransparency,
   onSetModelSettingsScopeMode,
   onSetDefaultModel,
   onSetThinkingLevel,
@@ -64,6 +67,7 @@ export function SettingsView({
   onRequestNotificationPermission,
   onOpenSystemNotificationSettings,
   onSetThemeMode,
+  onSetEnableTransparency,
 }: SettingsViewProps) {
   if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
     return (
@@ -95,6 +99,8 @@ export function SettingsView({
             <SettingsAppearanceSection
               themeMode={themeMode}
               onSetThemeMode={onSetThemeMode}
+              enableTransparency={enableTransparency}
+              onSetEnableTransparency={onSetEnableTransparency}
             />
           ) : null}
 

@@ -175,6 +175,7 @@ export interface DesktopAppState {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
   readonly sidebarCollapsed: boolean;
+  readonly enableTransparency: boolean;
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -219,6 +220,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       enabledModelPatterns: [],
     },
     sidebarCollapsed: false,
+    enableTransparency: false,
     revision: 0,
   };
 }
