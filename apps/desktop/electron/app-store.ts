@@ -509,21 +509,6 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
-  async setAllowMultiple(allowMultiple: boolean): Promise<DesktopAppState> {
-    await this.initialize();
-    if (this.state.allowMultiple === allowMultiple) {
-      return this.emit();
-    }
-    this.state = {
-      ...this.state,
-      allowMultiple,
-      lastError: undefined,
-      revision: this.state.revision + 1,
-    };
-    await this.persistUiState();
-    return this.emit();
-  }
-
   async setModelSettingsScopeMode(modelSettingsScopeMode: ModelSettingsScopeMode): Promise<DesktopAppState> {
     await this.initialize();
     if (this.state.modelSettingsScopeMode === modelSettingsScopeMode) {
@@ -777,7 +762,6 @@ export class DesktopAppStore implements AppStoreInternals {
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
-        allowMultiple: persisted.allowMultiple ?? this.state.allowMultiple,
         enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
       };
       await this.migrateLegacyPersistence(persisted);
@@ -834,7 +818,6 @@ export class DesktopAppStore implements AppStoreInternals {
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
-        allowMultiple: persisted.allowMultiple ?? false,
         enableTransparency: persisted.enableTransparency ?? false,
         lastError: error instanceof Error ? error.message : String(error),
         revision: 1,
@@ -1729,7 +1712,6 @@ export class DesktopAppStore implements AppStoreInternals {
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
-      allowMultiple: this.state.allowMultiple,
       enableTransparency: this.state.enableTransparency,
     };
 

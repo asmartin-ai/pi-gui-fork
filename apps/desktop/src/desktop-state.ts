@@ -169,7 +169,6 @@ export interface DesktopAppState {
   readonly extensionCommandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly notificationPreferences: NotificationPreferences;
   readonly integratedTerminalShell: string;
-  readonly allowMultiple: boolean;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
   readonly workspaceOrder: readonly string[];
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
@@ -212,7 +211,6 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       attentionNeeded: true,
     },
     integratedTerminalShell: "",
-    allowMultiple: false,
     lastViewedAtBySession: {},
     workspaceOrder: [],
     modelSettingsScopeMode: "app-global",

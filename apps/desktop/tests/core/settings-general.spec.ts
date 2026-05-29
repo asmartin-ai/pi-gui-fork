@@ -1,37 +1,40 @@
-import { readFile } from "node:fs/promises";
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   desktopShortcut,
-  getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  spawnDesktopProcess,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
-test("toggles and boots with multiple app instances allowed", async () => {
+test("ignores persisted multiple app instance opt-in and hides the setting", async () => {
   const userDataDir = await makeUserDataDir();
-  const workspacePath = await makeWorkspace("allow-multiple-instances");
-  const firstHarness = await launchDesktop(userDataDir, {
+  await writeFile(join(userDataDir, "ui-state.json"), `${JSON.stringify({ allowMultiple: true }, null, 2)}\n`, "utf8");
+  const workspacePath = await makeWorkspace("allow-multiple-instances-disabled");
+  const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
   });
-  let secondHarness: Awaited<ReturnType<typeof launchDesktop>> | undefined;
+  let secondProcess: ChildProcess | undefined;
 
   try {
-    const firstWindow = await firstHarness.firstWindow();
-    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
 
-    await firstWindow.keyboard.press(desktopShortcut(","));
-    await expect(firstWindow.getByTestId("settings-surface")).toBeVisible();
-    await firstWindow.getByRole("button", { name: "General", exact: true }).click();
-
-    const allowMultipleToggle = firstWindow.getByLabel("Allow multiple app instances");
-    await expect(allowMultipleToggle).not.toBeChecked();
-    await allowMultipleToggle.click();
-    await expect.poll(async () => (await getDesktopState(firstWindow)).allowMultiple).toBe(true);
-    await expect(allowMultipleToggle).toBeChecked();
+    await expect.poll(async () => harness.electronApp.evaluate(({ app }) => app.hasSingleInstanceLock())).toBe(true);
+    secondProcess = await spawnDesktopProcess(userDataDir, {
+      initialWorkspaces: [workspacePath],
+      testMode: "background",
+    });
+    await expect(await waitForProcessExit(secondProcess)).toEqual({ code: 0, signal: null });
+    await expect
+      .poll(async () => harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length))
+      .toBe(1);
     await expect
       .poll(async () => {
         const persisted = JSON.parse(await readFile(join(userDataDir, "ui-state.json"), "utf8")) as {
@@ -39,17 +42,43 @@ test("toggles and boots with multiple app instances allowed", async () => {
         };
         return persisted.allowMultiple;
       })
-      .toBe(true);
+      .toBeUndefined();
 
-    secondHarness = await launchDesktop(userDataDir, {
-      initialWorkspaces: [workspacePath],
-      testMode: "background",
-    });
-    const secondWindow = await secondHarness.firstWindow();
-    await waitForWorkspaceByPath(secondWindow, workspacePath);
-    await expect.poll(async () => (await getDesktopState(secondWindow)).allowMultiple).toBe(true);
+    await window.keyboard.press(desktopShortcut(","));
+    await expect(window.getByTestId("settings-surface")).toBeVisible();
+    await window.getByRole("button", { name: "General", exact: true }).click();
+    await expect(window.getByLabel("Shell of integrated terminal")).toBeVisible();
+    await expect(window.getByText("Allow multiple app instances")).toHaveCount(0);
+    await expect(window.getByLabel("Allow multiple app instances")).toHaveCount(0);
   } finally {
-    await secondHarness?.close();
-    await firstHarness.close();
+    if (secondProcess && secondProcess.exitCode === null && secondProcess.signalCode === null) {
+      secondProcess.kill();
+    }
+    await harness.close();
   }
 });
+
+async function waitForProcessExit(
+  child: ChildProcess,
+  timeoutMs = 5_000,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return { code: child.exitCode, signal: child.signalCode };
+  }
+
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    const result = await Promise.race([
+      once(child, "exit"),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("Timed out waiting for second app process to exit")), timeoutMs);
+      }),
+    ]);
+    const [code, signal] = result as [number | null, NodeJS.Signals | null];
+    return { code, signal };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
