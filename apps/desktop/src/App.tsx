@@ -199,10 +199,9 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
-  const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
+  const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
-  const previousSelectedSessionKeyRef = useRef("");
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
@@ -241,6 +240,12 @@ export default function App() {
 
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (snapshot) {
+      document.documentElement.classList.toggle("enable-transparency", snapshot.enableTransparency);
+    }
+  }, [snapshot?.enableTransparency]);
 
   useEffect(() => {
     const piApi = window.piApp;
@@ -374,8 +379,8 @@ export default function App() {
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
-  const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKeys.has(selectedSessionKey);
-  const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKeys.has(selectedSessionKey);
+  const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKey === selectedSessionKey;
+  const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKey === selectedSessionKey;
   const activeTranscript =
     selectedTranscript &&
     selectedWorkspace &&
@@ -396,33 +401,13 @@ export default function App() {
     : [];
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {
-      setOpenTerminalSessionKeys(new Set());
-      setTakeoverTerminalSessionKeys(new Set());
+      setOpenTerminalSessionKey("");
+      setTakeoverTerminalSessionKey("");
     }
   }, [snapshot]);
   useEffect(() => {
-    const previousSessionKey = previousSelectedSessionKeyRef.current;
-    previousSelectedSessionKeyRef.current = selectedSessionKey;
-    if (!previousSessionKey || previousSessionKey === selectedSessionKey) {
-      return;
-    }
-
-    setOpenTerminalSessionKeys((current) => {
-      if (!current.has(previousSessionKey)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(previousSessionKey);
-      return next;
-    });
-    setTakeoverTerminalSessionKeys((current) => {
-      if (!current.has(previousSessionKey)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(previousSessionKey);
-      return next;
-    });
+    setOpenTerminalSessionKey("");
+    setTakeoverTerminalSessionKey("");
   }, [selectedSessionKey]);
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
@@ -442,21 +427,13 @@ export default function App() {
     if (!selectedSessionKey) {
       return;
     }
-    if (openTerminalSessionKeys.has(selectedSessionKey)) {
-      setOpenTerminalSessionKeys((current) => {
-        const next = new Set(current);
-        next.delete(selectedSessionKey);
-        return next;
-      });
-      setTakeoverTerminalSessionKeys((current) => {
-        const next = new Set(current);
-        next.delete(selectedSessionKey);
-        return next;
-      });
+    if (openTerminalSessionKey === selectedSessionKey) {
+      setOpenTerminalSessionKey("");
+      setTakeoverTerminalSessionKey("");
       return;
     }
-    setOpenTerminalSessionKeys((current) => new Set(current).add(selectedSessionKey));
-  }, [openTerminalSessionKeys, selectedSessionKey]);
+    setOpenTerminalSessionKey(selectedSessionKey);
+  }, [openTerminalSessionKey, selectedSessionKey]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -1308,34 +1285,14 @@ export default function App() {
       isTakeover={isTerminalTakeoverForSelectedThread}
       onHeightChange={(nextHeight) => {
         setTerminalHeight(nextHeight);
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
+        setTakeoverTerminalSessionKey((current) => (current === selectedSessionKey ? "" : current));
       }}
       onToggleTakeover={() => {
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          if (next.has(selectedSessionKey)) {
-            next.delete(selectedSessionKey);
-          } else {
-            next.add(selectedSessionKey);
-          }
-          return next;
-        });
+        setTakeoverTerminalSessionKey((current) => (current === selectedSessionKey ? "" : selectedSessionKey));
       }}
       onHide={() => {
-        setOpenTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
+        setOpenTerminalSessionKey((current) => (current === selectedSessionKey ? "" : current));
+        setTakeoverTerminalSessionKey((current) => (current === selectedSessionKey ? "" : current));
         focusComposer();
       }}
     />
@@ -1750,6 +1707,8 @@ export default function App() {
   };
 
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
+    setOpenTerminalSessionKey("");
+    setTakeoverTerminalSessionKey("");
     void updateSnapshot(api, setSnapshot, () => api.selectSession(target)).then(() => {
       focusComposer();
     });
@@ -1963,6 +1922,7 @@ export default function App() {
           integratedTerminalShell={snapshot.integratedTerminalShell}
           allowMultiple={snapshot.allowMultiple}
           themeMode={themeMode}
+          enableTransparency={snapshot.enableTransparency}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onSetProviderApiKey={handleSetProviderApiKey}
@@ -1980,6 +1940,9 @@ export default function App() {
           onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
+          onSetEnableTransparency={(enabled) => {
+            void updateSnapshot(api, setSnapshot, () => api.setEnableTransparency(enabled));
+          }}
         />
       </SecondarySurface>
     );

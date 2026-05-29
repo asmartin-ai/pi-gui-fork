@@ -148,6 +148,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly getWindow: () => BrowserWindow | null;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
+  private readonly restoredSelectedSessionKeysAwaitingSelection = new Set<string>();
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
   private refreshStateDepth = 0;
@@ -487,6 +488,21 @@ export class DesktopAppStore implements AppStoreInternals {
     this.state = {
       ...this.state,
       integratedTerminalShell: normalizedShell,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async setEnableTransparency(enabled: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.enableTransparency === enabled) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      enableTransparency: enabled,
       lastError: undefined,
       revision: this.state.revision + 1,
     };
@@ -855,6 +871,7 @@ export class DesktopAppStore implements AppStoreInternals {
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         allowMultiple: persisted.allowMultiple ?? this.state.allowMultiple,
+        enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -899,14 +916,19 @@ export class DesktopAppStore implements AppStoreInternals {
         composerDraft: persisted.composerDraft,
         clearLastError: true,
         refreshWorktrees: true,
-        markSelectedSessionViewed: false,
         hydrateSelectedSession: false,
+        markSelectedSessionViewed: false,
       });
-      this.startSelectedSessionHydration(this.selectedSessionRef(), { markViewed: false });
+      const restoredSessionRef = this.selectedSessionRef();
+      if (restoredSessionRef && persisted.selectedWorkspaceId && persisted.selectedSessionId) {
+        this.restoredSelectedSessionKeysAwaitingSelection.add(sessionKey(restoredSessionRef));
+      }
+      this.startSelectedSessionHydration(restoredSessionRef, { markViewed: false });
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
         allowMultiple: persisted.allowMultiple ?? false,
+        enableTransparency: persisted.enableTransparency ?? false,
         lastError: error instanceof Error ? error.message : String(error),
         revision: 1,
       };
@@ -1801,6 +1823,7 @@ export class DesktopAppStore implements AppStoreInternals {
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       allowMultiple: this.state.allowMultiple,
+      enableTransparency: this.state.enableTransparency,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -1986,6 +2009,7 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private applyFastSessionSelection(sessionRef: SessionRef): DesktopAppState {
+    this.restoredSelectedSessionKeysAwaitingSelection.delete(sessionKey(sessionRef));
     this.state = {
       ...this.state,
       selectedWorkspaceId: sessionRef.workspaceId,
@@ -2010,7 +2034,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private async hydrateSelectedSessionAfterSelection(
     sessionRef: SessionRef,
     selectionEpoch: number,
-    options: { readonly markViewed: boolean } = { markViewed: true },
+    options: { readonly markViewed?: boolean } = {},
   ): Promise<void> {
     const runtimeMissing = !this.runtimeByWorkspace.has(sessionRef.workspaceId);
     const [snapshot] = await Promise.all([
@@ -2030,7 +2054,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
-    if (options.markViewed) {
+    if (options.markViewed ?? true) {
       this.markSessionViewed(sessionRef);
     }
     this.schedulePersistUiState();
@@ -2040,7 +2064,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private startSelectedSessionHydration(
     sessionRef: SessionRef | undefined,
-    options: { readonly markViewed: boolean } = { markViewed: true },
+    options: { readonly markViewed?: boolean } = {},
   ): void {
     if (!sessionRef) {
       return;
@@ -2085,6 +2109,9 @@ export class DesktopAppStore implements AppStoreInternals {
       sessionId: this.state.selectedSessionId,
     } satisfies SessionRef;
     if (!isSessionActivelyViewed(this.state, sessionRef, this.getWindow())) {
+      return false;
+    }
+    if (this.restoredSelectedSessionKeysAwaitingSelection.has(sessionKey(sessionRef))) {
       return false;
     }
 
