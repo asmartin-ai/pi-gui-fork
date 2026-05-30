@@ -87,6 +87,7 @@ try {
 async function main() {
   await access(helperPath);
   await assertHelperSupportsActiveTurnProtocol();
+  await assertHelperSupportsMouseWarpGuard();
   await removeCursorArtifacts();
   await assertUnlockedDesktop();
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
@@ -121,7 +122,7 @@ async function main() {
   await runKeyboardCursorProbe();
 
   console.log(
-    `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
+    `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" physical_mouse=guarded helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
   );
 }
 
@@ -140,6 +141,15 @@ async function assertHelperSupportsActiveTurnProtocol() {
   if (stdout !== lockedUseAuthorizationProtocolVersion) {
     throw new Error(
       `Computer Use helper is stale or incompatible at ${helperPath}; expected ${lockedUseAuthorizationProtocolVersion}, got ${stdout || "<empty>"}. Reinstall the latest pi-gui.app before running this probe.`,
+    );
+  }
+}
+
+async function assertHelperSupportsMouseWarpGuard() {
+  const helperSource = await readFile(helperPath, "latin1");
+  if (!helperSource.includes("PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP")) {
+    throw new Error(
+      `Computer Use helper is stale or incompatible at ${helperPath}; it does not support the physical mouse guard. Reinstall the latest pi-gui.app before running this probe.`,
     );
   }
 }
@@ -547,6 +557,7 @@ function helperEnv(options) {
   const env = {
     ...process.env,
     [lockedUseInstallerPathEnv]: lockedUseInstallerPath,
+    PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP: "1",
   };
   if (options.showCursor) {
     return {

@@ -110,6 +110,7 @@ private let testAssumeUnlockedAfterAuthorizationEnv = "PI_GUI_COMPUTER_USE_TEST_
 private let testSkipRelockEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_RELOCK"
 private let testSkipUnlockReturnKeyEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_UNLOCK_RETURN_KEY"
 private let testForceScreenRecordingDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED"
+private let testForbidMouseWarpEnv = "PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP"
 private let defaultCursorOverlayDuration = 8.0
 private let defaultCursorOverlayGlideDuration = 0.32
 private let defaultLockedUseLeaseSeconds: TimeInterval = 300
@@ -1419,7 +1420,7 @@ func withTemporaryActivation<T>(
     _ body: () throws -> T
 ) throws -> T {
     let previousApp = NSWorkspace.shared.frontmostApplication
-    let previousMouseLocation = currentMouseLocation()
+    let previousMouseLocation = cursorPoint == nil ? nil : currentMouseLocation()
     if let cursorPoint {
         showAgentCursorAndWait(at: cursorPoint, pressed: true)
     }
@@ -2720,6 +2721,10 @@ func postClick(at point: CGPoint, button: String, count: Int) {
 }
 
 func moveMouse(to point: CGPoint) {
+    if ProcessInfo.processInfo.environment[testForbidMouseWarpEnv] == "1" {
+        fputs("Computer Use test blocked physical mouse movement to \(Int(point.x)),\(Int(point.y)).\n", stderr)
+        exit(EXIT_FAILURE)
+    }
     CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
 }
 

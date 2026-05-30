@@ -122,6 +122,7 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED");
+  expect(helperSource).toContain("PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_LOCKED_USE_APP_TOKEN");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_LOCKED_USE_AUTH_SOCKET");
