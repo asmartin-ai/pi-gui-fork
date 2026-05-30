@@ -280,6 +280,75 @@ test("tool failures surface actionable Computer Use details in collapsed timelin
   }
 });
 
+test("physical-pointer Computer Use failures keep the foreground-safe reason visible", async () => {
+  test.setTimeout(45_000);
+  const { harness, window } = await launchSeeded("Review UX physical pointer failure");
+  try {
+    const sessionRef = await selectedSessionRef(window);
+    const timestamp = new Date().toISOString();
+    const title = "Computer Use blocked: this action would require foreground mouse control.";
+    const helperMessage =
+      "Computer Use blocked: this click in Sketch would require moving the user's physical mouse at 120,120. Use a pressable element_index or a coordinate over a pressable accessibility element to keep Computer Use in the background.";
+    const startedEvent: Extract<SessionDriverEvent, { type: "toolStarted" }> = {
+      type: "toolStarted",
+      sessionRef,
+      timestamp,
+      toolName: "click",
+      callId: "computer-use-physical-click-1",
+      input: { app: "Sketch", x: 120, y: 120 },
+    };
+    await emitTestSessionEvent(harness, startedEvent);
+
+    const toolItem = window.locator(".timeline-tool").first();
+    await expect(toolItem.locator(".timeline-tool__label")).toHaveText("Ran click: Sketch");
+
+    const finishedEvent: Extract<SessionDriverEvent, { type: "toolFinished" }> = {
+      type: "toolFinished",
+      sessionRef,
+      timestamp,
+      callId: "computer-use-physical-click-1",
+      success: false,
+      output: {
+        content: [
+          {
+            type: "text",
+            text: `${title}\n${helperMessage}\n\nRun computer_use_status to check the current helper, permission, and lock-screen state before retrying.`,
+          },
+        ],
+        details: {
+          ok: false,
+          errorCode: "physical_input_required",
+          error: helperMessage,
+        },
+      },
+    };
+    await emitTestSessionEvent(harness, finishedEvent);
+
+    await expect(toolItem).toHaveClass(/timeline-tool--error/);
+    await expect(toolItem.locator(".timeline-tool__detail")).toHaveText(title);
+    await expect(toolItem.locator(".timeline-tool__header")).toHaveAttribute("aria-expanded", "false");
+
+    await toolItem.locator(".timeline-tool__header").click();
+    await expect(toolItem.locator(".timeline-tool__pre")).toContainText("physical_input_required");
+    await expect(toolItem.locator(".timeline-tool__pre")).toContainText(helperMessage);
+
+    const failedEvent: Extract<SessionDriverEvent, { type: "runFailed" }> = {
+      type: "runFailed",
+      sessionRef,
+      timestamp,
+      error: { message: "terminated", code: "RUN_FAILED" },
+    };
+    await emitTestSessionEvent(harness, failedEvent);
+
+    const failureActivity = window.locator(".timeline-activity--error").last();
+    await expect(failureActivity).toContainText(title);
+    await expect(failureActivity).toContainText("RUN_FAILED");
+    await expect(failureActivity).toContainText("terminated");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("highlighting tokens swap palettes when the dark class flips", async () => {
   test.setTimeout(45_000);
   const { harness, window } = await launchSeeded("Review UX theme");

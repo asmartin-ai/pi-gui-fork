@@ -316,20 +316,20 @@ function detailFromOutput(output: unknown): string | undefined {
     const directError =
       stringProperty(output, "error") ?? stringProperty(output, "message") ?? stringProperty(output, "stderr");
     if (directError) {
-      return truncate(directError);
+      return summarizeToolDetail(directError);
     }
   }
   if (isRecord(output) && Array.isArray(output.content)) {
     const text = output.content
       .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
-      .join(" ")
+      .join("\n")
       .trim();
     if (text) {
-      return truncate(text);
+      return summarizeToolDetail(text);
     }
   }
   if (typeof output === "string") {
-    return truncate(output);
+    return summarizeToolDetail(output);
   }
   if (output === undefined || output === null) {
     return undefined;
@@ -379,6 +379,14 @@ function truncate(value: string, limit = 160): string {
     return normalized;
   }
   return `${normalized.slice(0, limit - 1)}…`;
+}
+
+function summarizeToolDetail(value: string): string {
+  const firstLine = value.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  if (firstLine && /^Computer Use (blocked|unavailable|failed):/.test(firstLine)) {
+    return truncate(firstLine);
+  }
+  return truncate(value);
 }
 
 function inputLabel(input: unknown): string | undefined {
