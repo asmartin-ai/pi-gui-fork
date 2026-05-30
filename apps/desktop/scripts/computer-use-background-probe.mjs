@@ -32,6 +32,7 @@ const installedHelperAppExecutablePath = path.join(
 );
 const installedHelperPath = "/Applications/pi-gui.app/Contents/MacOS/pi-gui-computer-use-helper";
 const helperPathArg = process.argv[2];
+const lockedUseAuthorizationProtocolVersion = "pi-gui-computer-use-active-turn-v1";
 const helperPath =
   helperPathArg === "--packaged"
     ? await firstExistingPath(packagedHelperCandidates())
@@ -60,6 +61,7 @@ try {
 
 async function main() {
   await access(helperPath);
+  await assertHelperSupportsActiveTurnProtocol();
   await removeCursorRequest();
   await assertUnlockedDesktop();
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
@@ -95,6 +97,25 @@ async function main() {
   console.log(
     `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" helper=${helperPath}`,
   );
+}
+
+async function assertHelperSupportsActiveTurnProtocol() {
+  let stdout = "";
+  try {
+    const result = await execFileAsync(helperPath, ["--lock-screen-authorization-protocol-version"], { timeout: 2_000 });
+    stdout = result.stdout.trim();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Computer Use helper is stale or incompatible at ${helperPath}; it does not support active-turn locked-use authorization. Reinstall the latest pi-gui.app before running this probe. ${detail}`,
+    );
+  }
+
+  if (stdout !== lockedUseAuthorizationProtocolVersion) {
+    throw new Error(
+      `Computer Use helper is stale or incompatible at ${helperPath}; expected ${lockedUseAuthorizationProtocolVersion}, got ${stdout || "<empty>"}. Reinstall the latest pi-gui.app before running this probe.`,
+    );
+  }
 }
 
 async function assertUnlockedDesktop() {
