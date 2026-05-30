@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ExtensionCommandCompatibilityRecord, WorkspaceRecord } from "./desktop-state";
+import { extensionScopeLabel, extensionSourceSummary } from "./extension-display";
 import { RefreshIcon } from "./icons";
 
 interface ExtensionsViewProps {
@@ -34,7 +35,8 @@ export function ExtensionsView({
         extension.displayName,
         extension.path,
         extension.sourceInfo.source,
-        extension.sourceInfo.scope,
+        extensionScopeLabel(extension),
+        extensionSourceSummary(extension),
         extension.sourceInfo.origin,
         ...extension.commands,
         ...extension.tools,
@@ -121,7 +123,7 @@ export function ExtensionsView({
                     </span>
                   </span>
                   <span className="skill-card__description">
-                    {extension.sourceInfo.scope} · {extension.sourceInfo.origin}
+                    {extensionSourceSummary(extension)}
                   </span>
                   <span className="skill-card__meta">
                     <span>{extension.sourceInfo.source}</span>
@@ -147,7 +149,7 @@ export function ExtensionsView({
                   </span>
                 </div>
                 <div className="skill-detail__meta-list">
-                  <DetailItem label="Scope" value={selectedExtension.sourceInfo.scope} />
+                  <DetailItem label="Scope" value={extensionScopeLabel(selectedExtension)} />
                   <DetailItem label="Origin" value={selectedExtension.sourceInfo.origin} />
                   <DetailItem label="Path" value={selectedExtension.path} mono />
                   {selectedExtension.sourceInfo.baseDir ? (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import { extensionSourceSummary } from "../extension-display";
 import type { PiDesktopApi } from "../ipc";
 import { nextMenuIndex } from "./use-slash-menu";
 
@@ -270,9 +271,12 @@ function buildExtensionMentionOptions(
       if (!lowerQuery) {
         return true;
       }
-      return [option.extension.displayName, option.insertText, option.extension.sourceInfo.source].some((value) =>
-        value.toLowerCase().includes(lowerQuery),
-      );
+      return [
+        option.extension.displayName,
+        option.insertText,
+        option.extension.sourceInfo.source,
+        extensionSourceSummary(option.extension),
+      ].some((value) => value.toLowerCase().includes(lowerQuery));
     })
     .slice(0, 8)
     .map(({ extension, insertText, description, enabling }) => ({
@@ -299,7 +303,7 @@ function describeExtension(extension: RuntimeExtensionRecord): string {
   if (contributionParts.length > 0) {
     return contributionParts.join(" · ");
   }
-  return `${extension.sourceInfo.scope} ${extension.sourceInfo.origin}`;
+  return extensionSourceSummary(extension);
 }
 
 function extensionMentionText(extension: RuntimeExtensionRecord): string {
