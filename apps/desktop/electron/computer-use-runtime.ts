@@ -5,9 +5,11 @@ import path from "node:path";
 
 const computerUsePackageName = "@pi-gui/computer-use-extension";
 const helperEnv = "PI_GUI_COMPUTER_USE_HELPER_PATH";
+const lockedUseInstallerEnv = "PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH";
 const disableEnv = "PI_GUI_DISABLE_BUILTIN_COMPUTER_USE";
 const helperExecutableName = "pi-gui-computer-use-helper";
 const helperAppName = "pi-gui Computer Use.app";
+const lockedUseInstallerExecutableName = "pi-gui-computer-use-locked-use-installer";
 
 interface ConfigureComputerUseRuntimeOptions {
   readonly isPackaged: boolean;
@@ -21,6 +23,7 @@ export async function configureComputerUseRuntime(options: ConfigureComputerUseR
   }
 
   configureHelperPath(options);
+  configureLockedUseInstallerPath(options);
   await ensureComputerUsePackageEnabled(resolveAgentDir(), resolveComputerUsePackageDir(options));
 }
 
@@ -31,6 +34,15 @@ function configureHelperPath(options: ConfigureComputerUseRuntimeOptions): void 
 
   const candidates = computerUseHelperCandidates(options);
   process.env[helperEnv] = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function configureLockedUseInstallerPath(options: ConfigureComputerUseRuntimeOptions): void {
+  if (process.env[lockedUseInstallerEnv]?.trim()) {
+    return;
+  }
+
+  const candidates = computerUseLockedUseInstallerCandidates(options);
+  process.env[lockedUseInstallerEnv] = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
 function computerUseHelperCandidates(options: ConfigureComputerUseRuntimeOptions): string[] {
@@ -44,6 +56,27 @@ function computerUseHelperCandidates(options: ConfigureComputerUseRuntimeOptions
   return [
     path.join(__dirname, "..", "..", "build", "native", helperAppName, "Contents", "MacOS", helperExecutableName),
     path.join(__dirname, "..", "..", "build", "native", helperExecutableName),
+  ];
+}
+
+function computerUseLockedUseInstallerCandidates(options: ConfigureComputerUseRuntimeOptions): string[] {
+  const helperAppRelativePath = path.join(
+    helperAppName,
+    "Contents",
+    "SharedSupport",
+    lockedUseInstallerExecutableName,
+  );
+
+  if (options.isPackaged) {
+    return [
+      path.join(path.dirname(options.execPath), "..", "SharedSupport", helperAppRelativePath),
+      path.join(path.dirname(options.execPath), lockedUseInstallerExecutableName),
+    ];
+  }
+
+  return [
+    path.join(__dirname, "..", "..", "build", "native", helperAppRelativePath),
+    path.join(__dirname, "..", "..", "build", "native", lockedUseInstallerExecutableName),
   ];
 }
 

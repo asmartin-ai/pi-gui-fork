@@ -89,6 +89,7 @@ private let cursorOverlayDisabledValue = "0"
 private let cursorOverlayDaemonArgument = "--cursor-overlay-daemon"
 private let cursorOverlayDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS"
 private let cursorOverlayGlideDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS"
+private let lockedUseInstallerPathEnv = "PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH"
 private let testForceLockedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED"
 private let testForceScreenRecordingDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED"
 private let defaultCursorOverlayDuration = 8.0
@@ -102,6 +103,12 @@ struct AgentCursorRequest {
     let point: CGPoint
     let pressed: Bool
     let timestamp: TimeInterval
+}
+
+struct LockedUseInstallerStatus {
+    let state: String
+    let message: String
+    let path: String?
 }
 
 final class AgentCursorView: NSView {
@@ -280,27 +287,110 @@ func status() -> Response {
     let locked = isScreenLocked()
     let accessibilityGranted = AXIsProcessTrusted()
     let screenRecordingGranted = screenRecordingStatus()
+    let installerStatus = lockedUseInstallerStatus()
     let lockSupport = "not_enabled"
-    let lockSupportMessage = "Locked Computer Use requires a guarded macOS authorization plug-in. pi-gui does not install one yet, so app control pauses while the desktop is locked."
+    let lockSupportMessage = lockedUseMessage(for: installerStatus)
 
     var text = "Computer Use status (Pi GUI)\n"
     text += "Desktop: \(locked ? "locked" : "unlocked")\n"
     text += "Accessibility: \(accessibilityGranted ? "granted" : "not granted")\n"
     text += "Screen Recording: \(screenRecordingGranted)\n"
     text += "Locked Computer Use: not enabled\n"
+    text += "Locked Computer Use Installer: \(installerStatus.state)\n"
     text += lockSupportMessage
+
+    var details = [
+        "screenLocked": locked ? "true" : "false",
+        "accessibility": accessibilityGranted ? "granted" : "denied",
+        "screenRecording": screenRecordingGranted,
+        "lockedUse": lockSupport,
+        "lockedUseInstaller": installerStatus.state,
+        "lockedUseMessage": lockSupportMessage,
+    ]
+    if let path = installerStatus.path {
+        details["lockedUseInstallerPath"] = path
+    }
 
     return Response(
         ok: true,
         content: [.text(text)],
-        details: [
-            "screenLocked": locked ? "true" : "false",
-            "accessibility": accessibilityGranted ? "granted" : "denied",
-            "screenRecording": screenRecordingGranted,
-            "lockedUse": lockSupport,
-            "lockedUseMessage": lockSupportMessage,
-        ],
+        details: details,
         error: nil
+    )
+}
+
+func lockedUseMessage(for installerStatus: LockedUseInstallerStatus) -> String {
+    switch installerStatus.state {
+    case "installed":
+        return "Locked Computer Use authorization plug-in is installed, but pi-gui has not enabled the active-turn authorization service yet, so app control still pauses while the desktop is locked."
+    case "partial":
+        return "Locked Computer Use authorization plug-in setup is partially installed. Reinstall or uninstall it before enabling locked computer use."
+    case "not-installed":
+        return "Locked Computer Use requires a guarded macOS authorization plug-in. pi-gui packages the installer now, but locked app control is not enabled yet."
+    case "not-configured":
+        return "Locked Computer Use requires a guarded macOS authorization plug-in. The installer path is not configured, so app control pauses while the desktop is locked."
+    default:
+        return installerStatus.message
+    }
+}
+
+func lockedUseInstallerStatus() -> LockedUseInstallerStatus {
+    guard let installerPath = ProcessInfo.processInfo.environment[lockedUseInstallerPathEnv],
+          !installerPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return LockedUseInstallerStatus(
+            state: "not-configured",
+            message: "Missing \(lockedUseInstallerPathEnv).",
+            path: nil
+        )
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: installerPath)
+    process.arguments = ["status"]
+
+    let stdout = Pipe()
+    let stderr = Pipe()
+    process.standardOutput = stdout
+    process.standardError = stderr
+
+    do {
+        try process.run()
+    } catch {
+        return LockedUseInstallerStatus(
+            state: "not-configured",
+            message: "Unable to launch locked-use installer at \(installerPath): \(error)",
+            path: installerPath
+        )
+    }
+
+    let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+
+    let output = String(decoding: stdoutData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    let errorOutput = String(decoding: stderrData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    if process.terminationStatus != 0 {
+        return LockedUseInstallerStatus(
+            state: "unknown",
+            message: errorOutput.isEmpty ? "Locked-use installer status failed." : errorOutput,
+            path: installerPath
+        )
+    }
+
+    if output.contains("OK: installed") {
+        return LockedUseInstallerStatus(state: "installed", message: output, path: installerPath)
+    }
+    if output.contains("OK: partial") {
+        return LockedUseInstallerStatus(state: "partial", message: output, path: installerPath)
+    }
+    if output.contains("OK: not-installed") {
+        return LockedUseInstallerStatus(state: "not-installed", message: output, path: installerPath)
+    }
+
+    return LockedUseInstallerStatus(
+        state: "unknown",
+        message: output.isEmpty ? "Locked-use installer returned no status." : output,
+        path: installerPath
     )
 }
 
