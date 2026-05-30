@@ -75,6 +75,7 @@ const helperTimeoutMs =
 const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === "1";
 const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
 const cursorPositionPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor-position");
+const cursorPidPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor.pid");
 
 try {
   await main();
@@ -86,7 +87,7 @@ try {
 async function main() {
   await access(helperPath);
   await assertHelperSupportsActiveTurnProtocol();
-  await removeCursorRequest();
+  await removeCursorArtifacts();
   await assertUnlockedDesktop();
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
   await sleep(500);
@@ -246,6 +247,7 @@ async function runWithFocusGuard(request, action, options = {}) {
 async function runElementClickProbe(initialState) {
   const sevenButtonIndex = findButtonElementIndex(stateText(initialState), "7");
   const beforeCursor = await readCursorRequest();
+  const cursorOptions = { showCursor: true, cursorDurationMs: 1500, cursorGlideMs: 300 };
   await runWithFocusGuard(
     {
       command: "click",
@@ -253,10 +255,11 @@ async function runElementClickProbe(initialState) {
       element_index: sevenButtonIndex,
     },
     "Calculator element click",
-    { showCursor: true },
+    cursorOptions,
   );
   const afterCursor = await readCursorRequest();
   assertCursorAdvanced(beforeCursor, afterCursor, "Calculator element click");
+  await assertCursorOverlayDaemonRunning("Calculator element click");
 }
 
 async function runOutOfBoundsCoordinateProbe(initialState) {
@@ -549,20 +552,62 @@ function helperEnv(options) {
     return {
       ...env,
       PI_GUI_COMPUTER_USE_SHOW_CURSOR: "1",
-      PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS: "250",
-      PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS: "80",
+      PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS: `${options.cursorDurationMs ?? 250}`,
+      PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS: `${options.cursorGlideMs ?? 80}`,
     };
   }
   return { ...env, PI_GUI_COMPUTER_USE_SHOW_CURSOR: "0" };
 }
 
-async function removeCursorRequest() {
+async function removeCursorArtifacts() {
+  await removePath(cursorPositionPath);
+  await removePath(cursorPidPath);
+}
+
+async function removePath(filePath) {
   try {
-    await unlink(cursorPositionPath);
+    await unlink(filePath);
   } catch (error) {
     if (error?.code !== "ENOENT") {
       throw error;
     }
+  }
+}
+
+async function assertCursorOverlayDaemonRunning(action) {
+  const deadline = Date.now() + 1_000;
+  let lastError = "";
+  while (Date.now() < deadline) {
+    const pid = await readCursorDaemonPid();
+    if (pid) {
+      try {
+        const { stdout } = await execFileAsync("ps", ["-p", `${pid}`, "-o", "command="], { timeout: 1_000 });
+        const command = stdout.trim();
+        if (command.includes(helperExecutableName) && command.includes("--cursor-overlay-daemon")) {
+          return;
+        }
+        lastError = `pid ${pid} command was ${command || "<empty>"}`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    } else {
+      lastError = "cursor daemon pid file was not written";
+    }
+    await sleep(50);
+  }
+  throw new Error(`${action} did not start the persistent agent cursor overlay daemon: ${lastError}`);
+}
+
+async function readCursorDaemonPid() {
+  try {
+    const rawValue = await readFile(cursorPidPath, "utf8");
+    const pid = Number.parseInt(rawValue.trim(), 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : undefined;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
   }
 }
 
