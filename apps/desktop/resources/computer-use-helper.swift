@@ -945,6 +945,11 @@ func helperErrorDetails(for error: Error) -> [String: String]? {
             "screenshot": "unavailable",
         ]
     }
+    if message.contains("would require moving the user's physical mouse") {
+        return [
+            "errorCode": "physical_input_required",
+        ]
+    }
     return nil
 }
 
@@ -1006,10 +1011,7 @@ func click(_ request: Request) throws -> Response {
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
-            return try withTemporaryActivation(app, cursorPoint: center) {
-                postClick(at: center, button: button, count: clickCount)
-                return try stateResponse(for: app)
-            }
+            throw physicalPointerClickRequired(app: app, point: center)
         }
         throw HelperError.message("Element \(request.element_index ?? "") has no clickable position.")
     }
@@ -1022,10 +1024,13 @@ func click(_ request: Request) throws -> Response {
         try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
         return try stateResponse(for: app)
     }
-    return try withTemporaryActivation(app, cursorPoint: point) {
-        postClick(at: point, button: button, count: clickCount)
-        return try stateResponse(for: app)
-    }
+    throw physicalPointerClickRequired(app: app, point: point)
+}
+
+func physicalPointerClickRequired(app: ResolvedApp, point: CGPoint) -> HelperError {
+    HelperError.message(
+        "Computer Use blocked: this click in \(app.displayName) would require moving the user's physical mouse at \(Int(point.x)),\(Int(point.y)). Use a pressable element_index or a coordinate over a pressable accessibility element to keep Computer Use in the background."
+    )
 }
 
 func performSecondaryAction(_ request: Request) throws -> Response {

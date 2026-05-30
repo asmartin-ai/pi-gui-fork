@@ -129,6 +129,12 @@ process.stdin.on("end", () => {
       error: "Cannot use screenshot coordinates because the target window screenshot is unavailable for Notes. Call get_app_state and use an element_index from the accessibility tree instead.",
       details: { screenshot: "unavailable" },
     };
+  } else if (request.command === "click" && request.app === "Sketch") {
+    response = {
+      ok: false,
+      error: "Computer Use blocked: this click in Sketch would require moving the user's physical mouse at 120,120. Use a pressable element_index or a coordinate over a pressable accessibility element to keep Computer Use in the background.",
+      details: { errorCode: "physical_input_required" },
+    };
   } else {
     response = {
       ok: false,
@@ -195,6 +201,22 @@ await assertFailureResult({
   thrown: screenshotUnavailableThrown,
   expectedText: [/Computer Use blocked: the target screenshot is unavailable/, /element_index/],
   expectedDetails: { errorCode: "screenshot_unavailable", screenshot: "unavailable" },
+});
+
+const physicalInputThrown = await executeToolExpectingError(
+  click,
+  "call-physical-input",
+  { app: "Sketch", x: 120, y: 120 },
+  /Computer Use blocked: this action would require foreground mouse control/,
+  "physical pointer fallback failures should throw so the runtime records a tool error",
+);
+await assertFailureResult({
+  toolCallId: "call-physical-input",
+  toolName: "click",
+  input: { app: "Sketch", x: 120, y: 120 },
+  thrown: physicalInputThrown,
+  expectedText: [/Computer Use blocked: this action would require foreground mouse control/, /physical mouse/],
+  expectedDetails: { errorCode: "physical_input_required" },
 });
 
 const status = await tools.get("computer_use_status").execute("call-status", {}, undefined, undefined, { hasUI: false });

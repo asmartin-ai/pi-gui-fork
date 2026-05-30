@@ -171,8 +171,13 @@ const getAppStateTool: ComputerUseTool = {
 const clickTool: ComputerUseTool = {
   name: "click",
   label: "Click",
-  description: "Click an element by index or pixel coordinates from the latest screenshot.",
+  description:
+    "Click an element by index or a background-safe pressable coordinate from the latest screenshot.",
   promptSnippet: "Click a Mac app element or screenshot coordinate",
+  promptGuidelines: [
+    "Prefer element_index from the latest get_app_state result. Coordinate clicks are blocked when they would require foreground physical mouse control.",
+    blockedToolGuideline,
+  ],
   parameters: objectSchema({
     ...AppParams,
     element_index: optional(stringSchema({ description: "Element index to click" })),
@@ -596,6 +601,9 @@ function classifyComputerUseError(message: string, details: Record<string, unkno
   if (message.includes("target window screenshot is unavailable")) {
     return "screenshot_unavailable";
   }
+  if (message.includes("would require moving the user's physical mouse")) {
+    return "physical_input_required";
+  }
   if (message.includes("helper is not configured") || message.includes("ENOENT") || message.includes("not found")) {
     return "helper_unavailable";
   }
@@ -615,6 +623,8 @@ function failureTitle(errorCode: string): string {
       return "Computer Use blocked: Screen Recording permission is not enabled.";
     case "screenshot_unavailable":
       return "Computer Use blocked: the target screenshot is unavailable.";
+    case "physical_input_required":
+      return "Computer Use blocked: this action would require foreground mouse control.";
     case "helper_unavailable":
       return "Computer Use unavailable: the helper is not configured.";
     case "helper_timeout":

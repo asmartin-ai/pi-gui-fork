@@ -79,7 +79,8 @@ async function main() {
 
   const initialCalculatorState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
   await runOutOfBoundsCoordinateProbe(initialCalculatorState);
-  await runCoordinateClickProbe(initialCalculatorState);
+  await runElementClickProbe(initialCalculatorState);
+  await runPhysicalPointerFallbackProbe(initialCalculatorState);
 
   for (const key of ["kp_clear", "kp_clear", "7", "plus", "8", "kp_equal"]) {
     await runWithFocusGuard({ command: "press_key", app: "Calculator", key }, `press_key ${key}`);
@@ -167,21 +168,20 @@ async function runWithFocusGuard(request, action, options = {}) {
   return response;
 }
 
-async function runCoordinateClickProbe(initialState) {
-  const dimensions = screenshotDimensions(initialState, "coordinate click coverage");
+async function runElementClickProbe(initialState) {
+  const sevenButtonIndex = findButtonElementIndex(stateText(initialState), "7");
   const beforeCursor = await readCursorRequest();
   await runWithFocusGuard(
     {
       command: "click",
       app: "Calculator",
-      x: Math.round(dimensions.width / 2),
-      y: Math.round(dimensions.height / 2),
+      element_index: sevenButtonIndex,
     },
-    "Calculator coordinate click",
+    "Calculator element click",
     { showCursor: true },
   );
   const afterCursor = await readCursorRequest();
-  assertCursorAdvanced(beforeCursor, afterCursor, "Calculator coordinate click");
+  assertCursorAdvanced(beforeCursor, afterCursor, "Calculator element click");
 }
 
 async function runOutOfBoundsCoordinateProbe(initialState) {
@@ -213,6 +213,38 @@ async function runOutOfBoundsCoordinateProbe(initialState) {
   const afterCursor = await readCursorRequest();
   if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
     throw new Error("Rejected out-of-bounds coordinate click moved the agent cursor.");
+  }
+}
+
+async function runPhysicalPointerFallbackProbe(initialState) {
+  const dimensions = screenshotDimensions(initialState, "physical pointer fallback coverage");
+  await activateFinder();
+  const before = await frontmostApp();
+  if (before === "Calculator") {
+    throw new Error("Could not put a non-target app in front before the physical pointer fallback probe.");
+  }
+  const beforeCursor = await readCursorRequest();
+  let errorMessage = "";
+  try {
+    await runHelper(
+      {
+        command: "click",
+        app: "Calculator",
+        x: Math.round(dimensions.width * 0.25),
+        y: Math.round(dimensions.height * 0.16),
+      },
+      { showCursor: true },
+    );
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  if (!errorMessage.includes("would require moving the user's physical mouse")) {
+    throw new Error(`Physical pointer fallback was not rejected clearly: ${errorMessage || "<no error>"}`);
+  }
+  await assertTargetDidNotBecomeFrontmost("rejected physical pointer fallback click", before, "Calculator");
+  const afterCursor = await readCursorRequest();
+  if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
+    throw new Error("Rejected physical pointer fallback click moved the agent cursor.");
   }
 }
 
@@ -367,6 +399,16 @@ function findEditableTextElementIndex(text, expectedValue) {
     }
   }
   throw new Error(`Could not find editable text element containing ${expectedValue}.`);
+}
+
+function findButtonElementIndex(text, expectedDescription) {
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+button\b.*Description:\s*([^,\n]*)/i);
+    if (match && match[2].trim() === expectedDescription) {
+      return match[1];
+    }
+  }
+  throw new Error(`Could not find button element with description ${expectedDescription}.`);
 }
 
 function runHelper(request, options = {}) {

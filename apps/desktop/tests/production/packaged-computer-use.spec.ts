@@ -98,6 +98,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(extensionSource).toContain("desktop_locked");
   expect(extensionSource).toContain("screen_recording_denied");
   expect(extensionSource).toContain("screenshot_unavailable");
+  expect(extensionSource).toContain("physical_input_required");
+  expect(extensionSource).toContain("foreground mouse control");
   for (const toolName of expectedComputerUseTools) {
     expect(extensionSource).toContain(`name: "${toolName}"`);
   }
@@ -130,6 +132,7 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("--cursor-overlay-daemon");
   expect(helperSource).toContain("AXUIElementCopyElementAtPosition");
   expect(helperSource).toContain("outside the target window screenshot bounds");
+  expect(helperSource).toContain("would require moving the user's physical mouse");
   expect(helperSource).toContain("target window screenshot is unavailable");
   expect(helperSource).toContain("active-turn authorization service");
   expect(helperSource).toContain("waitForFrontmost");
