@@ -333,10 +333,10 @@ func click(_ request: Request) throws -> Response {
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
-            withTemporaryActivation(app, cursorPoint: center) {
+            return try withTemporaryActivation(app, cursorPoint: center) {
                 postClick(at: center, button: button, count: clickCount)
+                return try stateResponse(for: app)
             }
-            return try stateResponse(for: app)
         }
         throw HelperError.message("Element \(request.element_index ?? "") has no clickable position.")
     }
@@ -349,10 +349,10 @@ func click(_ request: Request) throws -> Response {
         try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
         return try stateResponse(for: app)
     }
-    withTemporaryActivation(app, cursorPoint: point) {
+    return try withTemporaryActivation(app, cursorPoint: point) {
         postClick(at: point, button: button, count: clickCount)
+        return try stateResponse(for: app)
     }
-    return try stateResponse(for: app)
 }
 
 func performSecondaryAction(_ request: Request) throws -> Response {
@@ -459,24 +459,24 @@ func scroll(_ request: Request) throws -> Response {
     }
 
     let cursorPoint = element.flatMap(elementCenter) ?? targetWindowCenter(for: app)
-    withTemporaryActivation(app, cursorPoint: cursorPoint) {
+    return try withTemporaryActivation(app, cursorPoint: cursorPoint) {
         if let cursorPoint {
             moveMouse(to: cursorPoint)
         }
         postScroll(deltaX: deltaX, deltaY: deltaY)
+        return try stateResponse(for: app)
     }
-    return try stateResponse(for: app)
 }
 
 func drag(_ request: Request) throws -> Response {
     let app = try resolveApp(request.app)
     let from = try screenshotPoint(request, app: app, x: request.from_x, y: request.from_y)
     let to = try screenshotPoint(request, app: app, x: request.to_x, y: request.to_y)
-    withTemporaryActivation(app, cursorPoint: from) {
+    return try withTemporaryActivation(app, cursorPoint: from) {
         postDrag(from: from, to: to)
         showAgentCursor(at: to, pressed: false)
+        return try stateResponse(for: app)
     }
-    return try stateResponse(for: app)
 }
 
 func pressKey(_ request: Request) throws -> Response {
@@ -485,10 +485,10 @@ func pressKey(_ request: Request) throws -> Response {
     if try pressAccessibleKey(key, app: app) {
         return try stateResponse(for: app)
     }
-    try withTemporaryActivation(app, cursorPoint: nil) {
+    return try withTemporaryActivation(app, cursorPoint: nil) {
         try postKey(key)
+        return try stateResponse(for: app)
     }
-    return try stateResponse(for: app)
 }
 
 func typeText(_ request: Request) throws -> Response {
@@ -499,28 +499,28 @@ func typeText(_ request: Request) throws -> Response {
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
-            withTemporaryActivation(app, cursorPoint: center) {
+            return try withTemporaryActivation(app, cursorPoint: center) {
                 moveMouse(to: center)
                 postClick(at: center, button: "left", count: 1)
                 for character in text {
                     postUnicode(String(character))
                     Thread.sleep(forTimeInterval: 0.01)
                 }
+                return try stateResponse(for: app)
             }
-            return try stateResponse(for: app)
         }
         throw HelperError.message("Element \(request.element_index ?? "") does not support background text insertion and has no typing position.")
     }
     if try typeAccessibleText(text, app: app) {
         return try stateResponse(for: app)
     }
-    withTemporaryActivation(app, cursorPoint: nil) {
+    return try withTemporaryActivation(app, cursorPoint: nil) {
         for character in text {
             postUnicode(String(character))
             Thread.sleep(forTimeInterval: 0.01)
         }
+        return try stateResponse(for: app)
     }
-    return try stateResponse(for: app)
 }
 
 func stateResponse(for app: ResolvedApp) throws -> Response {
@@ -707,16 +707,23 @@ func withTemporaryActivation<T>(
     cursorPoint: CGPoint?,
     restoreFocus: Bool = true,
     _ body: () throws -> T
-) rethrows -> T {
+) throws -> T {
     let previousApp = NSWorkspace.shared.frontmostApplication
     let previousMouseLocation = currentMouseLocation()
     if let cursorPoint {
         showAgentCursorAndWait(at: cursorPoint, pressed: true)
     }
     activate(app)
-    Thread.sleep(forTimeInterval: 0.08)
+    if !waitForFrontmost(processIdentifier: app.running.processIdentifier, timeout: 0.6),
+       app.bundleIdentifier != "unknown" {
+        openApplication(bundleIdentifier: app.bundleIdentifier)
+    }
+    guard waitForFrontmost(processIdentifier: app.running.processIdentifier, timeout: 0.8) else {
+        throw HelperError.message("Could not bring \(app.displayName) to the front for physical Computer Use input.")
+    }
     defer {
         if restoreFocus {
+            Thread.sleep(forTimeInterval: 0.16)
             restoreUserFocus(previousApp, mouseLocation: previousMouseLocation, targetPid: app.running.processIdentifier)
         }
     }
@@ -724,6 +731,13 @@ func withTemporaryActivation<T>(
 }
 
 func restoreUserFocus(_ previousApp: NSRunningApplication?, mouseLocation: CGPoint?, targetPid: pid_t) {
+    let deadline = Date().addingTimeInterval(0.45)
+    while Date() < deadline {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid {
+            break
+        }
+        Thread.sleep(forTimeInterval: 0.02)
+    }
     guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid else {
         return
     }
@@ -731,20 +745,48 @@ func restoreUserFocus(_ previousApp: NSRunningApplication?, mouseLocation: CGPoi
        previousApp.processIdentifier != targetPid,
        let stillRunning = NSRunningApplication(processIdentifier: previousApp.processIdentifier) {
         stillRunning.activate(options: [.activateAllWindows])
-        waitForFrontmost(processIdentifier: stillRunning.processIdentifier, timeout: 0.35)
+        _ = waitForFrontmost(processIdentifier: stillRunning.processIdentifier, timeout: 0.35)
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid,
+           let bundleIdentifier = stillRunning.bundleIdentifier {
+            openApplication(bundleIdentifier: bundleIdentifier)
+            waitForNotFrontmost(processIdentifier: targetPid, timeout: 0.35)
+        }
     }
     if let mouseLocation {
         moveMouse(to: mouseLocation)
     }
 }
 
-func waitForFrontmost(processIdentifier: pid_t, timeout: TimeInterval) {
+func waitForFrontmost(processIdentifier: pid_t, timeout: TimeInterval) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    return NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier
+}
+
+func waitForNotFrontmost(processIdentifier: pid_t, timeout: TimeInterval) {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != processIdentifier {
             return
         }
         Thread.sleep(forTimeInterval: 0.02)
+    }
+}
+
+func openApplication(bundleIdentifier: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = ["-b", bundleIdentifier]
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return
     }
 }
 
@@ -981,6 +1023,12 @@ func accessibilityElement(at point: CGPoint, in app: ResolvedApp) -> AXUIElement
 }
 
 func backingScaleFactor(for frame: CGRect) -> Double {
+    for screen in NSScreen.screens {
+        if let quartzBounds = quartzBounds(for: screen),
+           quartzBounds.intersects(frame) {
+            return Double(screen.backingScaleFactor)
+        }
+    }
     for screen in NSScreen.screens {
         if screen.frame.intersects(frame) {
             return Double(screen.backingScaleFactor)
