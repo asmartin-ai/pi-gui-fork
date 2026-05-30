@@ -35,6 +35,8 @@ const helperPathArg = process.argv[2];
 const helperPath =
   helperPathArg === "--packaged"
     ? await firstExistingPath(packagedHelperCandidates())
+    : helperPathArg === "--installed"
+      ? await firstExistingPath([installedHelperAppExecutablePath, installedHelperPath])
     : helperPathArg ??
       (await firstExistingPath([
         defaultHelperAppExecutablePath,
