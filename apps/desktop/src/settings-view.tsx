@@ -41,6 +41,7 @@ interface SettingsViewProps {
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
   readonly onRefreshComputerUseStatus: () => void;
+  readonly onSetLockedComputerUseEnabled: (enabled: boolean) => void;
   readonly onOpenComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
 }
@@ -71,6 +72,7 @@ export function SettingsView({
   onRequestNotificationPermission,
   onOpenSystemNotificationSettings,
   onRefreshComputerUseStatus,
+  onSetLockedComputerUseEnabled,
   onOpenComputerUsePrivacySettings,
   onSetThemeMode,
 }: SettingsViewProps) {
@@ -148,6 +150,7 @@ export function SettingsView({
               status={computerUseStatus}
               pending={computerUseStatusPending}
               onRefresh={onRefreshComputerUseStatus}
+              onSetLockedUseEnabled={onSetLockedComputerUseEnabled}
               onOpenPrivacySettings={onOpenComputerUsePrivacySettings}
             />
           ) : null}

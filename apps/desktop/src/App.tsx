@@ -1690,6 +1690,35 @@ export default function App() {
     void api.openComputerUsePrivacySettings(pane);
   };
 
+  const handleSetLockedComputerUseEnabled = (enabled: boolean) => {
+    if (!api?.setLockedComputerUseEnabled) {
+      return;
+    }
+    setComputerUseStatusPending(true);
+    void api
+      .setLockedComputerUseEnabled(enabled)
+      .then((status) => {
+        setComputerUseStatus(status);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setComputerUseStatus((current) => ({
+          helperAvailable: current?.helperAvailable ?? false,
+          helperPath: current?.helperPath,
+          desktop: current?.desktop ?? "unknown",
+          accessibility: current?.accessibility ?? "unknown",
+          screenRecording: current?.screenRecording ?? "unknown",
+          lockedUse: current?.lockedUse ?? "unknown",
+          lockedUseInstaller: current?.lockedUseInstaller,
+          lockedUseInstallerPath: current?.lockedUseInstallerPath,
+          message,
+        }));
+      })
+      .finally(() => {
+        setComputerUseStatusPending(false);
+      });
+  };
+
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
@@ -1921,6 +1950,7 @@ export default function App() {
           onRequestNotificationPermission={handleRequestNotificationPermission}
           onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
           onRefreshComputerUseStatus={refreshComputerUseStatus}
+          onSetLockedComputerUseEnabled={handleSetLockedComputerUseEnabled}
           onOpenComputerUsePrivacySettings={handleOpenComputerUsePrivacySettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
           onSetThemeMode={handleSetThemeMode}

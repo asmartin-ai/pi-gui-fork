@@ -9,6 +9,7 @@ interface SettingsComputerUseSectionProps {
   readonly status?: DesktopComputerUseStatus;
   readonly pending: boolean;
   readonly onRefresh: () => void;
+  readonly onSetLockedUseEnabled: (enabled: boolean) => void;
   readonly onOpenPrivacySettings: (pane: DesktopComputerUsePrivacyPane) => void;
 }
 
@@ -16,6 +17,7 @@ export function SettingsComputerUseSection({
   status,
   pending,
   onRefresh,
+  onSetLockedUseEnabled,
   onOpenPrivacySettings,
 }: SettingsComputerUseSectionProps) {
   return (
@@ -25,7 +27,17 @@ export function SettingsComputerUseSection({
           <span className="settings-row__value">{helperLabel(status, pending)}</span>
         </SettingsRow>
         <SettingsInfoRow label="Desktop" value={desktopLabel(status?.desktop)} />
-        <SettingsInfoRow label="Locked computer use" value={lockedUseLabel(status?.lockedUse)} />
+        <SettingsRow
+          title="Locked computer use"
+          description="Lets pi-gui continue an active Computer Use turn after macOS locks. macOS will ask for an administrator password."
+        >
+          <LockedUseControl
+            status={status}
+            pending={pending}
+            onSetEnabled={onSetLockedUseEnabled}
+          />
+        </SettingsRow>
+        <SettingsInfoRow label="Locked setup" value={lockedUseInstallerLabel(status?.lockedUseInstaller)} />
         {status?.message ? <SettingsRow title="Details" description={status.message} /> : null}
         <SettingsRow title="Refresh status">
           <button className="button button--secondary" disabled={pending} type="button" onClick={onRefresh}>
@@ -49,6 +61,29 @@ export function SettingsComputerUseSection({
         </SettingsRow>
       </SettingsGroup>
     </>
+  );
+}
+
+function LockedUseControl({
+  status,
+  pending,
+  onSetEnabled,
+}: {
+  readonly status?: DesktopComputerUseStatus;
+  readonly pending: boolean;
+  readonly onSetEnabled: (enabled: boolean) => void;
+}) {
+  const enabled = status?.lockedUse === "enabled";
+  const buttonLabel = lockedUseActionLabel(status);
+  return (
+    <div className="settings-row__actions">
+      <span className="settings-row__value">{lockedUseLabel(status?.lockedUse)}</span>
+      {buttonLabel ? (
+        <button className="button button--secondary" disabled={pending} type="button" onClick={() => onSetEnabled(!enabled)}>
+          {buttonLabel}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -98,6 +133,40 @@ function lockedUseLabel(value: DesktopComputerUseStatus["lockedUse"] | undefined
     default:
       return "Unknown";
   }
+}
+
+function lockedUseInstallerLabel(value: DesktopComputerUseStatus["lockedUseInstaller"] | undefined): string {
+  switch (value) {
+    case "installed":
+      return "Installed";
+    case "not-installed":
+      return "Not installed";
+    case "not-configured":
+      return "Not configured";
+    case "partial":
+      return "Needs repair";
+    default:
+      return "Unknown";
+  }
+}
+
+function lockedUseActionLabel(status: DesktopComputerUseStatus | undefined): string | undefined {
+  if (!status?.helperAvailable) {
+    return undefined;
+  }
+  if (!status.lockedUseInstallerPath) {
+    return undefined;
+  }
+  if (!["installed", "not-installed", "partial"].includes(status.lockedUseInstaller ?? "")) {
+    return undefined;
+  }
+  if (status.lockedUse === "enabled") {
+    return "Disable";
+  }
+  if (status.lockedUseInstaller === "partial") {
+    return "Repair";
+  }
+  return status.lockedUseInstaller === "not-installed" ? "Enable" : undefined;
 }
 
 function permissionLabel(value: DesktopComputerUseStatusValue | undefined): string {

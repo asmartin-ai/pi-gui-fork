@@ -29,6 +29,12 @@ export type DesktopNotificationPermissionStatus =
 export type DesktopComputerUseStatusValue = "granted" | "denied" | "unknown";
 export type DesktopComputerUseDesktopState = "locked" | "unlocked" | "unknown";
 export type DesktopComputerUseLockedState = "enabled" | "not_enabled" | "unknown";
+export type DesktopComputerUseLockedInstallerState =
+  | "installed"
+  | "not-installed"
+  | "not-configured"
+  | "partial"
+  | "unknown";
 export type DesktopComputerUsePrivacyPane = "accessibility" | "screen-recording";
 
 export interface DesktopComputerUseStatus {
@@ -38,6 +44,8 @@ export interface DesktopComputerUseStatus {
   readonly accessibility: DesktopComputerUseStatusValue;
   readonly screenRecording: DesktopComputerUseStatusValue;
   readonly lockedUse: DesktopComputerUseLockedState;
+  readonly lockedUseInstaller?: DesktopComputerUseLockedInstallerState;
+  readonly lockedUseInstallerPath?: string;
   readonly message?: string;
 }
 
@@ -101,6 +109,7 @@ export const desktopIpc = {
   requestNotificationPermission: "pi-gui:request-notification-permission",
   openSystemNotificationSettings: "pi-gui:open-system-notification-settings",
   getComputerUseStatus: "pi-gui:get-computer-use-status",
+  setLockedComputerUseEnabled: "pi-gui:set-locked-computer-use-enabled",
   openComputerUsePrivacySettings: "pi-gui:open-computer-use-privacy-settings",
   notificationPermissionStatusChanged: "pi-gui:notification-permission-status-changed",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
@@ -318,6 +327,7 @@ export interface PiDesktopApi {
   requestNotificationPermission(): Promise<DesktopNotificationPermissionStatus>;
   openSystemNotificationSettings(): Promise<void>;
   getComputerUseStatus(): Promise<DesktopComputerUseStatus>;
+  setLockedComputerUseEnabled(enabled: boolean): Promise<DesktopComputerUseStatus>;
   openComputerUsePrivacySettings(pane: DesktopComputerUsePrivacyPane): Promise<void>;
   onNotificationPermissionStatusChanged(
     callback: (status: DesktopNotificationPermissionStatus) => void,

@@ -1,15 +1,19 @@
 import { spawn, execFile } from "node:child_process";
-import { appendFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, appendFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import { shell } from "electron";
 import type {
   DesktopComputerUsePrivacyPane,
   DesktopComputerUseStatus,
+  DesktopComputerUseLockedInstallerState,
   DesktopComputerUseStatusValue,
 } from "../src/ipc";
 
 const execFileAsync = promisify(execFile);
 const helperPathEnv = "PI_GUI_COMPUTER_USE_HELPER_PATH";
+const lockedUseInstallerEnv = "PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH";
 const computerUsePrivateEnvKeys = [
   "PI_GUI_COMPUTER_USE_LOCKED_USE_APP_TOKEN",
   "PI_GUI_COMPUTER_USE_DESKTOP_PID",
@@ -18,7 +22,10 @@ const computerUsePrivateEnvKeys = [
 ];
 const statusOverrideEnv = "PI_APP_TEST_COMPUTER_USE_STATUS_JSON";
 const settingsLogPathEnv = "PI_APP_TEST_COMPUTER_USE_SETTINGS_LOG_PATH";
+const lockedUseActionLogPathEnv = "PI_APP_TEST_COMPUTER_USE_LOCKED_USE_ACTION_LOG_PATH";
 const helperStatusTimeoutMs = 5_000;
+const lockedUseInstallerTimeoutMs = 120_000;
+const lockedUseInstallerConfirmFlag = "--confirm-system-login-change";
 
 interface HelperResponse {
   readonly ok: boolean;
@@ -58,6 +65,8 @@ export async function getComputerUseStatus(): Promise<DesktopComputerUseStatus> 
       accessibility: permissionStatus(details.accessibility),
       screenRecording: permissionStatus(details.screenRecording),
       lockedUse: details.lockedUse === "enabled" ? "enabled" : "not_enabled",
+      lockedUseInstaller: lockedUseInstallerStatus(details.lockedUseInstaller),
+      lockedUseInstallerPath: details.lockedUseInstallerPath,
       message: details.lockedUseMessage ?? textContent(response),
     };
   } catch (error) {
@@ -71,6 +80,25 @@ export async function getComputerUseStatus(): Promise<DesktopComputerUseStatus> 
       message: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function setLockedComputerUseEnabled(enabled: boolean): Promise<DesktopComputerUseStatus> {
+  const installerPath = process.env[lockedUseInstallerEnv]?.trim();
+  if (!installerPath) {
+    throw new Error(`Locked Computer Use installer is not configured. Missing ${lockedUseInstallerEnv}.`);
+  }
+
+  const action = enabled ? "install" : "uninstall";
+  const resourceDirectory = path.dirname(installerPath);
+  const testLogPath = process.env[lockedUseActionLogPathEnv]?.trim();
+  if (testLogPath) {
+    await appendFile(testLogPath, `${action} ${installerPath} ${resourceDirectory}\n`, "utf8");
+    return getComputerUseStatus();
+  }
+
+  await requireExecutableInstaller(installerPath);
+  await runLockedUseInstallerWithAdministratorPrivileges(installerPath, action, resourceDirectory);
+  return getComputerUseStatus();
 }
 
 export async function openComputerUsePrivacySettings(pane: DesktopComputerUsePrivacyPane): Promise<void> {
@@ -107,6 +135,30 @@ export async function openComputerUsePrivacySettings(pane: DesktopComputerUsePri
   await shell.openPath("/System/Applications/System Settings.app");
 }
 
+async function runLockedUseInstallerWithAdministratorPrivileges(
+  installerPath: string,
+  action: "install" | "uninstall",
+  resourceDirectory: string,
+): Promise<void> {
+  const command =
+    action === "install"
+      ? [
+          shellQuote(installerPath),
+          "install",
+          shellQuote(resourceDirectory),
+          lockedUseInstallerConfirmFlag,
+        ].join(" ")
+      : [shellQuote(installerPath), "uninstall", lockedUseInstallerConfirmFlag].join(" ");
+
+  try {
+    await execFileAsync("osascript", ["-e", `do shell script ${appleScriptString(command)} with administrator privileges`], {
+      timeout: lockedUseInstallerTimeoutMs,
+    });
+  } catch (error) {
+    throw new Error(`Locked Computer Use setup failed: ${errorMessage(error)}`);
+  }
+}
+
 function permissionStatus(value: string | undefined): DesktopComputerUseStatusValue {
   switch (value) {
     case "granted":
@@ -116,6 +168,40 @@ function permissionStatus(value: string | undefined): DesktopComputerUseStatusVa
     default:
       return "unknown";
   }
+}
+
+function lockedUseInstallerStatus(value: string | undefined): DesktopComputerUseLockedInstallerState {
+  switch (value) {
+    case "installed":
+    case "not-installed":
+    case "not-configured":
+    case "partial":
+      return value;
+    default:
+      return "unknown";
+  }
+}
+
+async function requireExecutableInstaller(installerPath: string): Promise<void> {
+  try {
+    await access(installerPath, constants.X_OK);
+  } catch {
+    throw new Error(
+      `Locked Computer Use installer is not available at ${installerPath}. Reinstall pi-gui or refresh Computer Use status before enabling locked computer use.`,
+    );
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function appleScriptString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function textContent(response: HelperResponse): string | undefined {

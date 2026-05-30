@@ -218,6 +218,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.openSystemNotificationSettings) as Promise<void>,
   getComputerUseStatus: () =>
     ipcRenderer.invoke(desktopIpc.getComputerUseStatus) as Promise<DesktopComputerUseStatus>,
+  setLockedComputerUseEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setLockedComputerUseEnabled, enabled) as Promise<DesktopComputerUseStatus>,
   openComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) =>
     ipcRenderer.invoke(desktopIpc.openComputerUsePrivacySettings, pane) as Promise<void>,
   onNotificationPermissionStatusChanged: (callback: (status: DesktopNotificationPermissionStatus) => void) => {
