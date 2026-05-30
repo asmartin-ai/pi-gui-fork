@@ -16,6 +16,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { configureComputerUseRuntime } from "./computer-use-runtime";
+import { getComputerUseStatus, openComputerUsePrivacySettings } from "./computer-use-status";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -620,6 +621,10 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.openSystemNotificationSettings, () =>
     notificationPermissionService?.openSystemSettings() ?? Promise.resolve(),
+  );
+  ipcMain.handle(desktopIpc.getComputerUseStatus, () => getComputerUseStatus());
+  ipcMain.handle(desktopIpc.openComputerUsePrivacySettings, (_event, pane) =>
+    openComputerUsePrivacySettings(pane),
   );
   ipcMain.handle(desktopIpc.createSession, (_event, input: CreateSessionInput) =>
     store.createSession(input),

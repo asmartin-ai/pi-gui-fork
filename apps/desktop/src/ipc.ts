@@ -26,6 +26,21 @@ export type DesktopNotificationPermissionStatus =
   | "unsupported"
   | "unknown";
 
+export type DesktopComputerUseStatusValue = "granted" | "denied" | "unknown";
+export type DesktopComputerUseDesktopState = "locked" | "unlocked" | "unknown";
+export type DesktopComputerUseLockedState = "enabled" | "not_enabled" | "unknown";
+export type DesktopComputerUsePrivacyPane = "accessibility" | "screen-recording";
+
+export interface DesktopComputerUseStatus {
+  readonly helperAvailable: boolean;
+  readonly helperPath?: string;
+  readonly desktop: DesktopComputerUseDesktopState;
+  readonly accessibility: DesktopComputerUseStatusValue;
+  readonly screenRecording: DesktopComputerUseStatusValue;
+  readonly lockedUse: DesktopComputerUseLockedState;
+  readonly message?: string;
+}
+
 export const desktopIpc = {
   stateRequest: "pi-gui:state-request",
   stateChanged: "pi-gui:state-changed",
@@ -85,6 +100,8 @@ export const desktopIpc = {
   getNotificationPermissionStatus: "pi-gui:get-notification-permission-status",
   requestNotificationPermission: "pi-gui:request-notification-permission",
   openSystemNotificationSettings: "pi-gui:open-system-notification-settings",
+  getComputerUseStatus: "pi-gui:get-computer-use-status",
+  openComputerUsePrivacySettings: "pi-gui:open-computer-use-privacy-settings",
   notificationPermissionStatusChanged: "pi-gui:notification-permission-status-changed",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
@@ -300,6 +317,8 @@ export interface PiDesktopApi {
   getNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus>;
   requestNotificationPermission(): Promise<DesktopNotificationPermissionStatus>;
   openSystemNotificationSettings(): Promise<void>;
+  getComputerUseStatus(): Promise<DesktopComputerUseStatus>;
+  openComputerUsePrivacySettings(pane: DesktopComputerUsePrivacyPane): Promise<void>;
   onNotificationPermissionStatusChanged(
     callback: (status: DesktopNotificationPermissionStatus) => void,
   ): () => void;

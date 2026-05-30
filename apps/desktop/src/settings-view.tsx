@@ -1,7 +1,12 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
-import type { DesktopNotificationPermissionStatus } from "./ipc";
+import type {
+  DesktopComputerUsePrivacyPane,
+  DesktopComputerUseStatus,
+  DesktopNotificationPermissionStatus,
+} from "./ipc";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
+import { SettingsComputerUseSection } from "./settings-computer-use-section";
 import { SettingsGeneralSection } from "./settings-general-section";
 import { SettingsModelsSection } from "./settings-models-section";
 import { SettingsNotificationsSection } from "./settings-notifications-section";
@@ -17,6 +22,8 @@ interface SettingsViewProps {
   readonly notificationPreferences: NotificationPreferences;
   readonly notificationPermissionStatus: DesktopNotificationPermissionStatus;
   readonly notificationPermissionPending: boolean;
+  readonly computerUseStatus?: DesktopComputerUseStatus;
+  readonly computerUseStatusPending: boolean;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
@@ -33,6 +40,8 @@ interface SettingsViewProps {
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
+  readonly onRefreshComputerUseStatus: () => void;
+  readonly onOpenComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
 }
 
@@ -43,6 +52,8 @@ export function SettingsView({
   notificationPreferences,
   notificationPermissionStatus,
   notificationPermissionPending,
+  computerUseStatus,
+  computerUseStatusPending,
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
@@ -59,9 +70,17 @@ export function SettingsView({
   onSetIntegratedTerminalShell,
   onRequestNotificationPermission,
   onOpenSystemNotificationSettings,
+  onRefreshComputerUseStatus,
+  onOpenComputerUsePrivacySettings,
   onSetThemeMode,
 }: SettingsViewProps) {
-  if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
+  if (
+    !workspace &&
+    section !== "general" &&
+    section !== "notifications" &&
+    section !== "appearance" &&
+    section !== "computer-use"
+  ) {
     return (
       <section className="canvas canvas--empty">
         <div className="empty-panel">
@@ -121,6 +140,15 @@ export function SettingsView({
               onSetDefaultModel={onSetDefaultModel}
               onSetScopedModelPatterns={onSetScopedModelPatterns}
               onSetThinkingLevel={onSetThinkingLevel}
+            />
+          ) : null}
+
+          {section === "computer-use" ? (
+            <SettingsComputerUseSection
+              status={computerUseStatus}
+              pending={computerUseStatusPending}
+              onRefresh={onRefreshComputerUseStatus}
+              onOpenPrivacySettings={onOpenComputerUsePrivacySettings}
             />
           ) : null}
 

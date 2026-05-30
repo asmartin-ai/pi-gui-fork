@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { resolvePackagedAppBundle } from "../helpers/electron-app";
 
 const expectedComputerUseTools = [
+  "computer_use_status",
   "click",
   "drag",
   "get_app_state",
@@ -91,6 +92,11 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperResponse.ok).toBe(true);
   expect(helperResponse.content?.[0]?.type).toBe("text");
   expect(helperResponse.content?.[0]?.text).toContain("Finder");
+
+  const helperStatus = await runPackagedHelper(helperAppExecutable, { command: "status" });
+  expect(helperStatus.ok).toBe(true);
+  expect(helperStatus.content?.[0]?.text).toContain("Computer Use status");
+  expect(helperStatus.content?.[0]?.text).toContain("Locked Computer Use");
 });
 
 function runPackagedHelper(helperPath: string, request: Record<string, unknown>): Promise<HelperResponse> {

@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PRELOAD_DEV_RELOAD_MARKER } from "./dev-reload-preload-probe";
 import {
   desktopIpc,
+  type DesktopComputerUsePrivacyPane,
+  type DesktopComputerUseStatus,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
   type TerminalDataEvent,
@@ -214,6 +216,10 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.requestNotificationPermission) as Promise<DesktopNotificationPermissionStatus>,
   openSystemNotificationSettings: () =>
     ipcRenderer.invoke(desktopIpc.openSystemNotificationSettings) as Promise<void>,
+  getComputerUseStatus: () =>
+    ipcRenderer.invoke(desktopIpc.getComputerUseStatus) as Promise<DesktopComputerUseStatus>,
+  openComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) =>
+    ipcRenderer.invoke(desktopIpc.openComputerUsePrivacySettings, pane) as Promise<void>,
   onNotificationPermissionStatusChanged: (callback: (status: DesktopNotificationPermissionStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, status: DesktopNotificationPermissionStatus) => callback(status);
     ipcRenderer.on(desktopIpc.notificationPermissionStatusChanged, handler);

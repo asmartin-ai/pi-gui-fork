@@ -86,6 +86,19 @@ const AppParams = {
   app: stringSchema({ description: "App name, full app path, or unambiguous bundle identifier" }),
 };
 
+const statusTool: ComputerUseTool = {
+  name: "computer_use_status",
+  label: "Computer Use Status",
+  description:
+    "Check Computer Use helper availability, permissions, desktop lock state, and locked-use readiness without controlling an app.",
+  promptSnippet: "Check whether local Mac Computer Use is ready",
+  parameters: objectSchema({}),
+  executionMode: "sequential",
+  async execute(_toolCallId, _params, signal, _onUpdate, _ctx) {
+    return runComputerUseAction(signal, () => callHelper("status", {}, signal));
+  },
+};
+
 const listAppsTool: ComputerUseTool = {
   name: "list_apps",
   label: "List Apps",
@@ -277,6 +290,7 @@ const typeTextTool: ComputerUseTool = {
 };
 
 export default function computerUseExtension(pi: ExtensionAPI): void {
+  pi.registerTool(statusTool);
   pi.registerTool(listAppsTool);
   pi.registerTool(getAppStateTool);
   pi.registerTool(clickTool);

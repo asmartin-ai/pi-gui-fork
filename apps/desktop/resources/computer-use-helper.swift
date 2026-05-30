@@ -242,13 +242,15 @@ func main() {
 }
 
 func handle(_ request: Request) throws -> Response {
-    if request.command != "list_apps" {
+    if request.command != "list_apps", request.command != "status" {
         try requireUnlockedDesktop()
     }
 
     switch request.command {
     case "list_apps":
         return try listApps()
+    case "status":
+        return status()
     case "get_app_state":
         return try getAppState(request)
     case "click":
@@ -272,6 +274,34 @@ func handle(_ request: Request) throws -> Response {
     }
 }
 
+func status() -> Response {
+    let locked = isScreenLocked()
+    let accessibilityGranted = AXIsProcessTrusted()
+    let screenRecordingGranted = screenRecordingStatus()
+    let lockSupport = "not_enabled"
+    let lockSupportMessage = "Locked Computer Use requires a guarded macOS authorization plug-in. pi-gui does not install one yet, so app control pauses while the desktop is locked."
+
+    var text = "Computer Use status (Pi GUI)\n"
+    text += "Desktop: \(locked ? "locked" : "unlocked")\n"
+    text += "Accessibility: \(accessibilityGranted ? "granted" : "not granted")\n"
+    text += "Screen Recording: \(screenRecordingGranted)\n"
+    text += "Locked Computer Use: not enabled\n"
+    text += lockSupportMessage
+
+    return Response(
+        ok: true,
+        content: [.text(text)],
+        details: [
+            "screenLocked": locked ? "true" : "false",
+            "accessibility": accessibilityGranted ? "granted" : "denied",
+            "screenRecording": screenRecordingGranted,
+            "lockedUse": lockSupport,
+            "lockedUseMessage": lockSupportMessage,
+        ],
+        error: nil
+    )
+}
+
 func requireUnlockedDesktop() throws {
     if isScreenLocked() {
         throw HelperError.message("Computer Use is unavailable while the Mac is locked. Unlock the desktop and retry.")
@@ -283,6 +313,13 @@ func isScreenLocked() -> Bool {
         return false
     }
     return (session["CGSSessionScreenIsLocked"] as? Bool) == true
+}
+
+func screenRecordingStatus() -> String {
+    if #available(macOS 10.15, *) {
+        return CGPreflightScreenCaptureAccess() ? "granted" : "denied"
+    }
+    return "unknown"
 }
 
 func listApps() throws -> Response {
