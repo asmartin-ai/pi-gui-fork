@@ -73,6 +73,7 @@ Use the smallest lane that matches the changed surface.
   ```bash
   pnpm --filter @pi-gui/desktop run test:prod:real-auth-contract
   pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+  pnpm --filter @pi-gui/desktop run test:prod:packaged-computer-use-parity
   pnpm --filter @pi-gui/desktop run test:prod:packaged-computer-use-background
   pnpm --filter @pi-gui/desktop run test:prod:applications-relaunch
   pnpm --filter @pi-gui/desktop run test:prod:release-zip-smoke
@@ -168,6 +169,7 @@ That spec launches the app in development mode, edits isolated probe modules for
 - `pasteTinyPngViaClipboard()` uses Electron clipboard plus `webContents.paste()` and is appropriate for foreground/native coverage.
 - `tests/production/real-auth-contract.spec.ts` proves the default non-real-auth path still seeds a temporary fake-auth agent dir and keeps real-auth coverage opt-in.
 - `tests/production/packaged-smoke.spec.ts` proves the packaged `.app` bundle launches and can start a thread through the real UI.
+- `test:prod:packaged-computer-use-parity` requires an unlocked desktop, packages the `.app` once, verifies the bundled Computer Use helper, extension, locked-use self-test, top-level @ extension surface, and then runs the real background Calculator/TextEdit cursor and focus probe with strict focus guarding. Use this as the main Computer Use parity gate before claiming Codex-level behavior.
 - `test:prod:packaged-computer-use` packages the `.app` and verifies the bundled Computer Use helper, extension, locked-use self-test, and top-level @ extension surface.
 - `test:prod:packaged-computer-use-background` packages the `.app` and runs the real Computer Use helper against background Calculator and TextEdit flows without taking focus when macOS permissions allow it.
 - `tests/production/applications-relaunch.spec.ts` proves an installed copy under `/Applications` launches and relaunches with persisted state.
