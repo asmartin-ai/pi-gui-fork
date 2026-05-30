@@ -11,8 +11,6 @@ import {
   type NewThreadEnvironment,
   type SelectedTranscriptRecord,
   type StartThreadInput,
-  type WorktreeRecord,
-  type WorkspaceRecord,
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
@@ -46,6 +44,7 @@ import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } fro
 import { TreeModal } from "./tree-modal";
 import { getEffectiveModelRuntime } from "./model-settings";
 import { resolveRepoWorkspaceId } from "./workspace-roots";
+import { deriveWorkspaceContext } from "./workspace-context";
 import {
   extractImageFilesFromClipboardData,
   extractFilesFromDataTransfer,
@@ -198,8 +197,8 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
-  const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalTakeover, setTerminalTakeover] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
@@ -271,54 +270,15 @@ export default function App() {
     return undefined;
   }, [refreshNotificationPermissionStatus, settingsSection, snapshot?.activeView]);
 
-  const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
-  const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
     rootWorkspace,
     rootWorkspaceOptions,
+    selectedWorkspace,
     visibleWorkspaces,
-  } = useMemo(() => {
-    if (!snapshot) {
-      return {
-        activeWorktrees: [] as readonly WorktreeRecord[],
-        linkedWorktreeByWorkspaceId: new Map<string, WorktreeRecord>(),
-        rootWorkspace: undefined as WorkspaceRecord | undefined,
-        rootWorkspaceOptions: [] as readonly WorkspaceRecord[],
-        visibleWorkspaces: [] as readonly WorkspaceRecord[],
-      };
-    }
-
-    const workspacesById = new Map(snapshot.workspaces.map((workspace) => [workspace.id, workspace] as const));
-    const primaryWorkspaces = snapshot.workspaces.filter((workspace) => workspace.kind === "primary");
-    const orphanWorkspaces = snapshot.workspaces.filter(
-      (workspace) => workspace.kind === "worktree" && !workspacesById.has(workspace.rootWorkspaceId ?? ""),
-    );
-    const nextVisibleWorkspaces =
-      primaryWorkspaces.length > 0 ? [...primaryWorkspaces, ...orphanWorkspaces] : snapshot.workspaces;
-    const nextLinkedWorktreeByWorkspaceId = new Map(
-      Object.values(snapshot.worktreesByWorkspace)
-        .flat()
-        .filter((worktree) => Boolean(worktree.linkedWorkspaceId))
-        .map((worktree) => [worktree.linkedWorkspaceId as string, worktree] as const),
-    );
-    const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace?.id);
-    const nextRootWorkspace =
-      (nextRootWorkspaceId ? snapshot.workspaces.find((workspace) => workspace.id === nextRootWorkspaceId) : undefined)
-      ?? selectedWorkspace;
-    const nextRootWorkspaceOptions = [...new Set(snapshot.workspaces.map((workspace) => resolveRepoWorkspaceId(snapshot.workspaces, workspace.id) ?? workspace.id))]
-      .map((workspaceId) => snapshot.workspaces.find((workspace) => workspace.id === workspaceId))
-      .filter((workspace): workspace is WorkspaceRecord => Boolean(workspace));
-
-    return {
-      activeWorktrees: nextRootWorkspace ? snapshot.worktreesByWorkspace[nextRootWorkspace.id] ?? [] : [],
-      linkedWorktreeByWorkspaceId: nextLinkedWorktreeByWorkspaceId,
-      rootWorkspace: nextRootWorkspace,
-      rootWorkspaceOptions: nextRootWorkspaceOptions,
-      visibleWorkspaces: nextVisibleWorkspaces,
-    };
-  }, [selectedWorkspace, snapshot]);
+  } = useMemo(() => deriveWorkspaceContext(snapshot), [snapshot]);
+  const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
   const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
   const selectedModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, selectedWorkspace) : undefined;
   const selectedWorktree = selectedWorkspace ? linkedWorktreeByWorkspaceId.get(selectedWorkspace.id) : undefined;
@@ -372,8 +332,8 @@ export default function App() {
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
-  const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKeys.has(selectedSessionKey);
-  const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKeys.has(selectedSessionKey);
+  const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && terminalOpen;
+  const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && terminalTakeover;
   const activeTranscript =
     selectedTranscript &&
     selectedWorkspace &&
@@ -393,11 +353,9 @@ export default function App() {
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
   useEffect(() => {
-    if (snapshot && snapshot.workspaces.length === 0) {
-      setOpenTerminalSessionKeys(new Set());
-      setTakeoverTerminalSessionKeys(new Set());
-    }
-  }, [snapshot]);
+    setTerminalOpen(false);
+    setTerminalTakeover(false);
+  }, [selectedSessionKey]);
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -416,21 +374,13 @@ export default function App() {
     if (!selectedSessionKey) {
       return;
     }
-    if (openTerminalSessionKeys.has(selectedSessionKey)) {
-      setOpenTerminalSessionKeys((current) => {
-        const next = new Set(current);
-        next.delete(selectedSessionKey);
-        return next;
-      });
-      setTakeoverTerminalSessionKeys((current) => {
-        const next = new Set(current);
-        next.delete(selectedSessionKey);
-        return next;
-      });
+    if (terminalOpen) {
+      setTerminalOpen(false);
+      setTerminalTakeover(false);
       return;
     }
-    setOpenTerminalSessionKeys((current) => new Set(current).add(selectedSessionKey));
-  }, [openTerminalSessionKeys, selectedSessionKey]);
+    setTerminalOpen(true);
+  }, [selectedSessionKey, terminalOpen]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -1310,34 +1260,14 @@ export default function App() {
       isTakeover={isTerminalTakeoverForSelectedThread}
       onHeightChange={(nextHeight) => {
         setTerminalHeight(nextHeight);
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
+        setTerminalTakeover(false);
       }}
       onToggleTakeover={() => {
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          if (next.has(selectedSessionKey)) {
-            next.delete(selectedSessionKey);
-          } else {
-            next.add(selectedSessionKey);
-          }
-          return next;
-        });
+        setTerminalTakeover((current) => !current);
       }}
       onHide={() => {
-        setOpenTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
+        setTerminalOpen(false);
+        setTerminalTakeover(false);
         focusComposer();
       }}
     />

@@ -308,7 +308,7 @@ export class DesktopAppStore implements AppStoreInternals {
       const selectionEpoch = ++this.selectionEpoch;
       this.applyFastSessionSelection(sessionRef);
       try {
-        await this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch);
+        await this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch, { markViewed: true });
       } catch (error) {
         await this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
       }
@@ -1895,7 +1895,11 @@ export class DesktopAppStore implements AppStoreInternals {
     return snapshot;
   }
 
-  private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
+  private async hydrateSelectedSessionAfterSelection(
+    sessionRef: SessionRef,
+    selectionEpoch: number,
+    options: { readonly markViewed?: boolean } = {},
+  ): Promise<void> {
     const runtimeMissing = !this.runtimeByWorkspace.has(sessionRef.workspaceId);
     const [snapshot] = await Promise.all([
       this.ensureSessionReady(sessionRef),
@@ -1914,7 +1918,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.clearSessionError(sessionRef);
     this.state = this.syncSelectedSessionHydrationState(this.state, sessionRef, snapshot, runtimeByWorkspace);
-    this.markSessionViewed(sessionRef);
+    if (options.markViewed) {
+      this.markSessionViewed(sessionRef);
+    }
     this.schedulePersistUiState();
     this.emit();
     this.publishSelectedTranscriptFor(sessionRef);

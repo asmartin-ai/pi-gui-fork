@@ -28,7 +28,7 @@ interface SidebarProps {
   readonly selectedSession: SessionRecord | undefined;
   readonly visibleWorkspaces: readonly WorkspaceRecord[];
   readonly threadGroups: readonly ThreadGroup[];
-  readonly linkedWorktreeByWorkspaceId: Map<string, WorktreeRecord>;
+  readonly linkedWorktreeByWorkspaceId: ReadonlyMap<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
@@ -265,7 +265,7 @@ interface WorkspaceGroupProps {
   readonly canDrag: boolean;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
-  readonly linkedWorktreeByWorkspaceId: Map<string, WorktreeRecord>;
+  readonly linkedWorktreeByWorkspaceId: ReadonlyMap<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
