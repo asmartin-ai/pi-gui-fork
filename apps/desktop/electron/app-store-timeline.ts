@@ -197,10 +197,7 @@ export function applyTimelineEvent(
       const metrics = currentMetrics;
       const latestToolError = metrics ? latestErrorToolDetail(transcript, metrics.startedAt) : undefined;
       const failureLabel = clearerRunFailureLabel(event.error.message, latestToolError);
-      const failureDetail =
-        failureLabel === event.error.message
-          ? event.error.code
-          : [event.error.code, event.error.message].filter(Boolean).join(" · ") || undefined;
+      const failureDetail = event.error.code;
       clearRunState(transcript, key, event.sessionRef, state);
       transcript.push(
         makeActivityItem(failureLabel, {

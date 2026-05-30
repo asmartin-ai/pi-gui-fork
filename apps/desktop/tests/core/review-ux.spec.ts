@@ -262,7 +262,7 @@ test("tool failures surface actionable Computer Use details in collapsed timelin
     const failureActivity = window.locator(".timeline-activity--error").last();
     await expect(failureActivity).toContainText(lockedMessage);
     await expect(failureActivity).toContainText("RUN_FAILED");
-    await expect(failureActivity).toContainText("terminated");
+    await expect(failureActivity).not.toContainText("terminated");
 
     const laterGenericFailure: Extract<SessionDriverEvent, { type: "runFailed" }> = {
       type: "runFailed",
@@ -343,7 +343,7 @@ test("physical-pointer Computer Use failures keep the foreground-safe reason vis
     const failureActivity = window.locator(".timeline-activity--error").last();
     await expect(failureActivity).toContainText(title);
     await expect(failureActivity).toContainText("RUN_FAILED");
-    await expect(failureActivity).toContainText("terminated");
+    await expect(failureActivity).not.toContainText("terminated");
   } finally {
     await harness.close();
   }
