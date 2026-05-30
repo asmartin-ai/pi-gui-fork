@@ -46,6 +46,9 @@ const appConfirmEnv = "PI_GUI_COMPUTER_USE_REQUIRE_APP_CONFIRMATION";
 const toolTimeoutMs = 20_000;
 const maxHelperOutputBytes = 24 * 1024 * 1024;
 const allowedApps = new Set<string>();
+const computerUseFailureResults = new Map<string, AgentToolResult<unknown>>();
+const blockedToolGuideline =
+  "If a Computer Use tool result says blocked or unavailable, do not retry the same action; report the exact status and the user action needed to continue.";
 
 function objectSchema(properties: Record<string, PropertySchema>): any {
   const entries = Object.entries(properties);
@@ -92,10 +95,11 @@ const statusTool: ComputerUseTool = {
   description:
     "Check Computer Use helper availability, permissions, desktop lock state, and locked-use readiness without controlling an app.",
   promptSnippet: "Check whether local Mac Computer Use is ready",
+  promptGuidelines: [blockedToolGuideline],
   parameters: objectSchema({}),
   executionMode: "sequential",
-  async execute(_toolCallId, _params, signal, _onUpdate, _ctx) {
-    return runComputerUseAction(signal, () => callHelper("status", {}, signal));
+  async execute(toolCallId, _params, signal, _onUpdate, _ctx) {
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "status", {}, signal));
   },
 };
 
@@ -107,8 +111,8 @@ const listAppsTool: ComputerUseTool = {
   promptSnippet: "List local Mac apps available for Computer Use",
   parameters: objectSchema({}),
   executionMode: "sequential",
-  async execute(_toolCallId, _params, signal, _onUpdate, _ctx) {
-    return runComputerUseAction(signal, () => callHelper("list_apps", {}, signal));
+  async execute(toolCallId, _params, signal, _onUpdate, _ctx) {
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "list_apps", {}, signal));
   },
 };
 
@@ -121,12 +125,13 @@ const getAppStateTool: ComputerUseTool = {
   promptGuidelines: [
     "Call get_app_state once before clicking, typing, pressing keys, scrolling, dragging, setting values, performing secondary actions, or selecting text in an app.",
     "Use element_index values from the latest get_app_state result whenever possible; use screenshot coordinates only when the accessibility tree cannot target the element.",
+    blockedToolGuideline,
   ],
   parameters: objectSchema(AppParams),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("get_app_state", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "get_app_state", params, signal));
   },
 };
 
@@ -148,9 +153,9 @@ const clickTool: ComputerUseTool = {
     ),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("click", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "click", params, signal));
   },
 };
 
@@ -165,9 +170,9 @@ const performSecondaryActionTool: ComputerUseTool = {
     action: stringSchema({ description: "Secondary accessibility action name" }),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("perform_secondary_action", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "perform_secondary_action", params, signal));
   },
 };
 
@@ -182,9 +187,9 @@ const setValueTool: ComputerUseTool = {
     value: stringSchema({ description: "Value to assign" }),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("set_value", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "set_value", params, signal));
   },
 };
 
@@ -207,9 +212,9 @@ const selectTextTool: ComputerUseTool = {
     ),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("select_text", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "select_text", params, signal));
   },
 };
 
@@ -225,9 +230,9 @@ const scrollTool: ComputerUseTool = {
     pages: optional(numberSchema({ description: "Number of pages to scroll. Fractional values are supported." })),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("scroll", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "scroll", params, signal));
   },
 };
 
@@ -244,9 +249,9 @@ const dragTool: ComputerUseTool = {
     to_y: numberSchema({ description: "End Y coordinate" }),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("drag", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "drag", params, signal));
   },
 };
 
@@ -261,9 +266,9 @@ const pressKeyTool: ComputerUseTool = {
     key: stringSchema({ description: "Key or key combination to press" }),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("press_key", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "press_key", params, signal));
   },
 };
 
@@ -283,9 +288,9 @@ const typeTextTool: ComputerUseTool = {
     text: stringSchema({ description: "Literal text to type" }),
   }),
   executionMode: "sequential",
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(toolCallId, params, signal, _onUpdate, ctx) {
     await ensureAppAllowed(ctx, params.app);
-    return runComputerUseAction(signal, () => callHelper("type_text", params, signal));
+    return runComputerUseAction(signal, () => callHelper(toolCallId, "type_text", params, signal));
   },
 };
 
@@ -302,7 +307,17 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
   pi.registerTool(pressKeyTool);
   pi.registerTool(typeTextTool);
 
+  pi.on("tool_result", async (event) => {
+    const result = computerUseFailureResults.get(event.toolCallId);
+    if (!result) {
+      return;
+    }
+    computerUseFailureResults.delete(event.toolCallId);
+    return { content: result.content, details: result.details, isError: true };
+  });
+
   pi.on("turn_end", async (_event, ctx) => {
+    computerUseFailureResults.clear();
     ctx.ui.setWidget("computer-use", undefined);
   });
 }
@@ -340,14 +355,31 @@ async function runComputerUseAction(
 }
 
 async function callHelper(
+  toolCallId: string,
   action: string,
   params: Record<string, unknown>,
   signal: AbortSignal | undefined,
 ): Promise<AgentToolResult<unknown>> {
-  const helperPath = await resolveHelperPath();
-  const response = await runHelper(helperPath, { ...params, command: action }, signal);
+  let helperPath: string;
+  try {
+    helperPath = await resolveHelperPath();
+  } catch (error) {
+    throwComputerUseFailure(toolCallId, errorMessage(error), { errorCode: "helper_unavailable" });
+  }
+
+  let response: HelperResponse;
+  try {
+    response = await runHelper(helperPath, { ...params, command: action }, signal);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    const message = errorMessage(error);
+    throwComputerUseFailure(toolCallId, message, { errorCode: classifyComputerUseError(message, {}) });
+  }
+
   if (!response.ok) {
-    throw new Error(response.error ?? "Computer Use helper failed.");
+    throwComputerUseFailure(toolCallId, response.error ?? "Computer Use helper failed.", response.details);
   }
   const content: HelperContent[] =
     response.content === undefined
@@ -357,6 +389,84 @@ async function callHelper(
     content,
     details: response.details ?? {},
   };
+}
+
+function throwComputerUseFailure(toolCallId: string, message: string, details: unknown): never {
+  const result = computerUseFailureResult(message, details);
+  computerUseFailureResults.set(toolCallId, result);
+  throw new Error(textForResult(result));
+}
+
+function computerUseFailureResult(message: string, details: unknown): AgentToolResult<unknown> {
+  const normalizedDetails = normalizeDetails(details);
+  const errorCode = classifyComputerUseError(message, normalizedDetails);
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${failureTitle(errorCode)}\n${message}\n\nRun computer_use_status to check the current helper, permission, and lock-screen state before retrying.`,
+      },
+    ],
+    details: {
+      ...normalizedDetails,
+      ok: false,
+      errorCode,
+      error: message,
+    },
+  };
+}
+
+function textForResult(result: AgentToolResult<unknown>): string {
+  return result.content.find((item) => item.type === "text")?.text ?? "Computer Use failed.";
+}
+
+function normalizeDetails(details: unknown): Record<string, unknown> {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return {};
+  }
+  return { ...(details as Record<string, unknown>) };
+}
+
+function classifyComputerUseError(message: string, details: Record<string, unknown>): string {
+  if (typeof details.errorCode === "string" && details.errorCode.trim()) {
+    return details.errorCode;
+  }
+  if (message.includes("Mac is locked")) {
+    return "desktop_locked";
+  }
+  if (message.includes("Accessibility permission")) {
+    return "accessibility_denied";
+  }
+  if (message.includes("helper is not configured") || message.includes("ENOENT") || message.includes("not found")) {
+    return "helper_unavailable";
+  }
+  if (message.includes("timed out")) {
+    return "helper_timeout";
+  }
+  return "helper_failed";
+}
+
+function failureTitle(errorCode: string): string {
+  switch (errorCode) {
+    case "desktop_locked":
+      return "Computer Use blocked: the Mac is locked.";
+    case "accessibility_denied":
+      return "Computer Use blocked: Accessibility permission is not enabled.";
+    case "helper_unavailable":
+      return "Computer Use unavailable: the helper is not configured.";
+    case "helper_timeout":
+      return "Computer Use failed: the helper timed out.";
+    default:
+      return "Computer Use failed.";
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortError(error: unknown): boolean {
+  return errorMessage(error) === "Computer Use action was cancelled.";
 }
 
 async function resolveHelperPath(): Promise<string> {

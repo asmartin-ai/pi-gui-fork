@@ -24,6 +24,8 @@ const helperAppName = "pi-gui Computer Use.app";
 interface HelperResponse {
   readonly ok: boolean;
   readonly content?: ReadonlyArray<{ readonly type: string; readonly text?: string }>;
+  readonly details?: Readonly<Record<string, string>>;
+  readonly error?: string;
 }
 
 test("packaged app carries the built-in Computer Use helper and extension", async () => {
@@ -61,6 +63,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(extensionSource).not.toContain("Pi is using your computer");
   expect(extensionSource).toContain("plus, equals");
   expect(extensionSource).toContain("element_index for visible text fields");
+  expect(extensionSource).toContain("Computer Use blocked");
+  expect(extensionSource).toContain("desktop_locked");
   for (const toolName of expectedComputerUseTools) {
     expect(extensionSource).toContain(`name: "${toolName}"`);
   }
@@ -97,11 +101,27 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperStatus.ok).toBe(true);
   expect(helperStatus.content?.[0]?.text).toContain("Computer Use status");
   expect(helperStatus.content?.[0]?.text).toContain("Locked Computer Use");
+
+  const lockedHelperResponse = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "get_app_state", app: "Finder" },
+    { PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED: "1" },
+  );
+  expect(lockedHelperResponse.ok).toBe(false);
+  expect(lockedHelperResponse.error).toContain("Mac is locked");
+  expect(lockedHelperResponse.details?.errorCode).toBe("desktop_locked");
 });
 
-function runPackagedHelper(helperPath: string, request: Record<string, unknown>): Promise<HelperResponse> {
+function runPackagedHelper(
+  helperPath: string,
+  request: Record<string, unknown>,
+  envOverrides: Record<string, string> = {},
+): Promise<HelperResponse> {
   return new Promise((resolve, reject) => {
-    const child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(helperPath, [], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...envOverrides },
+    });
     let stdout = "";
     let stderr = "";
 
@@ -113,15 +133,20 @@ function runPackagedHelper(helperPath: string, request: Record<string, unknown>)
     });
     child.on("error", reject);
     child.on("close", (code) => {
+      try {
+        if (stdout.trim()) {
+          resolve(JSON.parse(stdout) as HelperResponse);
+          return;
+        }
+      } catch (error) {
+        reject(error);
+        return;
+      }
       if (code !== 0) {
         reject(new Error(stderr.trim() || `Computer Use helper exited with code ${code}.`));
         return;
       }
-      try {
-        resolve(JSON.parse(stdout) as HelperResponse);
-      } catch (error) {
-        reject(error);
-      }
+      reject(new Error("Computer Use helper produced no response."));
     });
     child.stdin.end(`${JSON.stringify(request)}\n`);
   });

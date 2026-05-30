@@ -89,6 +89,7 @@ private let cursorOverlayDisabledValue = "0"
 private let cursorOverlayDaemonArgument = "--cursor-overlay-daemon"
 private let cursorOverlayDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS"
 private let cursorOverlayGlideDurationEnv = "PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS"
+private let testForceLockedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED"
 private let defaultCursorOverlayDuration = 8.0
 private let defaultCursorOverlayGlideDuration = 0.32
 private let agentCursorPositionFile = FileManager.default.temporaryDirectory.appendingPathComponent("pi-gui-computer-use-agent-cursor-position")
@@ -237,7 +238,7 @@ func main() {
         let response = try handle(request)
         emit(response)
     } catch {
-        emit(Response(ok: false, content: nil, details: nil, error: String(describing: error)))
+        emit(Response(ok: false, content: nil, details: helperErrorDetails(for: error), error: String(describing: error)))
     }
 }
 
@@ -309,10 +310,30 @@ func requireUnlockedDesktop() throws {
 }
 
 func isScreenLocked() -> Bool {
+    if ProcessInfo.processInfo.environment[testForceLockedEnv] == "1" {
+        return true
+    }
     guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
         return false
     }
     return (session["CGSSessionScreenIsLocked"] as? Bool) == true
+}
+
+func helperErrorDetails(for error: Error) -> [String: String]? {
+    let message = String(describing: error)
+    if message.contains("Mac is locked") {
+        return [
+            "errorCode": "desktop_locked",
+            "screenLocked": "true",
+        ]
+    }
+    if message.contains("Accessibility permission is not granted") {
+        return [
+            "errorCode": "accessibility_denied",
+            "accessibility": "denied",
+        ]
+    }
+    return nil
 }
 
 func screenRecordingStatus() -> String {
