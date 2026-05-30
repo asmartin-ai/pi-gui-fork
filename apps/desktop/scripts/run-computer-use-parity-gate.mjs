@@ -14,6 +14,9 @@ try {
 }
 
 async function main() {
+  console.log("COMPUTER_USE_PARITY_GATE_STEP desktop-unlocked-preflight");
+  await assertDesktopUnlockedForBackgroundProbe();
+
   await runStep("build", "pnpm", ["run", "build"], {
     cwd: desktopDir,
   });
@@ -47,9 +50,6 @@ async function main() {
       },
     },
   );
-
-  console.log("COMPUTER_USE_PARITY_GATE_STEP desktop-unlocked-preflight");
-  await assertDesktopUnlockedForBackgroundProbe();
 
   await runStep("package", "pnpm", ["exec", "electron-builder", "--mac", "--dir"], {
     cwd: desktopDir,
