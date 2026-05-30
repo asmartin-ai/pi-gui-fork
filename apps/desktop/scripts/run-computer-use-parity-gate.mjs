@@ -14,10 +14,15 @@ try {
 }
 
 async function main() {
-  console.log("COMPUTER_USE_PARITY_GATE_STEP desktop-unlocked-preflight");
-  await assertDesktopUnlockedForBackgroundProbe();
+  console.log("COMPUTER_USE_PARITY_GATE_STEP desktop-state-preflight");
+  const initialLockState = await desktopLockStateForBackgroundProbe();
+  if (initialLockState.locked) {
+    console.warn(
+      "Computer Use parity gate detected a locked desktop; package-level checks will run, then the real background cursor/focus probe will stop until the desktop is unlocked.",
+    );
+  }
 
-  await runStep("build", "pnpm", ["run", "build"], {
+  await runPnpmStep("build", ["run", "build"], {
     cwd: desktopDir,
   });
 
@@ -27,9 +32,8 @@ async function main() {
     cwd: repoDir,
   });
 
-  await runStep(
+  await runPnpmStep(
     "timeline-failure-ui",
-    "pnpm",
     [
       "--dir",
       repoDir,
@@ -51,13 +55,12 @@ async function main() {
     },
   );
 
-  await runStep("package", "pnpm", ["exec", "electron-builder", "--mac", "--dir"], {
+  await runPnpmStep("package", ["exec", "electron-builder", "--mac", "--dir"], {
     cwd: desktopDir,
   });
 
-  await runStep(
+  await runPnpmStep(
     "packaged-playwright",
-    "pnpm",
     [
       "--dir",
       repoDir,
@@ -78,11 +81,26 @@ async function main() {
     },
   );
 
+  await runStep(
+    "packaged-locked-readiness-status",
+    process.execPath,
+    ["scripts/computer-use-locked-readiness.mjs", "--packaged", "--allow-not-enabled"],
+    {
+      cwd: desktopDir,
+    },
+  );
+
+  const backgroundProbeLockState = await desktopLockStateForBackgroundProbe();
+  if (backgroundProbeLockState.locked) {
+    throw lockedDesktopForBackgroundProbeError();
+  }
+
   await runStep("background-probe", process.execPath, ["scripts/computer-use-background-probe.mjs", "--packaged"], {
     cwd: desktopDir,
     env: {
       ...process.env,
       PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD: "1",
+      PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES: "1",
     },
   });
 
@@ -91,9 +109,23 @@ async function main() {
   );
 }
 
-async function assertDesktopUnlockedForBackgroundProbe() {
+async function runPnpmStep(name, args, options) {
+  const invocation = pnpmInvocation(args);
+  await runStep(name, invocation.command, invocation.args, options);
+}
+
+function pnpmInvocation(args) {
+  const npmExecPath = process.env.npm_execpath ?? "";
+  if (npmExecPath.includes("pnpm")) {
+    return { command: process.execPath, args: [npmExecPath, ...args] };
+  }
+  return { command: "npx", args: ["pnpm", ...args] };
+}
+
+async function desktopLockStateForBackgroundProbe() {
   if (process.platform !== "darwin") {
-    return;
+    console.log("COMPUTER_USE_PARITY_GATE_DESKTOP_STATE state=not-darwin");
+    return { locked: false };
   }
 
   let stdout = "";
@@ -102,18 +134,24 @@ async function assertDesktopUnlockedForBackgroundProbe() {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`Could not preflight macOS lock state before the Computer Use background probe: ${detail}`);
-    return;
+    console.log("COMPUTER_USE_PARITY_GATE_DESKTOP_STATE state=unknown");
+    return { locked: false };
   }
 
-  if (/"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(stdout) || /"IOConsoleLocked"\s*=\s*Yes/.test(stdout)) {
-    throw new Error(
-      [
-        "Computer Use parity gate requires an unlocked desktop for the real background cursor/focus probe.",
-        "Packaged helper, extension, locked-use, and @ extension surface checks can still run while locked via test:prod:packaged-computer-use.",
-        "Unlock the desktop before running test:prod:packaged-computer-use-parity.",
-      ].join("\n"),
-    );
-  }
+  const locked = /"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(stdout) || /"IOConsoleLocked"\s*=\s*Yes/.test(stdout);
+  console.log(`COMPUTER_USE_PARITY_GATE_DESKTOP_STATE state=${locked ? "locked" : "unlocked"}`);
+  return { locked };
+}
+
+function lockedDesktopForBackgroundProbeError() {
+  return new Error(
+    [
+      "COMPUTER_USE_PARITY_GATE_BLOCKED desktop=locked reason=background-probe-requires-unlocked-desktop",
+      "Computer Use parity gate requires an unlocked desktop for the real background cursor/focus probe.",
+      "Package-level checks completed before the blocked background probe: failure shaping, timeline failure UI, packaged helper/extension, locked-use self-test, top-level @ extension surface, and packaged locked-readiness status.",
+      "Unlock the desktop before rerunning test:prod:packaged-computer-use-parity.",
+    ].join("\n"),
+  );
 }
 
 async function runStep(name, command, args, options) {

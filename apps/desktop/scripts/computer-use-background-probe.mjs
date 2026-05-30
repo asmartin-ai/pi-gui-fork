@@ -74,6 +74,7 @@ const configuredHelperTimeoutMs = Number.parseInt(process.env.PI_GUI_COMPUTER_US
 const helperTimeoutMs =
   Number.isFinite(configuredHelperTimeoutMs) && configuredHelperTimeoutMs > 0 ? configuredHelperTimeoutMs : 15_000;
 const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === "1";
+const allowUserFocusChanges = process.env.PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES === "1";
 const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
 const cursorPositionPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor-position");
 const cursorPidPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor.pid");
@@ -553,6 +554,12 @@ async function assertTargetDidNotBecomeFrontmost(action, expected, targetApp) {
     throw new Error(`${action} moved target app ${targetApp} to the front.`);
   }
   if (strictFocusGuard && actual !== expected) {
+    if (allowUserFocusChanges) {
+      console.warn(
+        `${action} observed frontmost app change from ${expected} to ${actual}; target app ${targetApp} stayed in the background.`,
+      );
+      return;
+    }
     throw new Error(`${action} changed frontmost app from ${expected} to ${actual}.`);
   }
 }
