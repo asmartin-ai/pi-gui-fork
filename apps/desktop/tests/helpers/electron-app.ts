@@ -224,6 +224,11 @@ function buildDesktopLaunchEnv(
     PI_APP_OPEN_DEVTOOLS: "0",
     ...(options.envOverrides ?? {}),
   };
+  for (const [key, value] of Object.entries(options.envOverrides ?? {})) {
+    if (value === undefined) {
+      delete env[key];
+    }
+  }
 
   if (options.scrubProviderEnv || options.realAuthSourceDir) {
     for (const key of PROVIDER_ENV_VARS) {

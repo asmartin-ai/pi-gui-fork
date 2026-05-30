@@ -23,6 +23,30 @@ on run argv
 end run
 `;
 
+const APP_RUNNING_SCRIPT = `
+on run argv
+  set targetApp to item 1 of argv
+  tell application "System Events"
+    if exists application process targetApp then
+      return "true"
+    end if
+  end tell
+  return "false"
+end run
+`;
+
+const QUIT_APP_SCRIPT = `
+on run argv
+  set targetApp to item 1 of argv
+  tell application "System Events"
+    if not (exists application process targetApp) then
+      return
+    end if
+  end tell
+  tell application targetApp to quit
+end run
+`;
+
 export async function assertAccessibilityReady(): Promise<void> {
   const { stdout } = await execFileAsync(
     "osascript",
@@ -43,6 +67,44 @@ export async function acceptOpenFolderDialog(pathValue: string): Promise<void> {
 export async function acceptOpenImageDialog(pathValue: string): Promise<void> {
   await assertAccessibilityReady();
   await runAppleScript(OPEN_PANEL_SCRIPT, [pathValue], DEFAULT_TIMEOUT_MS);
+}
+
+export async function getFrontmostAppName(): Promise<string> {
+  const { stdout } = await execFileAsync(
+    "osascript",
+    ['-e', 'tell application "System Events" to name of first application process whose frontmost is true'],
+    { timeout: DEFAULT_TIMEOUT_MS },
+  );
+  const appName = stdout.trim();
+  if (!appName) {
+    throw new Error("Could not determine the frontmost app from System Events.");
+  }
+  return appName;
+}
+
+async function openAppInBackground(appName: string): Promise<void> {
+  await execFileAsync("open", ["-g", "-a", appName], { timeout: DEFAULT_TIMEOUT_MS });
+}
+
+export async function resetAppInBackground(appName: string): Promise<void> {
+  await runAppleScript(QUIT_APP_SCRIPT, [appName], DEFAULT_TIMEOUT_MS);
+  await waitForAppRunning(appName, false);
+  await openAppInBackground(appName);
+  await waitForAppRunning(appName, true);
+}
+
+async function waitForAppRunning(appName: string, expected: boolean): Promise<void> {
+  const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const { stdout } = await execFileAsync("osascript", ["-e", APP_RUNNING_SCRIPT.trim(), appName], {
+      timeout: DEFAULT_TIMEOUT_MS,
+    });
+    if ((stdout.trim() === "true") === expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(`${appName} did not become ${expected ? "running" : "not running"} within ${DEFAULT_TIMEOUT_MS}ms.`);
 }
 
 async function runAppleScript(script: string, values: readonly string[], timeoutMs: number): Promise<void> {

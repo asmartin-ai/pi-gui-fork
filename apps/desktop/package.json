@@ -63,6 +63,7 @@
     "test:prod:packaged-computer-use-parity": "node scripts/run-computer-use-parity-gate.mjs",
     "test:prod:packaged-computer-use-background": "pnpm run package:dir && node scripts/computer-use-background-probe.mjs --packaged",
     "test:prod:installed-computer-use-background": "node scripts/computer-use-background-probe.mjs --installed",
+    "test:prod:installed-computer-use-live": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-live.spec.ts",
     "test:prod:installed-computer-use-locked-readiness": "node scripts/computer-use-locked-readiness.mjs --installed",
     "test:prod:installed-computer-use-locked-readiness:status": "node scripts/computer-use-locked-readiness.mjs --installed --allow-not-enabled",
     "test:prod:packaged-computer-use-locked-readiness:status": "node scripts/computer-use-locked-readiness.mjs --packaged --allow-not-enabled",
