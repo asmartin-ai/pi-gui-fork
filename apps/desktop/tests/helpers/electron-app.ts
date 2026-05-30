@@ -47,6 +47,27 @@ export interface DesktopHarness {
   close(): Promise<void>;
 }
 
+interface ComputerUseLockedUseSelfTestResult {
+  readonly helperPath: string;
+  readonly desktopPath: string;
+  readonly authorizationSocket: string;
+  readonly authorizationProbe: {
+    readonly ok: boolean;
+    readonly details?: Readonly<Record<string, string>>;
+    readonly error?: string;
+  };
+  readonly begin: {
+    readonly ok: boolean;
+    readonly details?: Readonly<Record<string, string>>;
+    readonly error?: string;
+  };
+  readonly end: {
+    readonly ok: boolean;
+    readonly details?: Readonly<Record<string, string>>;
+    readonly error?: string;
+  };
+}
+
 export interface LaunchDesktopOptions {
   readonly initialWorkspaces?: readonly string[];
   readonly notificationLogPath?: string;
@@ -1010,6 +1031,23 @@ export async function emitTestSessionEvent(
     }
     await hooks.emitSessionEvent(payload);
   }, event);
+}
+
+export async function runComputerUseLockedUseSelfTest(
+  harness: DesktopHarness,
+): Promise<ComputerUseLockedUseSelfTestResult> {
+  await harness.firstWindow();
+  return harness.electronApp.evaluate(async () => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: {
+        runComputerUseLockedUseSelfTest?: () => Promise<ComputerUseLockedUseSelfTestResult>;
+      };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.runComputerUseLockedUseSelfTest) {
+      throw new Error("Computer Use locked-use self-test hook is unavailable");
+    }
+    return hooks.runComputerUseLockedUseSelfTest();
+  });
 }
 
 export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promise<void> {

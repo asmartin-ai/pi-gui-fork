@@ -108,6 +108,7 @@ private let testForceLockedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED"
 private let testLockedUseInstallerStateEnv = "PI_GUI_COMPUTER_USE_TEST_LOCKED_USE_INSTALLER_STATE"
 private let testAssumeUnlockedAfterAuthorizationEnv = "PI_GUI_COMPUTER_USE_TEST_ASSUME_UNLOCKED_AFTER_AUTHORIZATION"
 private let testSkipRelockEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_RELOCK"
+private let testSkipUnlockReturnKeyEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_UNLOCK_RETURN_KEY"
 private let testForceScreenRecordingDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED"
 private let defaultCursorOverlayDuration = 8.0
 private let defaultCursorOverlayGlideDuration = 0.32
@@ -2095,6 +2096,10 @@ func writeUnixSocketPath(_ path: String, to address: inout sockaddr_un) -> Bool 
 }
 
 func postLockScreenUnlockReturnKey() {
+    if ProcessInfo.processInfo.environment[testSkipUnlockReturnKeyEnv] == "1" {
+        return
+    }
+
     let returnKeyCode: CGKeyCode = 36
     let source = CGEventSource(stateID: .hidSystemState)
     let keyDown = CGEvent(keyboardEventSource: source, virtualKey: returnKeyCode, keyDown: true)

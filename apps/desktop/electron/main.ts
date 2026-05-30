@@ -15,7 +15,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
-import { configureComputerUseRuntime } from "./computer-use-runtime";
+import { configureComputerUseRuntime, runComputerUseLockedUseSelfTest } from "./computer-use-runtime";
 import {
   getComputerUseStatus,
   openComputerUsePrivacySettings,
@@ -449,6 +449,7 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        runComputerUseLockedUseSelfTest: () => runComputerUseLockedUseSelfTest(),
         setDeferredThreadTitleMode: () => {
           generateThreadTitleOverride = () =>
             new Promise<string | null>((resolve, reject) => {

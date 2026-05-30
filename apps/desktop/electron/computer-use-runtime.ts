@@ -1,4 +1,5 @@
 import net from "node:net";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -22,8 +23,20 @@ const helperExecutableName = "pi-gui-computer-use-helper";
 const helperAppName = "pi-gui Computer Use.app";
 const lockedUseInstallerExecutableName = "pi-gui-computer-use-locked-use-installer";
 const lockedUseAuthorizationSocketDirectory = "/tmp/pi-gui-cu";
+const lockedUseDaemonSocketPath = "/tmp/com.pi-gui.desktop.computer-use/LockScreenLoginAuthorization.sock";
+const testForceLockedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED";
+const testLockedUseInstallerStateEnv = "PI_GUI_COMPUTER_USE_TEST_LOCKED_USE_INSTALLER_STATE";
+const testAssumeUnlockedAfterAuthorizationEnv = "PI_GUI_COMPUTER_USE_TEST_ASSUME_UNLOCKED_AFTER_AUTHORIZATION";
+const testSkipRelockEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_RELOCK";
+const testSkipUnlockReturnKeyEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_UNLOCK_RETURN_KEY";
+const lockedUseUnlockTimeoutMsEnv = "PI_GUI_COMPUTER_USE_LOCKED_USE_UNLOCK_TIMEOUT_MS";
+const lockedUseLeaseSecondsEnv = "PI_GUI_COMPUTER_USE_LOCKED_USE_LEASE_SECONDS";
+const lockedUseSelfTestHelperTimeoutMs = 10_000;
+const lockedUseSelfTestAuthorizationTimeoutMs = 3_000;
+const lockedUseSelfTestConnectTimeoutMs = 1_000;
 let lockedUseAuthorizationServer: net.Server | undefined;
 let lockedUseAppToken: string | undefined;
+let lockedUseAuthorizationSocketPath: string | undefined;
 
 interface ConfigureComputerUseRuntimeOptions {
   readonly isPackaged: boolean;
@@ -37,6 +50,22 @@ export interface ComputerUseRuntimeDriverOptions {
     readonly displayName: string;
     readonly description?: string;
   }[];
+}
+
+interface HelperResponse {
+  readonly ok: boolean;
+  readonly content?: ReadonlyArray<{ readonly type: string; readonly text?: string }>;
+  readonly details?: Readonly<Record<string, string>>;
+  readonly error?: string;
+}
+
+export interface ComputerUseLockedUseSelfTestResult {
+  readonly helperPath: string;
+  readonly desktopPath: string;
+  readonly authorizationSocket: string;
+  readonly authorizationProbe: HelperResponse;
+  readonly begin: HelperResponse;
+  readonly end: HelperResponse;
 }
 
 export async function configureComputerUseRuntime(
@@ -116,6 +145,7 @@ async function configureLockedUseAuthorizationBroker(appToken: string): Promise<
   await rm(socketPath, { force: true });
 
   lockedUseAuthorizationServer?.close();
+  lockedUseAuthorizationSocketPath = undefined;
   const server = net.createServer((socket) => {
     socket.setEncoding("utf8");
     let buffer = "";
@@ -150,6 +180,7 @@ async function configureLockedUseAuthorizationBroker(appToken: string): Promise<
   });
   server.unref();
   lockedUseAuthorizationServer = server;
+  lockedUseAuthorizationSocketPath = socketPath;
   await chmod(socketPath, 0o600).catch(() => undefined);
   process.once("exit", () => {
     try {
@@ -159,6 +190,212 @@ async function configureLockedUseAuthorizationBroker(appToken: string): Promise<
     }
   });
   return socketPath;
+}
+
+export async function runComputerUseLockedUseSelfTest(): Promise<ComputerUseLockedUseSelfTestResult> {
+  if (!process.env.PI_APP_TEST_MODE) {
+    throw new Error("Computer Use locked-use self-test is only available in PI_APP_TEST_MODE.");
+  }
+
+  const helperPath = process.env[helperEnv]?.trim();
+  if (!helperPath) {
+    throw new Error(`Computer Use helper is not configured. Missing ${helperEnv}.`);
+  }
+  if (!lockedUseAppToken) {
+    throw new Error("Locked Computer Use app token is not configured.");
+  }
+  if (!lockedUseAuthorizationSocketPath) {
+    throw new Error("Locked Computer Use desktop authorization socket is not configured.");
+  }
+
+  const env = lockedUseSelfTestHelperEnv(lockedUseAuthorizationSocketPath);
+  const authorizationProbeToken = randomBytes(32).toString("hex");
+  const authorizationProbe = await runComputerUseHelperForSelfTest(
+    helperPath,
+    {
+      command: "locked_use_authorization_probe",
+      locked_use_app_token: lockedUseAppToken,
+      locked_use_turn_token: authorizationProbeToken,
+    },
+    env,
+  );
+  if (!authorizationProbe.ok) {
+    throw new Error(authorizationProbe.error ?? "Locked Computer Use authorization probe failed.");
+  }
+
+  const turnToken = randomBytes(32).toString("hex");
+  const beginPromise = runComputerUseHelperForSelfTest(
+    helperPath,
+    {
+      command: "locked_use_begin",
+      locked_use_app_token: lockedUseAppToken,
+      locked_use_turn_token: turnToken,
+    },
+    env,
+  );
+  const authorizationPromise = authorizeLockedUseTurnForSelfTest(turnToken);
+  const [begin] = await Promise.all([beginPromise, authorizationPromise]);
+  if (!begin.ok) {
+    throw new Error(begin.error ?? "Locked Computer Use active-turn begin failed.");
+  }
+
+  const end = await runComputerUseHelperForSelfTest(
+    helperPath,
+    {
+      command: "locked_use_end",
+      locked_use_app_token: lockedUseAppToken,
+      locked_use_turn_token: turnToken,
+    },
+    env,
+  );
+  if (!end.ok) {
+    throw new Error(end.error ?? "Locked Computer Use active-turn end failed.");
+  }
+
+  return {
+    helperPath,
+    desktopPath: process.execPath,
+    authorizationSocket: lockedUseAuthorizationSocketPath,
+    authorizationProbe,
+    begin,
+    end,
+  };
+}
+
+function lockedUseSelfTestHelperEnv(authorizationSocket: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    [lockedUseDesktopPidEnv]: `${process.pid}`,
+    [lockedUseDesktopPathEnv]: process.execPath,
+    [lockedUseAuthorizationSocketEnv]: authorizationSocket,
+    [testForceLockedEnv]: "1",
+    [testLockedUseInstallerStateEnv]: "installed",
+    [testAssumeUnlockedAfterAuthorizationEnv]: "1",
+    [testSkipRelockEnv]: "1",
+    [testSkipUnlockReturnKeyEnv]: "1",
+    [lockedUseUnlockTimeoutMsEnv]: "3000",
+    [lockedUseLeaseSecondsEnv]: "5",
+  };
+  delete env[lockedUseAppTokenEnv];
+  return env;
+}
+
+function runComputerUseHelperForSelfTest(
+  helperPath: string,
+  request: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+): Promise<HelperResponse> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(helperPath, [], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env,
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (error?: Error, response?: HelperResponse) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(response ?? { ok: false, error: "Computer Use helper produced no response." });
+    };
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(new Error(`Computer Use helper self-test timed out for ${request.command}.`));
+    }, lockedUseSelfTestHelperTimeoutMs);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => finish(error));
+    child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      try {
+        if (stdout.trim()) {
+          finish(undefined, JSON.parse(stdout) as HelperResponse);
+          return;
+        }
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      if (code !== 0) {
+        finish(new Error(stderr.trim() || `Computer Use helper exited with code ${code}.`));
+        return;
+      }
+      finish(new Error("Computer Use helper produced no response."));
+    });
+    child.stdin.end(`${JSON.stringify(request)}\n`);
+  });
+}
+
+async function authorizeLockedUseTurnForSelfTest(turnToken: string): Promise<void> {
+  const response = await requestLockedUseDaemonAuthorizationForSelfTest(turnToken);
+  if (response !== "ALLOW") {
+    throw new Error(`Locked Computer Use daemon returned ${response} instead of ALLOW.`);
+  }
+}
+
+async function requestLockedUseDaemonAuthorizationForSelfTest(turnToken: string): Promise<string> {
+  const deadline = Date.now() + lockedUseSelfTestAuthorizationTimeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await connectLockedUseDaemonForSelfTest(turnToken);
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  }
+  throw new Error(`Timed out waiting for Locked Computer Use daemon socket: ${errorMessage(lastError)}`);
+}
+
+function connectLockedUseDaemonForSelfTest(turnToken: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(lockedUseDaemonSocketPath);
+    let response = "";
+    let settled = false;
+    const finish = (error?: Error, value?: string) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(value ?? "");
+    };
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      finish(new Error("Locked Computer Use daemon authorization timed out."));
+    }, lockedUseSelfTestConnectTimeoutMs);
+
+    socket.setEncoding("utf8");
+    socket.on("connect", () => {
+      socket.write(`authorize ${turnToken}\n`);
+    });
+    socket.on("data", (chunk) => {
+      response += chunk;
+    });
+    socket.on("error", (error) => finish(error));
+    socket.on("end", () => {
+      finish(undefined, response.trim());
+    });
+    socket.on("close", () => finish(undefined, response.trim()));
+  });
 }
 
 async function tryConfigureLockedUseAuthorizationBroker(appToken: string): Promise<string | undefined> {
