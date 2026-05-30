@@ -14,10 +14,44 @@ try {
 }
 
 async function main() {
+  await runStep("build", "pnpm", ["run", "build"], {
+    cwd: desktopDir,
+  });
+
+  await runStep("extension-failure-shaping", process.execPath, [
+    "packages/computer-use-extension/scripts/test-locked-failure.mjs",
+  ], {
+    cwd: repoDir,
+  });
+
+  await runStep(
+    "timeline-failure-ui",
+    "pnpm",
+    [
+      "--dir",
+      repoDir,
+      "exec",
+      "playwright",
+      "test",
+      "-c",
+      "apps/desktop/playwright.config.ts",
+      "apps/desktop/tests/core/review-ux.spec.ts",
+      "-g",
+      "Computer Use",
+    ],
+    {
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        PI_APP_TEST_MODE: "background",
+      },
+    },
+  );
+
   console.log("COMPUTER_USE_PARITY_GATE_STEP desktop-unlocked-preflight");
   await assertDesktopUnlockedForBackgroundProbe();
 
-  await runStep("package", "pnpm", ["run", "package:dir"], {
+  await runStep("package", "pnpm", ["exec", "electron-builder", "--mac", "--dir"], {
     cwd: desktopDir,
   });
 
@@ -52,7 +86,9 @@ async function main() {
     },
   });
 
-  console.log("COMPUTER_USE_PARITY_GATE_OK packaged-helper-extension-locked-use-extension-surface-background-cursor");
+  console.log(
+    "COMPUTER_USE_PARITY_GATE_OK packaged-helper-extension-locked-use-extension-surface-failure-timeline-background-cursor",
+  );
 }
 
 async function assertDesktopUnlockedForBackgroundProbe() {
