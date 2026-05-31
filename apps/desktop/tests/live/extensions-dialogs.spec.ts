@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createNamedThread,
+  desktopShortcut,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -127,16 +128,31 @@ test("renders extension dialogs in the Electron surface and routes responses bac
     await composer.fill("/dialog-confirm ");
     await composer.press("Enter");
     const dialog = window.getByTestId("extension-dialog");
+    await expect(window.getByRole("dialog", { name: "Confirm change?" })).toBeVisible();
     await expect(dialog).toContainText("Confirm change?");
     await expect(dialog).toContainText("Approve this change.");
-    await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(dialog.getByTestId("extension-dialog-cancel")).toBeFocused();
+    await dialog.getByTestId("extension-dialog-cancel").press("Shift+Tab");
+    await expect(dialog.getByTestId("extension-dialog-confirm")).toBeFocused();
+    await dialog.getByTestId("extension-dialog-confirm").press("Tab");
+    await expect(dialog.getByTestId("extension-dialog-cancel")).toBeFocused();
+    await window.keyboard.press(desktopShortcut("Enter"));
     await expect(dialog).toHaveCount(0);
     await expect(window.locator(".timeline")).toContainText("Confirm accepted");
 
     await composer.fill("/dialog-select ");
     await composer.press("Enter");
     await expect(dialog).toContainText("Pick an option");
-    await dialog.getByRole("button", { name: "Beta", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Alpha", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "Alpha", exact: true }).press("Tab");
+    await expect(dialog.getByRole("button", { name: "Beta", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "Beta", exact: true }).press("Tab");
+    await expect(dialog.getByTestId("extension-dialog-cancel")).toBeFocused();
+    await dialog.getByTestId("extension-dialog-cancel").press("Tab");
+    await expect(dialog.getByRole("button", { name: "Alpha", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "Alpha", exact: true }).press("Tab");
+    await expect(dialog.getByRole("button", { name: "Beta", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "Beta", exact: true }).press("Enter");
     await expect(dialog).toHaveCount(0);
     await expect(window.locator(".timeline")).toContainText("Selected Beta");
 
