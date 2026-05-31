@@ -77,7 +77,8 @@ test("installed app runs Computer Use through the real UI without foregrounding 
     const composer = window.getByTestId("composer");
     await composer.fill(
       [
-        "Use Computer Use to calculate 9+6 in Calculator using button clicks, not type_text.",
+        "Use Computer Use to calculate 9+6 in Calculator by clicking the Calculator buttons 9, +, 6, and =.",
+        "Do not use type_text or press_key.",
         "Do not open or activate Calculator; it is already running in the background.",
         "After the final Calculator click, call get_app_state and use only the displayed Calculator result from that state.",
         "Reply exactly:",
@@ -85,8 +86,8 @@ test("installed app runs Computer Use through the real UI without foregrounding 
         "TOOL_ERRORS: <yes/no>",
       ].join("\n"),
     );
-    const cursorSeen = waitForFreshAgentCursorRequest(Date.now() / 1000);
-    void cursorSeen.catch(() => undefined);
+    const cursorRequests = waitForDistinctAgentCursorRequests(Date.now() / 1000, 2);
+    void cursorRequests.catch(() => undefined);
     await composer.press("Enter");
 
     const focusSamples: string[] = [];
@@ -100,7 +101,7 @@ test("installed app runs Computer Use through the real UI without foregrounding 
       await waitForSelectedSessionIdle(window);
 
       const toolCalls = await selectedToolCalls(window);
-      expect(toolCalls.some((call) => call.toolName === "click" && inputApp(call.input) === targetApp)).toBe(true);
+      expect(toolCalls.filter((call) => call.toolName === "click" && inputApp(call.input) === targetApp).length).toBeGreaterThanOrEqual(4);
       expect(
         toolCalls.some(
           (call) =>
@@ -111,10 +112,14 @@ test("installed app runs Computer Use through the real UI without foregrounding 
         ),
       ).toBe(true);
       expect(toolCalls.some((call) => call.toolName === "type_text")).toBe(false);
-      const cursorRequest = await cursorSeen;
-      expect(cursorRequest.pressed).toBe(true);
-      expect(cursorRequest.pid).toBeGreaterThan(0);
-      expect(cursorRequest.command).toContain(cursorOverlayArgument);
+      expect(toolCalls.some((call) => call.toolName === "press_key")).toBe(false);
+      const observedCursorRequests = await cursorRequests;
+      expect(new Set(observedCursorRequests.map((request) => request.pid)).size).toBe(1);
+      expect(observedCursorRequests[0]?.pressed).toBe(true);
+      expect(observedCursorRequests[0]?.pid).toBeGreaterThan(0);
+      expect(observedCursorRequests[0]?.command).toContain(cursorOverlayArgument);
+      const distinctTargetCount = new Set(observedCursorRequests.map((request) => `${request.x},${request.y}`)).size;
+      expect(distinctTargetCount).toBeGreaterThan(1);
       await expect(window.locator(".timeline-tool--error")).toHaveCount(0);
       await expect(transcript).not.toContainText(/terminated/i);
     } finally {
@@ -129,16 +134,37 @@ test("installed app runs Computer Use through the real UI without foregrounding 
   }
 });
 
-async function waitForFreshAgentCursorRequest(startedAtSeconds: number): Promise<AgentCursorObservation> {
+async function waitForDistinctAgentCursorRequests(
+  startedAtSeconds: number,
+  requiredCount: number,
+): Promise<AgentCursorObservation[]> {
   const deadline = Date.now() + 210_000;
+  const observations: AgentCursorObservation[] = [];
+  let previousTimestamp = startedAtSeconds;
   while (Date.now() < deadline) {
-    const observation = await readAgentCursorObservation(startedAtSeconds);
+    const observation = await readAgentCursorObservation(previousTimestamp);
     if (observation) {
-      return observation;
+      const previous = observations.at(-1);
+      if (
+        !previous ||
+        observation.timestamp > previous.timestamp ||
+        observation.x !== previous.x ||
+        observation.y !== previous.y ||
+        observation.pressed !== previous.pressed
+      ) {
+        observations.push(observation);
+        previousTimestamp = observation.timestamp;
+      }
+      const distinctTargetCount = new Set(observations.map((request) => `${request.x},${request.y}`)).size;
+      if (observations.length >= requiredCount && distinctTargetCount > 1) {
+        return observations;
+      }
     }
     await delay(250);
   }
-  throw new Error("Installed Computer Use live run did not show the separate agent cursor.");
+  throw new Error(
+    `Installed Computer Use live run did not show ${requiredCount} distinct persistent agent cursor requests.`,
+  );
 }
 
 async function readAgentCursorObservation(startedAtSeconds: number): Promise<AgentCursorObservation | null> {
