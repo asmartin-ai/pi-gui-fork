@@ -4,16 +4,26 @@ import {
   makeUserDataDir,
   makeWorkspace,
   resolveAppBundleExecutable,
+  writeProjectExtension,
 } from "../helpers/electron-app";
-import { assertComputerUseExtensionSurface } from "./computer-use-extension-surface-assertions";
+import {
+  assertComputerUseExtensionSurface,
+  disabledMentionExtensionSource,
+} from "./computer-use-extension-surface-assertions";
 
 const installedAppBundle = "/Applications/pi-gui.app";
 
-test("installed app presents built-in Computer Use as a top-level extension", async () => {
+test("installed app presents Computer Use and actionable extension mentions", async () => {
   test.setTimeout(60_000);
 
   const userDataDir = await makeUserDataDir("pi-gui-installed-computer-use-extension-surface-");
   const workspacePath = await makeWorkspace("installed-computer-use-extension-surface");
+  const disabledExtensionName = "disabled-mention-extension";
+  const disabledExtensionPath = await writeProjectExtension(
+    workspacePath,
+    `${disabledExtensionName}.ts`,
+    disabledMentionExtensionSource,
+  );
   const executablePath = await resolveAppBundleExecutable(installedAppBundle);
   const harness = await launchDesktopByExecutable(executablePath, userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -33,7 +43,10 @@ test("installed app presents built-in Computer Use as a top-level extension", as
         defaultApp: false,
         execPath: executablePath,
       });
-    await assertComputerUseExtensionSurface(window, workspacePath, "Installed extension mentions");
+    await assertComputerUseExtensionSurface(window, workspacePath, "Installed extension mentions", {
+      disabledExtensionName,
+      disabledExtensionPath,
+    });
   } finally {
     await harness.close();
   }
