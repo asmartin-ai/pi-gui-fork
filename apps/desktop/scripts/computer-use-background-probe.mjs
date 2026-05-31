@@ -54,7 +54,13 @@ const installedLockedUseInstallerPath = path.join(
   "SharedSupport",
   lockedUseInstallerExecutableName,
 );
-const helperPathArg = process.argv[2];
+const scriptArgs = process.argv.slice(2);
+const knownFlags = new Set(["--capabilities-only", "--packaged", "--installed"]);
+const capabilitiesOnly = scriptArgs.includes("--capabilities-only");
+const unknownFlags = scriptArgs.filter((arg) => arg.startsWith("--") && !knownFlags.has(arg));
+const helperPathArg =
+  scriptArgs.find((arg) => arg === "--packaged" || arg === "--installed") ??
+  scriptArgs.find((arg) => !arg.startsWith("--"));
 const lockedUseAuthorizationProtocolVersion = "pi-gui-computer-use-active-turn-v1";
 const helperPath =
   helperPathArg === "--packaged"
@@ -92,9 +98,16 @@ try {
 }
 
 async function main() {
+  assertKnownFlags();
   await access(helperPath);
   await assertHelperSupportsActiveTurnProtocol();
   await assertHelperSupportsBackgroundSafetyGuards();
+  if (capabilitiesOnly) {
+    console.log(
+      `COMPUTER_USE_BACKGROUND_CAPABILITIES_OK helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
+    );
+    return;
+  }
   await removeCursorArtifacts();
   await assertUnlockedDesktop();
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
@@ -131,6 +144,12 @@ async function main() {
   console.log(
     `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" physical_mouse=guarded stale_cursor_pid=guarded helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
   );
+}
+
+function assertKnownFlags() {
+  if (unknownFlags.length > 0) {
+    throw new Error(`Unknown Computer Use background probe flag: ${unknownFlags.join(", ")}`);
+  }
 }
 
 async function assertHelperSupportsActiveTurnProtocol() {

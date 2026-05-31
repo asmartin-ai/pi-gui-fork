@@ -1,12 +1,30 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import asar from "@electron/asar";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
 const repoDir = path.resolve(desktopDir, "..", "..");
 const installedAppBundle = "/Applications/pi-gui.app";
+const installedAppAsar = path.join(installedAppBundle, "Contents", "Resources", "app.asar");
+const builtOutDir = path.join(desktopDir, "out");
+const workspaceRuntimePackages = [
+  {
+    packageName: "@pi-gui/catalogs",
+    sourceDir: path.join(repoDir, "packages", "catalogs"),
+  },
+  {
+    packageName: "@pi-gui/session-driver",
+    sourceDir: path.join(repoDir, "packages", "session-driver"),
+  },
+  {
+    packageName: "@pi-gui/pi-sdk-driver",
+    sourceDir: path.join(repoDir, "packages", "pi-sdk-driver"),
+  },
+];
 const realAuthEnvVar = "PI_APP_REAL_AUTH";
 const realAuthSourceDirEnvVar = "PI_APP_REAL_AUTH_SOURCE_DIR";
 
@@ -32,6 +50,8 @@ async function main() {
   await runPnpmStep("build", ["run", "build"], {
     cwd: desktopDir,
   });
+
+  await assertInstalledAppUsesCurrentRuntimePayload();
 
   await runStep("extension-failure-shaping", process.execPath, [
     "packages/computer-use-extension/scripts/test-locked-failure.mjs",
@@ -102,6 +122,15 @@ async function main() {
     },
   );
 
+  await runStep(
+    "installed-helper-capabilities",
+    process.execPath,
+    ["scripts/computer-use-background-probe.mjs", "--installed", "--capabilities-only"],
+    {
+      cwd: desktopDir,
+    },
+  );
+
   const lockedReadiness = await runInstalledLockedReadinessStatus();
 
   const liveLockState = await desktopLockStateForInstalledLive();
@@ -147,7 +176,7 @@ async function main() {
   );
 
   console.log(
-    "COMPUTER_USE_INSTALLED_PARITY_GATE_OK installed-extension-surface-failure-timeline-locked-use-background-probe-live-background-cursor",
+    "COMPUTER_USE_INSTALLED_PARITY_GATE_OK installed-app-freshness-extension-surface-failure-timeline-locked-use-helper-capabilities-background-probe-live-background-cursor",
   );
 }
 
@@ -169,6 +198,99 @@ async function runInstalledLockedReadinessStatus() {
   return {
     ready: /\bCOMPUTER_USE_LOCKED_READINESS_OK\b/.test(stdout),
   };
+}
+
+async function assertInstalledAppUsesCurrentRuntimePayload() {
+  console.log("COMPUTER_USE_INSTALLED_PARITY_GATE_STEP installed-app-freshness");
+  await access(installedAppAsar);
+  const targets = [
+    ...(await installedBuiltOutFreshnessTargets()),
+    ...(await installedWorkspaceRuntimePackageFreshnessTargets()),
+  ];
+  await Promise.all(targets.map(assertInstalledFileFresh));
+  console.log(`COMPUTER_USE_INSTALLED_PARITY_GATE_FRESH files=${targets.length}`);
+}
+
+async function installedBuiltOutFreshnessTargets() {
+  const builtFiles = (await listFiles(builtOutDir)).filter(isRuntimeBuiltFile);
+  return builtFiles.map((builtFile) => ({
+    currentPath: builtFile,
+    installedPath: path.relative(desktopDir, builtFile),
+  }));
+}
+
+async function installedWorkspaceRuntimePackageFreshnessTargets() {
+  const packageTargets = await Promise.all(
+    workspaceRuntimePackages.map(async ({ packageName, sourceDir }) => {
+      const packageFiles = (await listFiles(sourceDir)).filter(isRuntimePackageFile);
+      const packageInstallDir = path.join("node_modules", packageName);
+      return packageFiles.map((packageFile) => ({
+        currentPath: packageFile,
+        installedPath: path.join(packageInstallDir, path.relative(sourceDir, packageFile)),
+      }));
+    }),
+  );
+  return packageTargets.flat();
+}
+
+async function assertInstalledFileFresh(target) {
+  const currentHash = await fileHash(target.currentPath);
+  let installedHash = "";
+  try {
+    installedHash = bufferHash(asar.extractFile(installedAppAsar, target.installedPath));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw installedAppOutdatedError(`Installed app.asar is missing ${target.installedPath}. ${detail}`);
+  }
+  if (installedHash !== currentHash) {
+    throw installedAppOutdatedError(
+      `Installed app.asar does not match the current local build for ${target.installedPath}.`,
+    );
+  }
+}
+
+function isRuntimeBuiltFile(filePath) {
+  return !filePath.endsWith(".d.ts") && !filePath.endsWith(".js.map");
+}
+
+function isRuntimePackageFile(filePath) {
+  return (
+    path.basename(filePath) === "package.json" ||
+    (filePath.includes(`${path.sep}dist${path.sep}`) && filePath.endsWith(".js"))
+  );
+}
+
+async function listFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return listFiles(entryPath);
+      }
+      return entry.isFile() ? [entryPath] : [];
+    }),
+  );
+  return files.flat().sort();
+}
+
+async function fileHash(filePath) {
+  return bufferHash(await readFile(filePath));
+}
+
+function bufferHash(buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function installedAppOutdatedError(detail) {
+  return new Error(
+    [
+      "COMPUTER_USE_INSTALLED_PARITY_GATE_BLOCKED installed_app=outdated reason=installed-app-does-not-match-current-build",
+      "Installed Computer Use parity must run against the current local build installed at /Applications/pi-gui.app.",
+      detail,
+      "Install the freshly built pi-gui.app into /Applications, keep the installed app idle/closed, and rerun test:prod:installed-computer-use-parity.",
+    ].join("\n"),
+  );
 }
 
 function pnpmInvocation(args) {
@@ -209,7 +331,7 @@ function lockedDesktopForInstalledLiveError(lockedReadinessReady) {
       "COMPUTER_USE_INSTALLED_PARITY_GATE_BLOCKED desktop=locked reason=installed-live-requires-unlocked-active-desktop",
       "Installed Computer Use parity requires a real installed-app live background cursor/focus E2E.",
       lockedReadinessDetail,
-      "Installed-app checks completed before the blocked live E2E: extension failure shaping, timeline failure UI, top-level @ extension surface, locked-use active-turn self-test, and locked-readiness status.",
+      "Installed-app checks completed before the blocked live E2E: current app payload freshness, extension failure shaping, timeline failure UI, top-level @ extension surface, locked-use active-turn self-test, helper background-safety capabilities, and locked-readiness status.",
       "Unlock the desktop, keep the installed app idle/closed, and rerun test:prod:installed-computer-use-parity.",
     ].join("\n"),
   );
