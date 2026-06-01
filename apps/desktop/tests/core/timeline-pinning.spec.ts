@@ -649,3 +649,58 @@ test("keeps transcript pinning semantics while assistant deltas stream into the 
     await harness.close();
   }
 });
+
+test("lands an opened thread at the bottom without a smooth scroll from the top", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-pinning-short-open-no-smooth-scroll");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const targetTitle = "Short open no smooth scroll";
+    const initialState = await getDesktopState(window);
+    const workspaceId = initialState.selectedWorkspaceId ?? initialState.workspaces[0]?.id ?? "";
+    if (!workspaceId) {
+      throw new Error("No workspace available");
+    }
+    await createSessionViaIpc(window, workspaceId, targetTitle);
+
+    const finalMarker = "SHORT_OPEN_NO_SMOOTH_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 20,
+      textFactory: (index) => (index === 19 ? finalMarker : `Short open row ${index} `.repeat(6)),
+    });
+
+    await jumpTimelineToBottom(window);
+    await expect
+      .poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom)
+      .toBeLessThanOrEqual(16);
+
+    await createSessionViaIpc(window, workspaceId, "Short open neighbor");
+    await selectSession(window, "Short open neighbor");
+    await selectSession(window, targetTitle);
+
+    // Sample the scroll position over ~12 frames after the open.
+    const samples: number[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      samples.push((await getTimelineScrollMetrics(window)).remainingFromBottom);
+      await window.waitForTimeout(16);
+    }
+    const maxSample = Math.max(...samples);
+    expect(
+      maxSample,
+      `scroll samples after open: ${samples.join(", ")} (max ${maxSample})`,
+    ).toBeLessThan(60);
+
+    await expect(window.locator(".timeline-item--assistant", { hasText: finalMarker })).toBeVisible();
+    await expect
+      .poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom, { timeout: 5_000 })
+      .toBeLessThanOrEqual(16);
+  } finally {
+    await harness.close();
+  }
+});
