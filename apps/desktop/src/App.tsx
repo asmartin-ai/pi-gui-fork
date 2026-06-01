@@ -1042,7 +1042,8 @@ export default function App() {
   useLayoutEffect(() => {
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
-    pinnedToBottomRef.current = true;
+    pinnedToBottomRef.current =
+      lastTimelinePinnedBySessionRef.current.get(selectedSessionKey) ?? true;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
     resetExactBottomRestoreState(selectedSessionKey || null);

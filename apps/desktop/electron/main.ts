@@ -376,6 +376,19 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Ensure npm (and other Homebrew/npm-global binaries) are available
+// even when pi-gui is launched via Finder/Dock (which has a minimal PATH).
+const extraBinPaths = [
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  `${process.env.HOME}/.npm-global/bin`,
+].filter((p) => p);
+const currentPath = process.env.PATH ?? "";
+const missingPaths = extraBinPaths.filter((p) => !currentPath.split(":").includes(p));
+if (missingPaths.length > 0) {
+  process.env.PATH = [...missingPaths, currentPath].join(":");
+}
+
 app.setName("pi");
 
 const configuredUserDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
