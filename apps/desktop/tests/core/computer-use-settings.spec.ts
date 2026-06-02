@@ -31,7 +31,7 @@ test("shows Computer Use permission and locked-use status in Settings", async ()
     cursorDurationMs: 60_000,
     cursorGlideMs: 300,
     accessibility: "denied",
-    screenRecording: "granted",
+    screenRecording: "denied",
     lockedUse: "not_enabled",
     lockedUseInstaller: "not-installed",
     lockedUseInstallerPath,
@@ -67,8 +67,10 @@ test("shows Computer Use permission and locked-use status in Settings", async ()
     await expect(window.locator(".settings-view")).toContainText("Enabled");
     await expect(window.locator(".settings-view")).toContainText("guarded macOS authorization plug-in");
 
-    await window.getByRole("button", { name: "Open Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Open Accessibility", exact: true }).click();
     await expect.poll(() => readSettingsLog(settingsLogPath), { timeout: 5_000 }).toContain("accessibility");
+    await window.getByRole("button", { name: "Open Screen Recording", exact: true }).click();
+    await expect.poll(() => readSettingsLog(settingsLogPath), { timeout: 5_000 }).toContain("screen-recording");
 
     await window.getByRole("button", { name: "Enable", exact: true }).click();
     await expect.poll(() => readSettingsLog(lockedUseActionLogPath), { timeout: 5_000 }).toContain("install");

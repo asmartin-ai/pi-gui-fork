@@ -54,12 +54,14 @@ export function SettingsComputerUseSection({
       <SettingsGroup title="macOS access">
         <SettingsRow title="Accessibility" description="Required for inspecting controls and using accessibility actions.">
           <PermissionControl
+            label="Accessibility"
             status={status?.accessibility}
             onOpen={() => onOpenPrivacySettings("accessibility")}
           />
         </SettingsRow>
         <SettingsRow title="Screen Recording" description="Required for screenshots returned by get_app_state.">
           <PermissionControl
+            label="Screen Recording"
             status={status?.screenRecording}
             onOpen={() => onOpenPrivacySettings("screen-recording")}
           />
@@ -93,9 +95,11 @@ function LockedUseControl({
 }
 
 function PermissionControl({
+  label,
   status,
   onOpen,
 }: {
+  readonly label: "Accessibility" | "Screen Recording";
   readonly status?: DesktopComputerUseStatusValue;
   readonly onOpen: () => void;
 }) {
@@ -104,7 +108,7 @@ function PermissionControl({
       <span className="settings-row__value">{permissionLabel(status)}</span>
       {status !== "granted" ? (
         <button className="button button--secondary" type="button" onClick={onOpen}>
-          Open Settings
+          Open {label}
         </button>
       ) : null}
     </div>
