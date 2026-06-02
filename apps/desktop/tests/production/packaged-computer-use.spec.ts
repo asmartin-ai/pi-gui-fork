@@ -136,6 +136,7 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_ALLOW_PHYSICAL_INPUT");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED");
+  expect(helperSource).toContain("PI_GUI_COMPUTER_USE_TEST_FORCE_SCREENSHOT_UNAVAILABLE");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH");
   expect(helperSource).toContain("PI_GUI_COMPUTER_USE_LOCKED_USE_APP_TOKEN");
@@ -487,6 +488,19 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(screenRecordingDeniedClick.ok).toBe(false);
   expect(screenRecordingDeniedClick.error).toContain("Screen Recording permission");
   expect(screenRecordingDeniedClick.details?.errorCode).toBe("screen_recording_denied");
+
+  const screenshotUnavailableClick = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "click", app: "Finder", x: 10, y: 10 },
+    {
+      PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+      PI_GUI_COMPUTER_USE_TEST_FORCE_SCREENSHOT_UNAVAILABLE: "1",
+    },
+  );
+  expect(screenshotUnavailableClick.ok).toBe(false);
+  expect(screenshotUnavailableClick.error).toContain("target window screenshot is unavailable");
+  expect(screenshotUnavailableClick.details?.errorCode).toBe("screenshot_unavailable");
+  expect(screenshotUnavailableClick.details?.screenshot).toBe("unavailable");
 });
 
 test("packaged app completes a locked-use active-turn self-test through its trusted desktop process", async () => {

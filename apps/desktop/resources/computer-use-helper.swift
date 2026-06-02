@@ -114,6 +114,7 @@ private let testSkipUnlockReturnKeyEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_UNLOCK_R
 private let testForceUnlockedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED"
 private let testForceAccessibilityDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_ACCESSIBILITY_DENIED"
 private let testForceScreenRecordingDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED"
+private let testForceScreenshotUnavailableEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREENSHOT_UNAVAILABLE"
 private let testForbidMouseWarpEnv = "PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP"
 private let testIncludePhysicalMouseStatusEnv = "PI_GUI_COMPUTER_USE_TEST_INCLUDE_PHYSICAL_MOUSE_STATUS"
 private let defaultCursorOverlayDuration = 8.0
@@ -1707,6 +1708,9 @@ func windowFrame(_ element: AXUIElement) -> CGRect? {
 }
 
 func windowCapture(for app: ResolvedApp, title: String?) -> WindowCapture {
+    if ProcessInfo.processInfo.environment[testForceScreenshotUnavailableEnv] == "1" {
+        return WindowCapture(windowId: nil, frame: nil)
+    }
     guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
         return WindowCapture(windowId: nil, frame: nil)
     }
