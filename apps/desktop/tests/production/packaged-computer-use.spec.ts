@@ -467,21 +467,26 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(accessibilityDeniedState.details?.errorCode).toBe("accessibility_denied");
   expect(accessibilityDeniedState.details?.accessibility).toBe("denied");
 
-  if (screenRecordingDeniedStatus.details?.screenLocked === "false") {
-    const screenRecordingDeniedClick = await runPackagedHelper(
-      helperAppExecutable,
-      { command: "click", app: "Finder", x: 10, y: 10 },
-      { PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED: "1" },
-    );
-    expect(screenRecordingDeniedClick.ok).toBe(false);
-    expect(screenRecordingDeniedClick.error).toContain("Screen Recording permission");
-    expect(screenRecordingDeniedClick.details?.errorCode).toBe("screen_recording_denied");
-  } else {
-    test.info().annotations.push({
-      type: "note",
-      description: "Skipped packaged coordinate Screen Recording denial probe because the host session is locked.",
-    });
-  }
+  const missingAppState = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "get_app_state", app: "Definitely Missing Pi GUI Test App" },
+    { PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1" },
+  );
+  expect(missingAppState.ok).toBe(false);
+  expect(missingAppState.error).toContain("Could not find app");
+  expect(missingAppState.details?.errorCode).toBe("app_not_found");
+
+  const screenRecordingDeniedClick = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "click", app: "Finder", x: 10, y: 10 },
+    {
+      PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+      PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED: "1",
+    },
+  );
+  expect(screenRecordingDeniedClick.ok).toBe(false);
+  expect(screenRecordingDeniedClick.error).toContain("Screen Recording permission");
+  expect(screenRecordingDeniedClick.details?.errorCode).toBe("screen_recording_denied");
 });
 
 test("packaged app completes a locked-use active-turn self-test through its trusted desktop process", async () => {
