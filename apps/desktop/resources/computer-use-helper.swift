@@ -1017,9 +1017,9 @@ func click(_ request: Request) throws -> Response {
 
     if let element = try indexedElement(request, app: app) {
         if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
-            let cursorPoint = showAgentCursorPressAndWait(for: element)
-            defer { releaseAgentCursor(at: cursorPoint) }
-            try pressElement(element, count: clickCount, failureContext: "AXPress failed for element \(request.element_index ?? "")")
+            try withAgentCursorPress(for: element) {
+                try pressElement(element, count: clickCount, failureContext: "AXPress failed for element \(request.element_index ?? "")")
+            }
             return try stateResponse(for: app)
         }
         if let center = elementCenter(element) {
@@ -1032,9 +1032,9 @@ func click(_ request: Request) throws -> Response {
     if button == "left",
        let element = accessibilityElement(at: point, in: app),
        copyActionNames(element).contains(kAXPressAction as String) {
-        let cursorPoint = showAgentCursorPressAndWait(at: elementCenter(element) ?? point)
-        defer { releaseAgentCursor(at: cursorPoint) }
-        try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
+        try withAgentCursorPress(at: elementCenter(element) ?? point) {
+            try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
+        }
         return try stateResponse(for: app)
     }
     throw physicalPointerClickRequired(app: app, point: point)
@@ -1084,11 +1084,11 @@ func performSecondaryAction(_ request: Request) throws -> Response {
     let element = try requireIndexedElement(request, app: app)
     let action = try require(request.action, "action")
     let axAction = canonicalActionName(action)
-    let cursorPoint = showAgentCursorPressAndWait(for: element)
-    defer { releaseAgentCursor(at: cursorPoint) }
-    let error = AXUIElementPerformAction(element, axAction as CFString)
-    if error != .success {
-        throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
+    try withAgentCursorPress(for: element) {
+        let error = AXUIElementPerformAction(element, axAction as CFString)
+        if error != .success {
+            throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
+        }
     }
     return try stateResponse(for: app)
 }
@@ -1869,6 +1869,18 @@ func showAgentCursorPressAndWait(at point: CGPoint) -> CGPoint {
     return point
 }
 
+func withAgentCursorPress<T>(for element: AXUIElement, _ body: () throws -> T) rethrows -> T {
+    let cursorPoint = showAgentCursorPressAndWait(for: element)
+    defer { releaseAgentCursor(at: cursorPoint) }
+    return try body()
+}
+
+func withAgentCursorPress<T>(at point: CGPoint, _ body: () throws -> T) rethrows -> T {
+    let cursorPoint = showAgentCursorPressAndWait(at: point)
+    defer { releaseAgentCursor(at: cursorPoint) }
+    return try body()
+}
+
 func releaseAgentCursor(at point: CGPoint?) {
     guard let point else {
         return
@@ -2620,12 +2632,12 @@ func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
     guard let element = waitForPressableElement(in: app, labels: labels) else {
         return false
     }
-    let cursorPoint = showAgentCursorPressAndWait(for: element)
-    defer { releaseAgentCursor(at: cursorPoint) }
-    let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
-    Thread.sleep(forTimeInterval: 0.06)
-    guard error == .success else {
-        throw HelperError.message("AXPress failed for \(app.displayName) key \(rawKey): \(error.rawValue)")
+    try withAgentCursorPress(for: element) {
+        let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        Thread.sleep(forTimeInterval: 0.06)
+        guard error == .success else {
+            throw HelperError.message("AXPress failed for \(app.displayName) key \(rawKey): \(error.rawValue)")
+        }
     }
     return true
 }

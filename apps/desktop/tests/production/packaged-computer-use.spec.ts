@@ -168,7 +168,13 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSwiftSource).toContain("does not support active-turn authorization");
   expect(helperSwiftSource).toContain("relockAutoUnlockedDesktopIfNeeded");
   expect(helperSwiftSource).toContain("shouldRelockAutoUnlockedDesktop");
+  expect(helperSwiftSource).toContain("withAgentCursorPress");
   expect(helperSwiftSource).toContain("releaseAgentCursor");
+  expect(helperSwiftSource).toContain(".nonactivatingPanel");
+  expect(helperSwiftSource).toContain("panel.ignoresMouseEvents = true");
+  expect(helperSwiftSource).toContain(".canJoinAllSpaces");
+  expect(helperSwiftSource).toContain(".fullScreenAuxiliary");
+  expect(helperSwiftSource).toContain(".stationary");
   expect(helperSwiftSource).not.toContain("let initialPoint = currentMouseLocation() ?? request.point");
   expect(helperSwiftSource).not.toContain("let startPoint = currentMouseLocation() ?? point");
   expect(helperSwiftSource).toContain("lockedUseDaemonStateRequiresRelock");
