@@ -111,7 +111,7 @@ function PermissionControl({
   );
 }
 
-function desktopLabel(value: DesktopComputerUseStatus["desktop"] | undefined): string {
+export function desktopLabel(value: DesktopComputerUseStatus["desktop"] | undefined): string {
   switch (value) {
     case "locked":
       return "Locked";
@@ -205,7 +205,7 @@ export function lockedUseActionLabel(status: DesktopComputerUseStatus | undefine
   return status.lockedUseInstaller === "not-installed" ? "Enable" : undefined;
 }
 
-function permissionLabel(value: DesktopComputerUseStatusValue | undefined): string {
+export function permissionLabel(value: DesktopComputerUseStatusValue | undefined): string {
   switch (value) {
     case "granted":
       return "Enabled";

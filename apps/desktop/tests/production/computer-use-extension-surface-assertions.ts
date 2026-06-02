@@ -4,10 +4,12 @@ import type { DesktopComputerUseStatus } from "../../src/ipc";
 import {
   cursorActivityLabel,
   cursorLabel,
+  desktopLabel,
   durationLabel,
   lockedUseActionLabel,
   lockedUseInstallerLabel,
   lockedUseLabel,
+  permissionLabel,
 } from "../../src/settings-computer-use-section";
 import { createSessionViaIpc, selectSession, waitForWorkspaceByPath } from "../helpers/electron-app";
 
@@ -220,6 +222,7 @@ async function assertComputerUseSettingsMatchesRealStatus(
   const settings = window.locator(".settings-view");
   const helperRow = settingsRow(window, "Helper");
   await expect(helperRow).toContainText(status.helperAvailable ? "Available" : "Unavailable");
+  await expect(settingsRow(window, "Desktop")).toContainText(desktopLabel(status.desktop));
   if (status.frontmostApp) {
     await expect(settingsRow(window, "Frontmost app")).toContainText(status.frontmostApp);
   }
@@ -247,6 +250,8 @@ async function assertComputerUseSettingsMatchesRealStatus(
   if (status.message) {
     await expect(settingsRow(window, "Details")).toContainText(status.message);
   }
+  await expect(settingsRow(window, "Accessibility")).toContainText(permissionLabel(status.accessibility));
+  await expect(settingsRow(window, "Screen Recording")).toContainText(permissionLabel(status.screenRecording));
 
   if (lockedUseActionLogPath) {
     expect(status.helperAvailable).toBe(true);
