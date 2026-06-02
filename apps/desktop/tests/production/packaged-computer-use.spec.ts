@@ -283,6 +283,8 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(extensionSource).toContain("PI_GUI_COMPUTER_USE_SHOW_CURSOR");
   expect(extensionSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS");
   expect(extensionSource).toContain("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS");
+  expect(extensionSource).toContain('defaultCursorOverlayDurationMs = "60000"');
+  expect(extensionSource).toContain('defaultCursorOverlayGlideMs = "300"');
   expect(extensionSource).toContain("hide_cursor");
   expect(extensionSource).toContain("delete env[key]");
   expect(extensionSource).toContain("setEnvFromRuntimeConfig");
