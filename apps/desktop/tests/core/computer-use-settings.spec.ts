@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 
 async function readSettingsLog(path: string): Promise<string> {
@@ -11,6 +11,11 @@ async function readSettingsLog(path: string): Promise<string> {
   }
 }
 
+const computerUseHelperPath =
+  "/Applications/pi-gui.app/Contents/SharedSupport/pi-gui Computer Use.app/Contents/MacOS/pi-gui-computer-use-helper";
+const lockedUseInstallerPath =
+  "/Applications/pi-gui.app/Contents/SharedSupport/pi-gui Computer Use.app/Contents/SharedSupport/pi-gui-computer-use-locked-use-installer";
+
 test("shows Computer Use permission and locked-use status in Settings", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("computer-use-settings-workspace");
@@ -18,7 +23,7 @@ test("shows Computer Use permission and locked-use status in Settings", async ()
   const lockedUseActionLogPath = join(userDataDir, "computer-use-locked-use-actions.log");
   const status = {
     helperAvailable: true,
-    helperPath: "/Applications/pi-gui.app/Contents/SharedSupport/pi-gui Computer Use.app/Contents/MacOS/pi-gui-computer-use-helper",
+    helperPath: computerUseHelperPath,
     desktop: "locked",
     frontmostApp: "loginwindow",
     cursor: "enabled",
@@ -29,7 +34,7 @@ test("shows Computer Use permission and locked-use status in Settings", async ()
     screenRecording: "granted",
     lockedUse: "not_enabled",
     lockedUseInstaller: "not-installed",
-    lockedUseInstallerPath: "/Applications/pi-gui.app/Contents/SharedSupport/pi-gui Computer Use.app/Contents/SharedSupport/pi-gui-computer-use-locked-use-installer",
+    lockedUseInstallerPath,
     message: "Locked Computer Use requires a guarded macOS authorization plug-in.",
   };
   const harness = await launchDesktop(userDataDir, {
@@ -77,7 +82,7 @@ test("hides locked-use setup action when installer is not configured", async () 
   const workspacePath = await makeWorkspace("computer-use-settings-unconfigured-workspace");
   const status = {
     helperAvailable: true,
-    helperPath: "/Applications/pi-gui.app/Contents/SharedSupport/pi-gui Computer Use.app/Contents/MacOS/pi-gui-computer-use-helper",
+    helperPath: computerUseHelperPath,
     desktop: "locked",
     cursor: "unknown",
     accessibility: "granted",
@@ -105,3 +110,92 @@ test("hides locked-use setup action when installer is not configured", async () 
     await harness.close();
   }
 });
+
+test("shows locked-use enabled and repair actions in Settings", async () => {
+  const cases = [
+    {
+      name: "enabled",
+      status: {
+        helperAvailable: true,
+        helperPath: computerUseHelperPath,
+        desktop: "locked",
+        cursor: "enabled",
+        cursorActive: "inactive",
+        accessibility: "granted",
+        screenRecording: "granted",
+        lockedUse: "enabled",
+        lockedUseInstaller: "installed",
+        lockedUseInstallerPath,
+        message: "Locked Computer Use is enabled.",
+      },
+      expectedLabel: "Enabled",
+      expectedSetup: "Installed",
+      actionLabel: "Disable",
+      expectedAction: "uninstall",
+    },
+    {
+      name: "partial",
+      status: {
+        helperAvailable: true,
+        helperPath: computerUseHelperPath,
+        desktop: "locked",
+        cursor: "enabled",
+        cursorActive: "inactive",
+        accessibility: "granted",
+        screenRecording: "granted",
+        lockedUse: "not_enabled",
+        lockedUseInstaller: "partial",
+        lockedUseInstallerPath,
+        message: "Locked Computer Use authorization plug-in setup is partially installed.",
+      },
+      expectedLabel: "Not enabled",
+      expectedSetup: "Needs repair",
+      actionLabel: "Repair",
+      expectedAction: "install",
+    },
+  ] as const;
+
+  for (const testCase of cases) {
+    const userDataDir = await makeUserDataDir();
+    const workspacePath = await makeWorkspace(`computer-use-settings-${testCase.name}-workspace`);
+    const lockedUseActionLogPath = join(userDataDir, "computer-use-locked-use-actions.log");
+    const harness = await launchDesktop(userDataDir, {
+      initialWorkspaces: [workspacePath],
+      testMode: "background",
+      envOverrides: {
+        PI_APP_TEST_COMPUTER_USE_LOCKED_USE_ACTION_LOG_PATH: lockedUseActionLogPath,
+        PI_APP_TEST_COMPUTER_USE_STATUS_JSON: JSON.stringify(testCase.status),
+        PI_GUI_COMPUTER_USE_LOCKED_USE_INSTALLER_PATH: testCase.status.lockedUseInstallerPath,
+      },
+    });
+
+    try {
+      const window = await harness.firstWindow();
+      await window.getByRole("button", { name: "Settings", exact: true }).click();
+      await window.getByRole("button", { name: "Computer Use", exact: true }).click();
+
+      await expect(settingsRow(window, "Locked computer use")).toContainText(testCase.expectedLabel);
+      await expect(settingsRow(window, "Locked setup")).toContainText(testCase.expectedSetup);
+      await expect(settingsRow(window, "Details")).toContainText(testCase.status.message);
+
+      await settingsRow(window, "Locked computer use")
+        .getByRole("button", { name: testCase.actionLabel, exact: true })
+        .click();
+      await expect
+        .poll(() => readSettingsLog(lockedUseActionLogPath), { timeout: 5_000 })
+        .toContain(testCase.expectedAction);
+    } finally {
+      await harness.close();
+    }
+  }
+});
+
+function settingsRow(window: Page, title: string) {
+  return window.locator(".settings-row").filter({
+    has: window.locator(".settings-row__title", { hasText: new RegExp(`^${escapeRegExp(title)}$`) }),
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

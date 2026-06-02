@@ -347,6 +347,16 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperStatusWithForcedInstalled.ok).toBe(true);
   expect(helperStatusWithForcedInstalled.details?.lockedUse).toBe("enabled");
 
+  const helperStatusWithForcedPartial = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "status" },
+    { PI_GUI_COMPUTER_USE_TEST_LOCKED_USE_INSTALLER_STATE: "partial" },
+  );
+  expect(helperStatusWithForcedPartial.ok).toBe(true);
+  expect(helperStatusWithForcedPartial.details?.lockedUseInstaller).toBe("partial");
+  expect(helperStatusWithForcedPartial.details?.lockedUse).toBe("not_enabled");
+  expect(helperStatusWithForcedPartial.details?.lockedUseMessage).toContain("partially installed");
+
   const lockedAuthorizationProbeWithoutTrustedDesktop = await runPackagedHelper(
     helperAppExecutable,
     {
