@@ -119,6 +119,7 @@ async function main() {
   );
 
   const lockedReadiness = await runInstalledLockedReadinessStatus();
+  await logInstalledCompletionPreflightStatus();
   const backgroundProbeLockState = await desktopLockStateForInstalledLive();
   const backgroundProbeCompleted = await runInstalledBackgroundProbeIfUnlocked(backgroundProbeLockState);
 
@@ -206,6 +207,40 @@ async function runInstalledLockedReadinessStatus() {
   return {
     ready: /\bCOMPUTER_USE_LOCKED_READINESS_OK\b/.test(stdout),
   };
+}
+
+async function logInstalledCompletionPreflightStatus() {
+  console.log("COMPUTER_USE_INSTALLED_PARITY_GATE_STEP installed-completion-preflight");
+  const lockScreenE2e = process.env[lockScreenE2eEnvVar] === "1" ? "confirmed" : "not_confirmed";
+  const realAuth = await installedRealAuthStatus();
+  console.log(
+    `COMPUTER_USE_INSTALLED_PARITY_GATE_COMPLETION_PREFLIGHT lock_screen_e2e=${lockScreenE2e} real_auth=${realAuth.state} source_dir=${statusToken(realAuth.sourceDir)} auth_json=${realAuth.authJson}`,
+  );
+}
+
+async function installedRealAuthStatus() {
+  if (process.env[realAuthEnvVar] !== "1") {
+    return { state: "not_enabled", sourceDir: "unset", authJson: "missing" };
+  }
+
+  const rawSourceDir = process.env[realAuthSourceDirEnvVar]?.trim();
+  if (!rawSourceDir) {
+    return { state: "source_dir_missing", sourceDir: "unset", authJson: "missing" };
+  }
+
+  const sourceDir = path.resolve(rawSourceDir);
+  const authPath = path.join(sourceDir, "auth.json");
+  try {
+    await access(authPath);
+    return { state: "ready", sourceDir, authJson: "present" };
+  } catch {
+    return { state: "auth_file_missing", sourceDir, authJson: "missing" };
+  }
+}
+
+function statusToken(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed.replace(/\s+/g, "_") : "unknown";
 }
 
 async function runInstalledBackgroundProbeIfUnlocked(lockState) {
