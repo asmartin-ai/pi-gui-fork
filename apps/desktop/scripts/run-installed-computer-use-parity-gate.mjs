@@ -11,6 +11,13 @@ const repoDir = path.resolve(desktopDir, "..", "..");
 const installedAppBundle = "/Applications/pi-gui.app";
 const installedAppAsar = path.join(installedAppBundle, "Contents", "Resources", "app.asar");
 const builtOutDir = path.join(desktopDir, "out");
+const builtNativeComputerUseHelperApp = path.join(desktopDir, "build", "native", "pi-gui Computer Use.app");
+const installedNativeComputerUseHelperApp = path.join(
+  installedAppBundle,
+  "Contents",
+  "SharedSupport",
+  "pi-gui Computer Use.app",
+);
 const workspaceRuntimePackages = [
   {
     packageName: "@pi-gui/catalogs",
@@ -235,7 +242,10 @@ async function assertInstalledAppUsesCurrentRuntimePayload() {
     ...(await installedWorkspaceRuntimePackageFreshnessTargets()),
   ];
   await Promise.all(targets.map(assertInstalledFileFresh));
-  console.log(`COMPUTER_USE_INSTALLED_PARITY_GATE_FRESH files=${targets.length}`);
+  const nativeFreshness = await assertInstalledNativeComputerUsePayloadFresh();
+  console.log(
+    `COMPUTER_USE_INSTALLED_PARITY_GATE_FRESH files=${targets.length} native_files=${nativeFreshness.files} native_executables=${nativeFreshness.executables}`,
+  );
 }
 
 async function installedBuiltOutFreshnessTargets() {
@@ -274,6 +284,85 @@ async function assertInstalledFileFresh(target) {
       `Installed app.asar does not match the current local build for ${target.installedPath}.`,
     );
   }
+}
+
+async function assertInstalledNativeComputerUsePayloadFresh() {
+  const fileTargets = nativeComputerUseFileTargets();
+  const executableTargets = nativeComputerUseExecutableTargets();
+  await Promise.all([
+    ...fileTargets.map(assertInstalledNativeFileFresh),
+    ...executableTargets.map(assertInstalledMachOUuidFresh),
+  ]);
+  return {
+    files: fileTargets.length,
+    executables: executableTargets.length,
+  };
+}
+
+function nativeComputerUseFileTargets() {
+  return [
+    "Contents/Info.plist",
+    "Contents/PkgInfo",
+    "Contents/SharedSupport/PiGuiComputerUseAuthorizationPlugin.bundle/Contents/Info.plist",
+  ].map(nativeComputerUseTarget);
+}
+
+function nativeComputerUseExecutableTargets() {
+  return [
+    "Contents/MacOS/pi-gui-computer-use-helper",
+    "Contents/SharedSupport/pi-gui-computer-use-locked-use-installer",
+    "Contents/SharedSupport/PiGuiComputerUseAuthorizationPlugin.bundle/Contents/MacOS/PiGuiComputerUseAuthorizationPlugin",
+  ].map(nativeComputerUseTarget);
+}
+
+function nativeComputerUseTarget(relativePath) {
+  return {
+    currentPath: path.join(builtNativeComputerUseHelperApp, relativePath),
+    installedPath: path.join(installedNativeComputerUseHelperApp, relativePath),
+    relativePath,
+  };
+}
+
+async function assertInstalledNativeFileFresh(target) {
+  const [currentHash, installedHash] = await Promise.all([
+    fileHash(target.currentPath),
+    fileHash(target.installedPath),
+  ]);
+  if (installedHash !== currentHash) {
+    throw installedAppOutdatedError(
+      `Installed native Computer Use file does not match the current local build for ${target.relativePath}.`,
+    );
+  }
+}
+
+async function assertInstalledMachOUuidFresh(target) {
+  const [currentUuid, installedUuid] = await Promise.all([
+    machOUuids(target.currentPath),
+    machOUuids(target.installedPath),
+  ]);
+  if (installedUuid !== currentUuid) {
+    throw installedAppOutdatedError(
+      `Installed native Computer Use executable does not match the current local build UUID for ${target.relativePath}: current=${currentUuid || "<empty>"} installed=${installedUuid || "<empty>"}.`,
+    );
+  }
+}
+
+async function machOUuids(filePath) {
+  const stdout = await capture("dwarfdump", ["--uuid", filePath], { cwd: desktopDir });
+  const uuids = stdout
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = /^UUID:\s+([A-Fa-f0-9-]+)\s+\(([^)]+)\)/.exec(line);
+      return match ? `${match[1].toUpperCase()} (${match[2]})` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  if (!uuids) {
+    throw new Error(`Could not read Mach-O UUID from ${filePath}.`);
+  }
+  return uuids;
 }
 
 function isRuntimeBuiltFile(filePath) {
