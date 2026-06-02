@@ -18,6 +18,12 @@ const installedNativeComputerUseHelperApp = path.join(
   "SharedSupport",
   "pi-gui Computer Use.app",
 );
+const installedNativeComputerUseHelperExecutable = path.join(
+  installedNativeComputerUseHelperApp,
+  "Contents",
+  "MacOS",
+  "pi-gui-computer-use-helper",
+);
 const workspaceRuntimePackages = [
   {
     packageName: "@pi-gui/catalogs",
@@ -117,6 +123,7 @@ async function main() {
       cwd: desktopDir,
     },
   );
+  await assertInstalledHelperFailureShaping();
 
   const lockedReadiness = await runInstalledLockedReadinessStatus();
   await logInstalledCompletionPreflightStatus();
@@ -185,7 +192,7 @@ async function main() {
   });
 
   console.log(
-    "COMPUTER_USE_INSTALLED_PARITY_GATE_OK installed-app-freshness-extension-surface-failure-timeline-locked-use-helper-capabilities-background-probe-live-background-cursor-locked-live",
+    "COMPUTER_USE_INSTALLED_PARITY_GATE_OK installed-app-freshness-extension-surface-failure-timeline-installed-helper-failure-shaping-locked-use-helper-capabilities-background-probe-live-background-cursor-locked-live",
   );
 }
 
@@ -267,6 +274,117 @@ async function runInstalledBackgroundProbe() {
       },
     },
   );
+}
+
+async function assertInstalledHelperFailureShaping() {
+  console.log("COMPUTER_USE_INSTALLED_PARITY_GATE_STEP installed-helper-failure-shaping");
+  const failureCases = [
+    {
+      name: "desktop_locked",
+      request: { command: "get_app_state", app: "Finder" },
+      env: { PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED: "1" },
+      errorIncludes: ["Mac is locked"],
+      details: { errorCode: "desktop_locked", screenLocked: "true" },
+    },
+    {
+      name: "accessibility_denied",
+      request: { command: "get_app_state", app: "Finder" },
+      env: {
+        PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+        PI_GUI_COMPUTER_USE_TEST_FORCE_ACCESSIBILITY_DENIED: "1",
+      },
+      errorIncludes: ["Accessibility permission is not granted"],
+      details: { errorCode: "accessibility_denied", accessibility: "denied" },
+    },
+    {
+      name: "app_not_found",
+      request: { command: "get_app_state", app: "Definitely Missing Pi GUI Test App" },
+      env: { PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1" },
+      errorIncludes: ["Could not find app"],
+      details: { errorCode: "app_not_found" },
+    },
+    {
+      name: "screen_recording_denied",
+      request: { command: "click", app: "Finder", x: 10, y: 10 },
+      env: {
+        PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+        PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED: "1",
+      },
+      errorIncludes: ["Screen Recording permission"],
+      details: { errorCode: "screen_recording_denied", screenRecording: "denied" },
+    },
+    {
+      name: "screenshot_unavailable",
+      request: { command: "click", app: "Finder", x: 10, y: 10 },
+      env: {
+        PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+        PI_GUI_COMPUTER_USE_TEST_FORCE_SCREENSHOT_UNAVAILABLE: "1",
+      },
+      errorIncludes: ["target window screenshot is unavailable"],
+      details: { errorCode: "screenshot_unavailable", screenshot: "unavailable" },
+    },
+    {
+      name: "physical_input_required",
+      request: { command: "click", app: "Finder", x: 10, y: 10 },
+      env: {
+        PI_GUI_COMPUTER_USE_TEST_FORCE_UNLOCKED: "1",
+        PI_GUI_COMPUTER_USE_TEST_FORCE_PHYSICAL_INPUT_REQUIRED: "1",
+      },
+      errorIncludes: ["would require foreground physical input", "moving the user's physical mouse"],
+      details: { errorCode: "physical_input_required" },
+    },
+  ];
+
+  for (const failureCase of failureCases) {
+    const response = await runInstalledHelper(failureCase.request, failureCase.env);
+    assertInstalledHelperFailure(failureCase, response);
+  }
+  console.log(`COMPUTER_USE_INSTALLED_HELPER_FAILURES_OK cases=${failureCases.length}`);
+}
+
+async function runInstalledHelper(request, env = {}) {
+  const stdout = await captureWithInput(
+    installedNativeComputerUseHelperExecutable,
+    [],
+    `${JSON.stringify(request)}\n`,
+    {
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        ...env,
+      },
+      allowNonZeroStdout: true,
+    },
+  );
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Installed Computer Use helper returned invalid JSON for ${request.command}: ${detail}`);
+  }
+}
+
+function assertInstalledHelperFailure(failureCase, response) {
+  if (response?.ok !== false) {
+    throw new Error(
+      `Installed Computer Use helper failure case ${failureCase.name} did not fail: ${JSON.stringify(response)}`,
+    );
+  }
+  const error = String(response.error ?? "");
+  for (const expectedText of failureCase.errorIncludes) {
+    if (!error.includes(expectedText)) {
+      throw new Error(
+        `Installed Computer Use helper failure case ${failureCase.name} did not include ${JSON.stringify(expectedText)} in ${JSON.stringify(error)}.`,
+      );
+    }
+  }
+  for (const [key, expectedValue] of Object.entries(failureCase.details)) {
+    if (response.details?.[key] !== expectedValue) {
+      throw new Error(
+        `Installed Computer Use helper failure case ${failureCase.name} reported details.${key}=${JSON.stringify(response.details?.[key])}; expected ${JSON.stringify(expectedValue)}.`,
+      );
+    }
+  }
 }
 
 async function assertInstalledAppUsesCurrentRuntimePayload() {
@@ -479,7 +597,7 @@ function lockedDesktopForInstalledLiveError() {
       "COMPUTER_USE_INSTALLED_PARITY_GATE_BLOCKED desktop=locked reason=installed-live-requires-unlocked-active-desktop",
       "Installed Computer Use parity requires a real installed-app live background cursor/focus E2E.",
       "Locked Computer Use readiness is enabled, but this gate still needs an unlocked desktop before the active-user background cursor/focus E2E and the controlled locked-live E2E.",
-      "Installed-app checks completed before the blocked live E2E: current app payload freshness, extension failure shaping, timeline failure UI, top-level @ extension surface, helper background-safety capabilities, locked-readiness status, and locked-use active-turn self-test.",
+      "Installed-app checks completed before the blocked live E2E: current app payload freshness, extension failure shaping, timeline failure UI, top-level @ extension surface, helper background-safety capabilities, installed helper failure shaping, locked-readiness status, and locked-use active-turn self-test.",
       "Unlock the desktop, keep the installed app idle/closed, and rerun test:prod:installed-computer-use-parity with PI_APP_LOCK_SCREEN_E2E=1 plus real auth.",
     ].join("\n"),
   );
@@ -567,6 +685,35 @@ function capture(command, args, options = {}) {
       const exitDetail = signal ? `signal ${signal}` : `exit code ${code}`;
       reject(new Error(stderr.trim() || `${command} ${args.join(" ")} failed with ${exitDetail}.`));
     });
+  });
+}
+
+function captureWithInput(command, args, input, options = {}) {
+  return new Promise((resolve, reject) => {
+    const { allowNonZeroStdout = false, ...spawnOptions } = options;
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      ...spawnOptions,
+    });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0 || (allowNonZeroStdout && stdout.trim())) {
+        resolve(stdout);
+        return;
+      }
+      const exitDetail = signal ? `signal ${signal}` : `exit code ${code}`;
+      reject(new Error(stderr.trim() || `${command} ${args.join(" ")} failed with ${exitDetail}.`));
+    });
+    child.stdin.end(input);
   });
 }
 
