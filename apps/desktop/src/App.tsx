@@ -2025,6 +2025,7 @@ export default function App() {
           runtime={extensionsRuntime}
           commandCompatibility={extensionsCommandCompatibility}
           onOpenExtensionFolder={handleOpenExtensionFolder}
+          onOpenComputerUseSettings={() => openSettings(extensionsWorkspace?.id, "computer-use")}
           onRefresh={() => {
             if (!extensionsWorkspace) {
               return;

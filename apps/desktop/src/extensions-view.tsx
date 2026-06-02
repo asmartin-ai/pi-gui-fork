@@ -10,6 +10,7 @@ interface ExtensionsViewProps {
   readonly commandCompatibility?: readonly ExtensionCommandCompatibilityRecord[];
   readonly onRefresh: () => void;
   readonly onOpenExtensionFolder: (filePath: string) => void;
+  readonly onOpenComputerUseSettings: () => void;
   readonly onToggleExtension: (filePath: string, enabled: boolean) => void;
 }
 
@@ -19,6 +20,7 @@ export function ExtensionsView({
   commandCompatibility = [],
   onRefresh,
   onOpenExtensionFolder,
+  onOpenComputerUseSettings,
   onToggleExtension,
 }: ExtensionsViewProps) {
   const [query, setQuery] = useState("");
@@ -49,6 +51,7 @@ export function ExtensionsView({
   const selectedExtension =
     filteredExtensions.find((extension) => extension.path === selectedExtensionPath) ?? filteredExtensions[0];
   const selectedExtensionCanBeManaged = selectedExtension ? isManageableExtension(selectedExtension) : false;
+  const selectedExtensionIsComputerUse = selectedExtension ? isComputerUseExtension(selectedExtension) : false;
   const selectedCompatibilityRecords = useMemo(
     () =>
       selectedExtension
@@ -170,6 +173,13 @@ export function ExtensionsView({
                     </button>
                   </div>
                 ) : null}
+                {selectedExtensionIsComputerUse ? (
+                  <div className="skill-detail__actions">
+                    <button className="button button--secondary" type="button" onClick={onOpenComputerUseSettings}>
+                      Open Computer Use settings
+                    </button>
+                  </div>
+                ) : null}
 
                 <ExtensionContributionSection title="Commands" items={selectedExtension.commands} emptyLabel="No commands contributed." />
                 <ExtensionCompatibilitySection
@@ -193,6 +203,14 @@ export function ExtensionsView({
 
 function isManageableExtension(extension: RuntimeExtensionRecord): boolean {
   return extension.sourceInfo.scope === "project" || extension.sourceInfo.scope === "user";
+}
+
+function isComputerUseExtension(extension: RuntimeExtensionRecord): boolean {
+  return (
+    extension.displayName === "Computer Use" &&
+    extension.sourceInfo.source === "builtin" &&
+    extension.sourceInfo.origin === "top-level"
+  );
 }
 
 function DetailItem({

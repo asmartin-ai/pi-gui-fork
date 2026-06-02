@@ -36,6 +36,11 @@ export async function assertComputerUseExtensionSurface(
   await expect(detail).not.toContainText("temporary");
   await expect(window.getByRole("button", { name: "Open folder", exact: true })).toHaveCount(0);
   await expect(window.getByRole("button", { name: "Disable", exact: true })).toHaveCount(0);
+  await window.getByRole("button", { name: "Open Computer Use settings", exact: true }).click();
+  await expect(window.getByTestId("settings-surface")).toBeVisible();
+  await expect(window.locator(".settings-view")).toContainText("Computer Use");
+  await expect(window.locator(".settings-view")).toContainText("Locked computer use");
+  await window.getByRole("button", { name: "Back to app", exact: true }).click();
 
   await createSessionViaIpc(window, workspacePath, sessionTitle);
   await selectSession(window, sessionTitle);
