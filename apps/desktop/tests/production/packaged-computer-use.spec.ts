@@ -413,6 +413,20 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(lockedBeginWithoutInstall.details?.errorCode).toBe("desktop_locked");
   expect(lockedBeginWithoutInstall.details?.lockedUse).toBe("not_enabled");
 
+  const lockedBeginWithPartialInstall = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "locked_use_begin" },
+    {
+      PI_GUI_COMPUTER_USE_TEST_FORCE_LOCKED: "1",
+      PI_GUI_COMPUTER_USE_TEST_LOCKED_USE_INSTALLER_STATE: "partial",
+    },
+  );
+  expect(lockedBeginWithPartialInstall.ok).toBe(false);
+  expect(lockedBeginWithPartialInstall.error).toContain("Locked Computer Use is partially installed");
+  expect(lockedBeginWithPartialInstall.error).toContain("Reinstall or uninstall Locked Computer Use");
+  expect(lockedBeginWithPartialInstall.details?.errorCode).toBe("desktop_locked");
+  expect(lockedBeginWithPartialInstall.details?.lockedUse).toBe("partial");
+
   const lockedHelperResponse = await runPackagedHelper(
     helperAppExecutable,
     { command: "get_app_state", app: "Finder" },
