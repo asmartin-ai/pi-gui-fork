@@ -116,6 +116,7 @@ private let defaultCursorOverlayDuration = 8.0
 private let defaultCursorOverlayGlideDuration = 0.32
 private let defaultLockedUseLeaseSeconds: TimeInterval = 300
 private let defaultLockedUseUnlockTimeout: TimeInterval = 8.0
+private let accessibleKeyTargetTimeout: TimeInterval = 1.2
 private let desktopBundleIdentifier = "com.pi-gui.desktop"
 private let helperBundleIdentifier = "com.pi-gui.desktop.computer-use-helper"
 private let expectedTeamIdentifier = "P2MBURJVUW"
@@ -2598,7 +2599,7 @@ func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
     guard !labels.isEmpty else {
         return false
     }
-    guard let element = pressableElement(in: app, labels: labels) else {
+    guard let element = waitForPressableElement(in: app, labels: labels) else {
         return false
     }
     showAgentCursorAndWait(for: element, pressed: true)
@@ -2635,7 +2636,7 @@ func typeAccessibleText(_ text: String, app: ResolvedApp) throws -> Bool {
         guard !labels.isEmpty else {
             return false
         }
-        guard let element = pressableElement(in: app, labels: labels) else {
+        guard let element = waitForPressableElement(in: app, labels: labels) else {
             return false
         }
         elements.append(element)
@@ -2729,6 +2730,17 @@ func pressableElement(in app: ResolvedApp, labels: [String]) -> AXUIElement? {
             expected.contains(normalizeLookupLabel(label))
         }
     }
+}
+
+func waitForPressableElement(in app: ResolvedApp, labels: [String]) -> AXUIElement? {
+    let deadline = Date().addingTimeInterval(accessibleKeyTargetTimeout)
+    while Date() < deadline {
+        if let element = pressableElement(in: app, labels: labels) {
+            return element
+        }
+        Thread.sleep(forTimeInterval: 0.06)
+    }
+    return pressableElement(in: app, labels: labels)
 }
 
 func elementLabels(_ element: AXUIElement) -> [String] {
