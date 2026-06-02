@@ -113,6 +113,7 @@ private let testSkipRelockEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_RELOCK"
 private let testSkipUnlockReturnKeyEnv = "PI_GUI_COMPUTER_USE_TEST_SKIP_UNLOCK_RETURN_KEY"
 private let testForceScreenRecordingDeniedEnv = "PI_GUI_COMPUTER_USE_TEST_FORCE_SCREEN_RECORDING_DENIED"
 private let testForbidMouseWarpEnv = "PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP"
+private let testIncludePhysicalMouseStatusEnv = "PI_GUI_COMPUTER_USE_TEST_INCLUDE_PHYSICAL_MOUSE_STATUS"
 private let defaultCursorOverlayDuration = 8.0
 private let maxCursorOverlayDuration = 60.0
 private let defaultCursorOverlayGlideDuration = 0.32
@@ -419,6 +420,11 @@ func status() -> Response {
         "lockedUseInstaller": installerStatus.state,
         "lockedUseMessage": lockSupportMessage,
     ]
+    if ProcessInfo.processInfo.environment[testIncludePhysicalMouseStatusEnv] == "1" {
+        let physicalMouseLocation = currentMouseLocation()
+        details["physicalMouseX"] = physicalMouseLocation.map { formatCoordinate(Double($0.x)) } ?? "unknown"
+        details["physicalMouseY"] = physicalMouseLocation.map { formatCoordinate(Double($0.y)) } ?? "unknown"
+    }
     if let path = installerStatus.path {
         details["lockedUseInstallerPath"] = path
     }

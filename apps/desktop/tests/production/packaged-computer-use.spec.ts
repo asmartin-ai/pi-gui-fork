@@ -163,6 +163,9 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSwiftSource).toContain("locked_use_begin");
   expect(helperSwiftSource).toContain("locked_use_end");
   expect(helperSwiftSource).toContain("locked_use_authorization_probe");
+  expect(helperSwiftSource).toContain("PI_GUI_COMPUTER_USE_TEST_INCLUDE_PHYSICAL_MOUSE_STATUS");
+  expect(helperSwiftSource).toContain("physicalMouseX");
+  expect(helperSwiftSource).toContain("physicalMouseY");
   expect(helperSwiftSource).toContain("hide_cursor");
   expect(helperSwiftSource).toContain("lockedUseHelperSupportsActiveTurnProtocol");
   expect(helperSwiftSource).toContain("Installed Locked Computer Use helper is stale");
@@ -308,6 +311,17 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperStatus.details?.cursorActive).toMatch(/^(active|inactive)$/);
   expect(helperStatus.details?.cursorDurationMs).toMatch(/^\d+$/);
   expect(helperStatus.details?.cursorGlideMs).toMatch(/^\d+$/);
+  expect(helperStatus.details?.physicalMouseX).toBeUndefined();
+  expect(helperStatus.details?.physicalMouseY).toBeUndefined();
+
+  const helperStatusWithPhysicalMouse = await runPackagedHelper(
+    helperAppExecutable,
+    { command: "status" },
+    { PI_GUI_COMPUTER_USE_TEST_INCLUDE_PHYSICAL_MOUSE_STATUS: "1" },
+  );
+  expect(helperStatusWithPhysicalMouse.ok).toBe(true);
+  expect(helperStatusWithPhysicalMouse.details?.physicalMouseX).toMatch(/^-?\d+(?:\.\d+)?$/);
+  expect(helperStatusWithPhysicalMouse.details?.physicalMouseY).toMatch(/^-?\d+(?:\.\d+)?$/);
 
   const lockedUseInstallerStatus = await runLockedUseInstallerStatus(lockedUseInstallerExecutable);
   expect(lockedUseInstallerStatus).toMatch(/^OK: (installed|not-installed|partial)$/);

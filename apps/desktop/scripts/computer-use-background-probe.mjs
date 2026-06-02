@@ -82,7 +82,9 @@ const helperTimeoutMs =
   Number.isFinite(configuredHelperTimeoutMs) && configuredHelperTimeoutMs > 0 ? configuredHelperTimeoutMs : 15_000;
 const strictFocusGuard = process.env.PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD === "1";
 const allowUserFocusChanges = process.env.PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES === "1";
+const allowUserPointerChanges = process.env.PI_GUI_COMPUTER_USE_ALLOW_USER_POINTER_CHANGES === "1";
 const allowTextEditTakeover = process.env.PI_GUI_COMPUTER_USE_ALLOW_TEXTEDIT_TAKEOVER === "1";
+const physicalMouseTolerance = 0.5;
 const cursorPositionPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor-position");
 const cursorPidPath = path.join(tmpdir(), "pi-gui-computer-use-agent-cursor.pid");
 const persistentCursorOptions = Object.freeze({
@@ -278,7 +280,9 @@ async function activateFinder() {
 
 async function runWithFocusGuard(request, action, options = {}) {
   const before = await prepareFocusForAction(request.app, action);
+  const mouseBefore = await physicalMouseLocation(`${action} before`);
   const response = await runHelper(request, options);
+  await assertPhysicalMouseDidNotMove(action, mouseBefore);
   await assertTargetDidNotBecomeFrontmost(action, before, request.app);
   return response;
 }
@@ -358,6 +362,7 @@ async function runOutOfBoundsCoordinateProbe(initialState) {
   const dimensions = screenshotDimensions(initialState, "out-of-bounds coordinate coverage");
   const before = await prepareFocusForAction("Calculator", "out-of-bounds coordinate probe");
   const beforeCursor = await readCursorRequest();
+  const mouseBefore = await physicalMouseLocation("out-of-bounds coordinate probe before");
   let errorMessage = "";
   try {
     await runHelper(
@@ -375,6 +380,7 @@ async function runOutOfBoundsCoordinateProbe(initialState) {
   if (!errorMessage.includes("outside the target window screenshot bounds")) {
     throw new Error(`Out-of-bounds coordinate click was not rejected clearly: ${errorMessage || "<no error>"}`);
   }
+  await assertPhysicalMouseDidNotMove("rejected out-of-bounds coordinate click", mouseBefore);
   await assertTargetDidNotBecomeFrontmost("rejected out-of-bounds coordinate click", before, "Calculator");
   const afterCursor = await readCursorRequest();
   if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
@@ -386,6 +392,7 @@ async function runPhysicalPointerFallbackProbe(initialState) {
   const dimensions = screenshotDimensions(initialState, "physical pointer fallback coverage");
   const before = await prepareFocusForAction("Calculator", "physical pointer fallback probe");
   const beforeCursor = await readCursorRequest();
+  const mouseBefore = await physicalMouseLocation("physical pointer fallback probe before");
   let errorMessage = "";
   try {
     await runHelper(
@@ -403,6 +410,7 @@ async function runPhysicalPointerFallbackProbe(initialState) {
   if (!errorMessage.includes("would require foreground physical input")) {
     throw new Error(`Physical pointer fallback was not rejected clearly: ${errorMessage || "<no error>"}`);
   }
+  await assertPhysicalMouseDidNotMove("rejected physical pointer fallback click", mouseBefore);
   await assertTargetDidNotBecomeFrontmost("rejected physical pointer fallback click", before, "Calculator");
   const afterCursor = await readCursorRequest();
   if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
@@ -446,6 +454,7 @@ async function runForegroundPhysicalFallbackProbes(initialState) {
 async function expectForegroundPhysicalFallbackRejected(request, action) {
   const before = await prepareFocusForAction(request.app, action);
   const beforeCursor = await readCursorRequest();
+  const mouseBefore = await physicalMouseLocation(`${action} before`);
   let errorMessage = "";
   try {
     await runHelper(request, { showCursor: true });
@@ -455,6 +464,7 @@ async function expectForegroundPhysicalFallbackRejected(request, action) {
   if (!errorMessage.includes("would require foreground physical input")) {
     throw new Error(`${action} was not rejected clearly: ${errorMessage || "<no error>"}`);
   }
+  await assertPhysicalMouseDidNotMove(`rejected ${action}`, mouseBefore);
   await assertTargetDidNotBecomeFrontmost(`rejected ${action}`, before, request.app);
   const afterCursor = await readCursorRequest();
   if (afterCursor?.timestamp !== beforeCursor?.timestamp) {
@@ -590,6 +600,37 @@ async function assertTargetDidNotBecomeFrontmost(action, expected, targetApp) {
   }
 }
 
+async function physicalMouseLocation(action) {
+  const status = await runHelper({ command: "status" });
+  const x = Number.parseFloat(status.details?.physicalMouseX ?? "");
+  const y = Number.parseFloat(status.details?.physicalMouseY ?? "");
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error(
+      `${action} could not read physical mouse location from helper status. Reinstall the latest pi-gui.app before running this probe.`,
+    );
+  }
+  return { x, y };
+}
+
+async function assertPhysicalMouseDidNotMove(action, before) {
+  const after = await physicalMouseLocation(`${action} after`);
+  const deltaX = after.x - before.x;
+  const deltaY = after.y - before.y;
+  if (Math.abs(deltaX) <= physicalMouseTolerance && Math.abs(deltaY) <= physicalMouseTolerance) {
+    return;
+  }
+  const message = `${action} observed physical mouse movement from ${formatPoint(before)} to ${formatPoint(after)}.`;
+  if (allowUserPointerChanges) {
+    console.warn(`${message} Continuing because PI_GUI_COMPUTER_USE_ALLOW_USER_POINTER_CHANGES=1.`);
+    return;
+  }
+  throw new Error(message);
+}
+
+function formatPoint(point) {
+  return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+}
+
 async function listApps() {
   const response = await runHelper({ command: "list_apps" });
   const text = response.content?.find((item) => item.type === "text")?.text;
@@ -690,6 +731,7 @@ function helperEnv(options) {
     ...process.env,
     [lockedUseInstallerPathEnv]: lockedUseInstallerPath,
     [allowPhysicalInputEnv]: "0",
+    PI_GUI_COMPUTER_USE_TEST_INCLUDE_PHYSICAL_MOUSE_STATUS: "1",
     PI_GUI_COMPUTER_USE_TEST_FORBID_MOUSE_WARP: "1",
   };
   if (options.showCursor) {
