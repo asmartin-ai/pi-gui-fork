@@ -112,6 +112,9 @@ async function main() {
   );
 
   const lockedReadiness = await runInstalledLockedReadinessStatus();
+  const backgroundProbeLockState = await desktopLockStateForInstalledLive();
+  const backgroundProbeCompleted = await runInstalledBackgroundProbeIfUnlocked(backgroundProbeLockState);
+
   if (!lockedReadiness.ready) {
     throw lockedUseNotReadyForInstalledParityError();
   }
@@ -142,20 +145,9 @@ async function main() {
   if (liveLockState.locked) {
     throw lockedDesktopForInstalledLiveError();
   }
-
-  await runStep(
-    "installed-background-probe",
-    process.execPath,
-    ["scripts/computer-use-background-probe.mjs", "--installed"],
-    {
-      cwd: desktopDir,
-      env: {
-        ...process.env,
-        PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD: "1",
-        PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES: "1",
-      },
-    },
-  );
+  if (!backgroundProbeCompleted) {
+    await runInstalledBackgroundProbe();
+  }
 
   await assertRealAuthReadyForInstalledLive();
 
@@ -207,6 +199,32 @@ async function runInstalledLockedReadinessStatus() {
   return {
     ready: /\bCOMPUTER_USE_LOCKED_READINESS_OK\b/.test(stdout),
   };
+}
+
+async function runInstalledBackgroundProbeIfUnlocked(lockState) {
+  if (lockState.locked) {
+    console.log("COMPUTER_USE_INSTALLED_PARITY_GATE_SKIPPED installed-background-probe desktop=locked");
+    return false;
+  }
+
+  await runInstalledBackgroundProbe();
+  return true;
+}
+
+async function runInstalledBackgroundProbe() {
+  await runStep(
+    "installed-background-probe",
+    process.execPath,
+    ["scripts/computer-use-background-probe.mjs", "--installed", "--preserve-frontmost"],
+    {
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD: "1",
+        PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES: "1",
+      },
+    },
+  );
 }
 
 async function assertInstalledAppUsesCurrentRuntimePayload() {
@@ -337,7 +355,7 @@ function lockedDesktopForInstalledLiveError() {
       "COMPUTER_USE_INSTALLED_PARITY_GATE_BLOCKED desktop=locked reason=installed-live-requires-unlocked-active-desktop",
       "Installed Computer Use parity requires a real installed-app live background cursor/focus E2E.",
       "Locked Computer Use readiness is enabled, but this gate still needs an unlocked desktop before the active-user background cursor/focus E2E and the controlled locked-live E2E.",
-      "Installed-app checks completed before the blocked live E2E: current app payload freshness, extension failure shaping, timeline failure UI, top-level @ extension surface, locked-use active-turn self-test, helper background-safety capabilities, and locked-readiness status.",
+      "Installed-app checks completed before the blocked live E2E: current app payload freshness, extension failure shaping, timeline failure UI, top-level @ extension surface, helper background-safety capabilities, locked-readiness status, and locked-use active-turn self-test.",
       "Unlock the desktop, keep the installed app idle/closed, and rerun test:prod:installed-computer-use-parity with PI_APP_LOCK_SCREEN_E2E=1 plus real auth.",
     ].join("\n"),
   );

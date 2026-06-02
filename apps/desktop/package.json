@@ -62,7 +62,7 @@
     "test:prod:packaged-computer-use": "pnpm run package:dir && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/packaged-computer-use.spec.ts apps/desktop/tests/production/packaged-computer-use-extension-surface.spec.ts",
     "test:prod:packaged-computer-use-parity": "node scripts/run-computer-use-parity-gate.mjs",
     "test:prod:packaged-computer-use-background": "pnpm run package:dir && node scripts/computer-use-background-probe.mjs --packaged",
-    "test:prod:installed-computer-use-background": "node scripts/computer-use-background-probe.mjs --installed",
+    "test:prod:installed-computer-use-background": "node scripts/computer-use-background-probe.mjs --installed --preserve-frontmost",
     "test:prod:installed-computer-use-parity": "node scripts/run-installed-computer-use-parity-gate.mjs",
     "test:prod:installed-computer-use-extension-surface": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-extension-surface.spec.ts",
     "test:prod:installed-computer-use-locked-use-self-test": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-locked-use-self-test.spec.ts",

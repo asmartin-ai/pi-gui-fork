@@ -55,8 +55,9 @@ const installedLockedUseInstallerPath = path.join(
   lockedUseInstallerExecutableName,
 );
 const scriptArgs = process.argv.slice(2);
-const knownFlags = new Set(["--capabilities-only", "--packaged", "--installed"]);
+const knownFlags = new Set(["--capabilities-only", "--packaged", "--installed", "--preserve-frontmost"]);
 const capabilitiesOnly = scriptArgs.includes("--capabilities-only");
+const preserveFrontmost = scriptArgs.includes("--preserve-frontmost");
 const unknownFlags = scriptArgs.filter((arg) => arg.startsWith("--") && !knownFlags.has(arg));
 const helperPathArg =
   scriptArgs.find((arg) => arg === "--packaged" || arg === "--installed") ??
@@ -110,24 +111,22 @@ async function main() {
   }
   await removeCursorArtifacts();
   await assertUnlockedDesktop();
+  if (preserveFrontmost && (await frontmostApp()) === "Calculator") {
+    throw new Error(
+      "Preserve-frontmost Computer Use background probe cannot run while Calculator is frontmost. Put another app in front before rerunning it.",
+    );
+  }
   await execFileAsync("osascript", ["-e", 'if application "Calculator" is running then tell application "Calculator" to quit']);
   await sleep(500);
-  await activateFinder();
-
-  const frontmostBefore = await frontmostApp();
-  if (frontmostBefore === "Calculator") {
-    throw new Error("Could not put a non-target app in front before the Computer Use probe.");
-  }
+  const frontmostBefore = await prepareFocusForAction("Calculator", "launch Calculator in background");
 
   await execFileAsync("open", ["-g", "-a", "Calculator"]);
   await waitForApp("Calculator");
   await assertTargetDidNotBecomeFrontmost("launch Calculator in background", frontmostBefore, "Calculator");
 
   const initialCalculatorState = await runWithFocusGuard({ command: "get_app_state", app: "Calculator" }, "get_app_state");
-  await runOutOfBoundsCoordinateProbe(initialCalculatorState);
+  await runUnsafeFallbackProbesUnlessPreservingFrontmost(initialCalculatorState);
   await runElementClickProbe(initialCalculatorState);
-  await runPhysicalPointerFallbackProbe(initialCalculatorState);
-  await runForegroundPhysicalFallbackProbes(initialCalculatorState);
 
   for (const key of ["kp_clear", "kp_clear", "7", "plus", "8", "kp_equal"]) {
     await runWithFocusGuard({ command: "press_key", app: "Calculator", key }, `press_key ${key}`);
@@ -142,7 +141,7 @@ async function main() {
   await runTextEditTypingProbe();
 
   console.log(
-    `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit frontmost=${frontmostBefore} result=15 textedit="Alpha Beta" physical_mouse=guarded stale_cursor_pid=guarded helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
+    `COMPUTER_USE_BACKGROUND_E2E_OK target=Calculator,TextEdit focus_mode=${preserveFrontmost ? "preserve_frontmost" : "finder_baseline"} frontmost_start=${frontmostBefore} result=15 textedit="Alpha Beta" physical_mouse=guarded fallback_probes=${preserveFrontmost ? "skipped_preserve_frontmost" : "runtime_checked"} stale_cursor_pid=guarded helper=${helperPath} locked_use_installer=${lockedUseInstallerPath}`,
   );
 }
 
@@ -278,14 +277,25 @@ async function activateFinder() {
 }
 
 async function runWithFocusGuard(request, action, options = {}) {
-  await activateFinder();
-  const before = await frontmostApp();
-  if (before === request.app) {
-    throw new Error(`Could not put a non-target app in front before ${action}.`);
-  }
+  const before = await prepareFocusForAction(request.app, action);
   const response = await runHelper(request, options);
   await assertTargetDidNotBecomeFrontmost(action, before, request.app);
   return response;
+}
+
+async function prepareFocusForAction(targetApp, action) {
+  if (!preserveFrontmost) {
+    await activateFinder();
+  }
+  const before = await frontmostApp();
+  if (before === targetApp) {
+    throw new Error(
+      preserveFrontmost
+        ? `${action} cannot prove background behavior because ${targetApp} is already frontmost. Put another app in front before running the preserve-frontmost probe.`
+        : `Could not put a non-target app in front before ${action}.`,
+    );
+  }
+  return before;
 }
 
 async function runElementClickProbe(initialState) {
@@ -329,17 +339,24 @@ async function runElementClickProbe(initialState) {
   }
 }
 
+async function runUnsafeFallbackProbesUnlessPreservingFrontmost(initialState) {
+  if (preserveFrontmost) {
+    console.log("COMPUTER_USE_BACKGROUND_PROBE_SKIPPED fallback-probes focus_mode=preserve_frontmost");
+    return;
+  }
+
+  await runOutOfBoundsCoordinateProbe(initialState);
+  await runPhysicalPointerFallbackProbe(initialState);
+  await runForegroundPhysicalFallbackProbes(initialState);
+}
+
 async function seedStaleCursorDaemonPid() {
   await writeFile(cursorPidPath, `${process.pid}\n`, "utf8");
 }
 
 async function runOutOfBoundsCoordinateProbe(initialState) {
   const dimensions = screenshotDimensions(initialState, "out-of-bounds coordinate coverage");
-  await activateFinder();
-  const before = await frontmostApp();
-  if (before === "Calculator") {
-    throw new Error("Could not put a non-target app in front before the out-of-bounds coordinate probe.");
-  }
+  const before = await prepareFocusForAction("Calculator", "out-of-bounds coordinate probe");
   const beforeCursor = await readCursorRequest();
   let errorMessage = "";
   try {
@@ -367,11 +384,7 @@ async function runOutOfBoundsCoordinateProbe(initialState) {
 
 async function runPhysicalPointerFallbackProbe(initialState) {
   const dimensions = screenshotDimensions(initialState, "physical pointer fallback coverage");
-  await activateFinder();
-  const before = await frontmostApp();
-  if (before === "Calculator") {
-    throw new Error("Could not put a non-target app in front before the physical pointer fallback probe.");
-  }
+  const before = await prepareFocusForAction("Calculator", "physical pointer fallback probe");
   const beforeCursor = await readCursorRequest();
   let errorMessage = "";
   try {
@@ -431,11 +444,7 @@ async function runForegroundPhysicalFallbackProbes(initialState) {
 }
 
 async function expectForegroundPhysicalFallbackRejected(request, action) {
-  await activateFinder();
-  const before = await frontmostApp();
-  if (before === request.app) {
-    throw new Error(`Could not put a non-target app in front before ${action}.`);
-  }
+  const before = await prepareFocusForAction(request.app, action);
   const beforeCursor = await readCursorRequest();
   let errorMessage = "";
   try {
@@ -483,11 +492,7 @@ async function runTextEditTypingProbe() {
       await quitTextEditWithoutSaving();
       await sleep(500);
     }
-    await activateFinder();
-    const before = await frontmostApp();
-    if (before === "TextEdit") {
-      throw new Error("Could not put a non-target app in front before the TextEdit probe.");
-    }
+    const before = await prepareFocusForAction("TextEdit", "launch TextEdit in background");
 
     await execFileAsync("open", ["-g", "-a", "TextEdit", documentPath]);
     await waitForApp("TextEdit");
