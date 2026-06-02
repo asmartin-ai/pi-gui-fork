@@ -47,6 +47,8 @@ on run argv
 end run
 `;
 
+const LOCK_DESKTOP_COMMAND = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession";
+
 export async function assertAccessibilityReady(): Promise<void> {
   const { stdout } = await execFileAsync(
     "osascript",
@@ -91,6 +93,42 @@ export async function resetAppInBackground(appName: string): Promise<void> {
   await waitForAppRunning(appName, false);
   await openAppInBackground(appName);
   await waitForAppRunning(appName, true);
+}
+
+export async function getDesktopLockState(): Promise<"locked" | "unlocked" | "unknown"> {
+  if (process.platform !== "darwin") {
+    return "unlocked";
+  }
+
+  let stdout = "";
+  try {
+    ({ stdout } = await execFileAsync("ioreg", ["-n", "Root", "-d1"], { timeout: DEFAULT_TIMEOUT_MS }));
+  } catch {
+    return "unknown";
+  }
+  if (/"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(stdout) || /"IOConsoleLocked"\s*=\s*Yes/.test(stdout)) {
+    return "locked";
+  }
+  return "unlocked";
+}
+
+export async function lockDesktop(): Promise<void> {
+  await execFileAsync(LOCK_DESKTOP_COMMAND, ["-suspend"], { timeout: DEFAULT_TIMEOUT_MS });
+}
+
+export async function waitForDesktopLocked(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
+  await waitForDesktopLockState("locked", timeoutMs);
+}
+
+async function waitForDesktopLockState(expected: "locked" | "unlocked", timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await getDesktopLockState()) === expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(`Desktop did not become ${expected} within ${timeoutMs}ms.`);
 }
 
 async function waitForAppRunning(appName: string, expected: boolean): Promise<void> {

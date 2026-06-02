@@ -66,6 +66,7 @@
     "test:prod:installed-computer-use-parity": "node scripts/run-installed-computer-use-parity-gate.mjs",
     "test:prod:installed-computer-use-extension-surface": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-extension-surface.spec.ts",
     "test:prod:installed-computer-use-locked-use-self-test": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-locked-use-self-test.spec.ts",
+    "test:prod:installed-computer-use-locked-live": "node scripts/run-installed-computer-use-locked-live-gate.mjs",
     "test:prod:installed-computer-use-live": "cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/production/installed-computer-use-live.spec.ts",
     "test:prod:installed-computer-use-locked-readiness": "node scripts/computer-use-locked-readiness.mjs --installed",
     "test:prod:installed-computer-use-locked-readiness:status": "node scripts/computer-use-locked-readiness.mjs --installed --allow-not-enabled",
