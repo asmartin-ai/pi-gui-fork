@@ -174,6 +174,12 @@ test("packaged app carries the built-in Computer Use helper and extension", asyn
   expect(helperSwiftSource).toContain("shouldRelockAutoUnlockedDesktop");
   expect(helperSwiftSource).toContain("withAgentCursorPress");
   expect(helperSwiftSource).toContain("releaseAgentCursor");
+  expect(helperSwiftSource).toContain("waitForAgentCursorGlide");
+  expect(helperSwiftSource).toContain("cursorOverlayFrameInterval: TimeInterval = 1.0 / 60.0");
+  expect(helperSwiftSource).toContain("request.timestamp > activeRequestTimestamp");
+  expect(helperSwiftSource).toContain("Date().timeIntervalSince(animationStartedAt) / duration");
+  expect(helperSwiftSource).toContain("interpolatedRect(from: startFrame, to: targetFrame, progress: easeInOut(progress))");
+  expect(helperSwiftSource).toContain("func easeInOut(_ progress: Double) -> Double");
   expect(helperSwiftSource).toContain("maxCursorOverlayDuration = 60.0");
   expect(helperSwiftSource).toContain("min(milliseconds / 1000, maxCursorOverlayDuration)");
   expect(helperSwiftSource).toContain(".nonactivatingPanel");

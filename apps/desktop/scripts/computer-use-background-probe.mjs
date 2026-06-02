@@ -187,6 +187,16 @@ async function assertHelperSupportsBackgroundSafetyGuards() {
       `Computer Use helper is stale or incompatible at ${helperPath}; it does not support foreground physical-input rejection. Reinstall the latest pi-gui.app before running this probe.`,
     );
   }
+  if (
+    !helperSource.includes("PI_GUI_COMPUTER_USE_SHOW_CURSOR") ||
+    !helperSource.includes("PI_GUI_COMPUTER_USE_CURSOR_DURATION_MS") ||
+    !helperSource.includes("PI_GUI_COMPUTER_USE_CURSOR_GLIDE_MS") ||
+    !helperSource.includes("--cursor-overlay-daemon")
+  ) {
+    throw new Error(
+      `Computer Use helper is stale or incompatible at ${helperPath}; it does not support the persistent smooth agent cursor overlay. Reinstall the latest pi-gui.app before running this probe.`,
+    );
+  }
 }
 
 async function assertUnlockedDesktop() {
