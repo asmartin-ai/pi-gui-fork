@@ -117,6 +117,18 @@ process.stdin.on("end", () => {
       content: [{ type: "text", text: "Computer Use status (Pi GUI)\\nDesktop: locked" }],
       details: { screenLocked: "true", lockedUse: "not_enabled" },
     };
+  } else if (request.command === "get_app_state" && request.app === "LockedUseDisabled") {
+    response = {
+      ok: false,
+      error: "Computer Use is unavailable while the Mac is locked because Locked Computer Use is not enabled. Enable the locked Computer Use authorization plug-in, then retry.",
+      details: { errorCode: "desktop_locked", screenLocked: "true", lockedUse: "not_enabled" },
+    };
+  } else if (request.command === "get_app_state" && request.app === "LockedUsePartial") {
+    response = {
+      ok: false,
+      error: "Computer Use is unavailable while the Mac is locked because Locked Computer Use is partially installed. Reinstall or uninstall Locked Computer Use, then retry.",
+      details: { errorCode: "desktop_locked", screenLocked: "true", lockedUse: "partial" },
+    };
   } else if (request.command === "click" && request.app === "Preview") {
     response = {
       ok: false,
@@ -175,6 +187,38 @@ await assertFailureResult({
   thrown: lockedThrown,
   expectedText: [/Computer Use blocked: the Mac is locked/, /Run computer_use_status/],
   expectedDetails: { errorCode: "desktop_locked", screenLocked: "true" },
+});
+
+const lockedUseNotEnabledThrown = await executeToolExpectingError(
+  getAppState,
+  "call-locked-use-not-enabled",
+  { app: "LockedUseDisabled" },
+  /Computer Use blocked: Locked Computer Use is not enabled/,
+  "locked desktop failures should show the enable action when locked-use is not enabled",
+);
+await assertFailureResult({
+  toolCallId: "call-locked-use-not-enabled",
+  toolName: "get_app_state",
+  input: { app: "LockedUseDisabled" },
+  thrown: lockedUseNotEnabledThrown,
+  expectedText: [/Computer Use blocked: Locked Computer Use is not enabled/, /authorization plug-in/],
+  expectedDetails: { errorCode: "locked_use_not_enabled", screenLocked: "true", lockedUse: "not_enabled" },
+});
+
+const lockedUsePartialThrown = await executeToolExpectingError(
+  getAppState,
+  "call-locked-use-partial",
+  { app: "LockedUsePartial" },
+  /Computer Use blocked: Locked Computer Use setup needs repair/,
+  "partial locked-use setup failures should stay distinct from generic lock failures",
+);
+await assertFailureResult({
+  toolCallId: "call-locked-use-partial",
+  toolName: "get_app_state",
+  input: { app: "LockedUsePartial" },
+  thrown: lockedUsePartialThrown,
+  expectedText: [/Computer Use blocked: Locked Computer Use setup needs repair/, /Reinstall or uninstall Locked Computer Use/],
+  expectedDetails: { errorCode: "locked_use_partial", screenLocked: "true", lockedUse: "partial" },
 });
 
 const screenRecordingThrown = await executeToolExpectingError(

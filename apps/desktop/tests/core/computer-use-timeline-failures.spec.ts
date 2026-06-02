@@ -31,6 +31,26 @@ const failureScenarios: readonly ComputerUseFailureScenario[] = [
     details: { screenLocked: "true" },
   },
   {
+    name: "locked-use not enabled",
+    toolName: "get_app_state",
+    input: { app: "Calculator" },
+    title: "Computer Use blocked: Locked Computer Use is not enabled.",
+    helperMessage:
+      "Computer Use is unavailable while the Mac is locked because Locked Computer Use is not enabled. Enable the locked Computer Use authorization plug-in, then retry.",
+    errorCode: "locked_use_not_enabled",
+    details: { screenLocked: "true", lockedUse: "not_enabled" },
+  },
+  {
+    name: "locked-use partial setup",
+    toolName: "get_app_state",
+    input: { app: "Calculator" },
+    title: "Computer Use blocked: Locked Computer Use setup needs repair.",
+    helperMessage:
+      "Computer Use is unavailable while the Mac is locked because Locked Computer Use is partially installed. Reinstall or uninstall Locked Computer Use, then retry.",
+    errorCode: "locked_use_partial",
+    details: { screenLocked: "true", lockedUse: "partial" },
+  },
+  {
     name: "Accessibility permission",
     toolName: "get_app_state",
     input: { app: "Calculator" },

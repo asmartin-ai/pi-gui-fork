@@ -607,8 +607,20 @@ function normalizeDetails(details: unknown): Record<string, unknown> {
 }
 
 function classifyComputerUseError(message: string, details: Record<string, unknown>): string {
+  if (details.errorCode === "desktop_locked" && details.lockedUse === "not_enabled") {
+    return "locked_use_not_enabled";
+  }
+  if (details.errorCode === "desktop_locked" && details.lockedUse === "partial") {
+    return "locked_use_partial";
+  }
   if (typeof details.errorCode === "string" && details.errorCode.trim()) {
     return details.errorCode;
+  }
+  if (message.includes("Locked Computer Use is not enabled")) {
+    return "locked_use_not_enabled";
+  }
+  if (message.includes("Locked Computer Use is partially installed")) {
+    return "locked_use_partial";
   }
   if (message.includes("Mac is locked")) {
     return "desktop_locked";
@@ -643,6 +655,10 @@ function classifyComputerUseError(message: string, details: Record<string, unkno
 
 function failureTitle(errorCode: string): string {
   switch (errorCode) {
+    case "locked_use_not_enabled":
+      return "Computer Use blocked: Locked Computer Use is not enabled.";
+    case "locked_use_partial":
+      return "Computer Use blocked: Locked Computer Use setup needs repair.";
     case "desktop_locked":
       return "Computer Use blocked: the Mac is locked.";
     case "accessibility_denied":
