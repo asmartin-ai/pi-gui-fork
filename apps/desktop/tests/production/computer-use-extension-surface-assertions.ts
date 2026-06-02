@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
 import type { DesktopComputerUseStatus } from "../../src/ipc";
 import {
@@ -13,6 +14,7 @@ import { createSessionViaIpc, selectSession, waitForWorkspaceByPath } from "../h
 interface ComputerUseExtensionSurfaceOptions {
   readonly disabledExtensionPath?: string;
   readonly disabledExtensionName?: string;
+  readonly lockedUseActionLogPath?: string;
 }
 
 export async function assertComputerUseExtensionSurface(
@@ -49,7 +51,7 @@ export async function assertComputerUseExtensionSurface(
   await expect(window.getByTestId("settings-surface")).toBeVisible();
   await expect(window.locator(".settings-view")).toContainText("Computer Use");
   await expect(window.locator(".settings-view")).toContainText("Locked computer use");
-  await assertComputerUseSettingsMatchesRealStatus(window);
+  await assertComputerUseSettingsMatchesRealStatus(window, options.lockedUseActionLogPath);
   await window.getByRole("button", { name: "Back to app", exact: true }).click();
 
   await createSessionViaIpc(window, workspacePath, sessionTitle);
@@ -210,7 +212,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function assertComputerUseSettingsMatchesRealStatus(window: Page): Promise<void> {
+async function assertComputerUseSettingsMatchesRealStatus(
+  window: Page,
+  lockedUseActionLogPath?: string,
+): Promise<void> {
   const status = await getComputerUseStatus(window);
   const settings = window.locator(".settings-view");
   const helperRow = settingsRow(window, "Helper");
@@ -241,6 +246,27 @@ async function assertComputerUseSettingsMatchesRealStatus(window: Page): Promise
   await expect(settingsRow(window, "Locked setup")).toContainText(lockedUseInstallerLabel(status.lockedUseInstaller));
   if (status.message) {
     await expect(settingsRow(window, "Details")).toContainText(status.message);
+  }
+
+  if (lockedUseActionLogPath) {
+    expect(status.helperAvailable).toBe(true);
+    expect(status.lockedUseInstallerPath).toBeTruthy();
+    if (!lockedUseAction) {
+      throw new Error(`Installed Computer Use settings did not expose a locked-use action for ${JSON.stringify(status)}.`);
+    }
+    const expectedAction = status.lockedUse === "enabled" ? "uninstall" : "install";
+    await lockedUseRow.getByRole("button", { name: lockedUseAction, exact: true }).click();
+    await expect
+      .poll(() => readTextFile(lockedUseActionLogPath), { timeout: 5_000 })
+      .toContain(`${expectedAction} ${status.lockedUseInstallerPath}`);
+  }
+}
+
+async function readTextFile(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch {
+    return "";
   }
 }
 
