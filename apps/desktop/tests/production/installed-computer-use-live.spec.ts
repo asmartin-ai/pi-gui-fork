@@ -110,7 +110,7 @@ test("installed app runs Computer Use through the real UI without foregrounding 
       expect(toolCalls.some((call) => call.toolName === "press_key")).toBe(false);
       const observedCursorRequests = await cursorRequests;
       expect(new Set(observedCursorRequests.map((request) => request.pid)).size).toBe(1);
-      expect(observedCursorRequests[0]?.pressed).toBe(true);
+      expect(observedCursorRequests.at(-1)?.pressed).toBe(false);
       expect(observedCursorRequests[0]?.pid).toBeGreaterThan(0);
       expect(observedCursorRequests[0]?.command).toContain(cursorOverlayArgument);
       const distinctTargetCount = new Set(observedCursorRequests.map((request) => `${request.x},${request.y}`)).size;

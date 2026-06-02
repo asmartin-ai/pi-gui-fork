@@ -1017,7 +1017,8 @@ func click(_ request: Request) throws -> Response {
 
     if let element = try indexedElement(request, app: app) {
         if button == "left", copyActionNames(element).contains(kAXPressAction as String) {
-            showAgentCursorAndWait(for: element, pressed: true)
+            let cursorPoint = showAgentCursorPressAndWait(for: element)
+            defer { releaseAgentCursor(at: cursorPoint) }
             try pressElement(element, count: clickCount, failureContext: "AXPress failed for element \(request.element_index ?? "")")
             return try stateResponse(for: app)
         }
@@ -1031,7 +1032,8 @@ func click(_ request: Request) throws -> Response {
     if button == "left",
        let element = accessibilityElement(at: point, in: app),
        copyActionNames(element).contains(kAXPressAction as String) {
-        showAgentCursorAndWait(at: elementCenter(element) ?? point, pressed: true)
+        let cursorPoint = showAgentCursorPressAndWait(at: elementCenter(element) ?? point)
+        defer { releaseAgentCursor(at: cursorPoint) }
         try pressElement(element, count: clickCount, failureContext: "AXPress failed for coordinate click")
         return try stateResponse(for: app)
     }
@@ -1082,7 +1084,8 @@ func performSecondaryAction(_ request: Request) throws -> Response {
     let element = try requireIndexedElement(request, app: app)
     let action = try require(request.action, "action")
     let axAction = canonicalActionName(action)
-    showAgentCursorAndWait(for: element, pressed: true)
+    let cursorPoint = showAgentCursorPressAndWait(for: element)
+    defer { releaseAgentCursor(at: cursorPoint) }
     let error = AXUIElementPerformAction(element, axAction as CFString)
     if error != .success {
         throw HelperError.message("Could not perform action \(action) on element \(request.element_index ?? ""): \(error.rawValue)")
@@ -1854,6 +1857,26 @@ func showAgentCursorAndWait(at point: CGPoint, pressed: Bool) {
     }
 }
 
+func showAgentCursorPressAndWait(for element: AXUIElement) -> CGPoint? {
+    guard let center = elementCenter(element) else {
+        return nil
+    }
+    return showAgentCursorPressAndWait(at: center)
+}
+
+func showAgentCursorPressAndWait(at point: CGPoint) -> CGPoint {
+    showAgentCursorAndWait(at: point, pressed: true)
+    return point
+}
+
+func releaseAgentCursor(at point: CGPoint?) {
+    guard let point else {
+        return
+    }
+    Thread.sleep(forTimeInterval: 0.12)
+    _ = showAgentCursor(at: point, pressed: false)
+}
+
 func waitForAgentCursorGlide() {
     guard ProcessInfo.processInfo.environment["PI_GUI_COMPUTER_USE_SHOW_CURSOR"] != cursorOverlayDisabledValue else {
         return
@@ -2597,7 +2620,8 @@ func pressAccessibleKey(_ rawKey: String, app: ResolvedApp) throws -> Bool {
     guard let element = waitForPressableElement(in: app, labels: labels) else {
         return false
     }
-    showAgentCursorAndWait(for: element, pressed: true)
+    let cursorPoint = showAgentCursorPressAndWait(for: element)
+    defer { releaseAgentCursor(at: cursorPoint) }
     let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
     Thread.sleep(forTimeInterval: 0.06)
     guard error == .success else {

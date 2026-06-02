@@ -126,7 +126,7 @@ test("installed app completes a real Computer Use turn after the desktop locks",
     expect(toolCalls.some((call) => call.toolName === "press_key")).toBe(false);
     const observedCursorRequests = await cursorRequests;
     expect(new Set(observedCursorRequests.map((request) => request.pid)).size).toBe(1);
-    expect(observedCursorRequests[0]?.pressed).toBe(true);
+    expect(observedCursorRequests.at(-1)?.pressed).toBe(false);
     expect(observedCursorRequests[0]?.pid).toBeGreaterThan(0);
     expect(observedCursorRequests[0]?.command).toContain(cursorOverlayArgument);
     expect(new Set(observedCursorRequests.map((request) => `${request.x},${request.y}`)).size).toBeGreaterThan(1);

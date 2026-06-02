@@ -304,6 +304,7 @@ async function runElementClickProbe(initialState) {
   );
   const afterCursor = await readCursorRequest();
   assertCursorAdvanced(beforeCursor, afterCursor, "Calculator element click");
+  assertCursorReleased(afterCursor, "Calculator element click");
   const cursorDaemonPid = await assertCursorOverlayDaemonRunning("Calculator element click");
   await runWithFocusGuard(
     {
@@ -316,6 +317,7 @@ async function runElementClickProbe(initialState) {
   );
   const secondCursor = await readCursorRequest();
   assertCursorAdvanced(afterCursor, secondCursor, "Calculator second element click");
+  assertCursorReleased(secondCursor, "Calculator second element click");
   if (secondCursor.x === afterCursor.x && secondCursor.y === afterCursor.y) {
     throw new Error("Repeated Calculator element clicks did not move the agent cursor between button centers.");
   }
@@ -775,6 +777,12 @@ function assertCursorAdvanced(before, after, action) {
   }
   if (!Number.isFinite(after.x) || !Number.isFinite(after.y)) {
     throw new Error(`${action} wrote an invalid agent cursor position.`);
+  }
+}
+
+function assertCursorReleased(cursor, action) {
+  if (cursor?.pressed) {
+    throw new Error(`${action} left the persistent agent cursor in the pressed state after the action completed.`);
   }
 }
 

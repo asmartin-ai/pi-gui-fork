@@ -45,13 +45,19 @@ export async function waitForDistinctAgentCursorRequests(
         observations.push(observation);
         previousTimestamp = observation.timestamp;
       }
-      if (observations.length >= requiredCount && new Set(observations.map((request) => `${request.x},${request.y}`)).size > 1) {
+      if (
+        observations.length >= requiredCount &&
+        new Set(observations.map((request) => `${request.x},${request.y}`)).size > 1 &&
+        !observation.pressed
+      ) {
         return observations;
       }
     }
     await delay(250);
   }
-  throw new Error(`${options.failureLabel ?? "Installed Computer Use live run"} did not show ${requiredCount} distinct persistent agent cursor requests.`);
+  throw new Error(
+    `${options.failureLabel ?? "Installed Computer Use live run"} did not show ${requiredCount} distinct persistent agent cursor requests ending in a released cursor state.`,
+  );
 }
 
 async function readAgentCursorObservation(startedAtSeconds: number): Promise<AgentCursorObservation | null> {
