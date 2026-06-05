@@ -336,7 +336,10 @@ function WorkspaceGroupContent(
       <div className={`workspace-row ${workspaceActive ? "workspace-row--active" : ""}`}>
         <button
           className={`workspace-row__select ${dragHandleProps ? "workspace-row__select--draggable" : ""}`}
-          onClick={() => wsMenu.toggleWorkspaceCollapsed(rootWorkspace.id)}
+          onClick={() => {
+            wsMenu.selectWorkspace(rootWorkspace.id);
+            wsMenu.toggleWorkspaceCollapsed(rootWorkspace.id);
+          }}
           type="button"
           {...(dragHandleProps ? { ...dragHandleProps.attributes, ...dragHandleProps.listeners } : {})}
         >

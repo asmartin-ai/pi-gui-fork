@@ -90,6 +90,32 @@ async function expectSelected(window: Page, workspacePath: string, sessionTitle:
   await expect(window.locator(".topbar__session")).toHaveText(sessionTitle);
 }
 
+test("selects an empty workspace from the sidebar row", async () => {
+  const userDataDir = await makeUserDataDir();
+  const alphaPath = await makeWorkspace("empty-workspace-alpha");
+  const betaPath = await makeWorkspace("empty-workspace-beta");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [alphaPath, betaPath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, alphaPath);
+    await waitForWorkspaceByPath(window, betaPath);
+
+    await window.locator(".workspace-row__select", { hasText: basename(betaPath) }).click();
+    await expect.poll(() => selectedSummary(window), { timeout: 15_000 }).toEqual({
+      workspacePath: betaPath,
+      sessionTitle: "",
+    });
+    await expect(window.locator(".topbar__workspace")).toContainText(basename(betaPath));
+    await expect(window.getByRole("heading", { name: basename(betaPath), exact: true })).toBeVisible();
+  } finally {
+    await harness.close();
+  }
+});
+
 test("opens multiple app windows with independent workspace and thread selection", async () => {
   test.setTimeout(120_000);
 
