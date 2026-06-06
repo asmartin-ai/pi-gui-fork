@@ -326,6 +326,17 @@ function restoreStoreToView(view: DesktopAppViewState | undefined): void {
   store.state = store.projectStateForView(view, store.state);
 }
 
+function restoreStoreToForegroundUnlessSender(senderWebContentsId: number | undefined): void {
+  const foregroundWindow = getForegroundAppWindow();
+  if (!foregroundWindow) {
+    return;
+  }
+  if (senderWebContentsId !== undefined && foregroundWindow.webContents.id === senderWebContentsId) {
+    return;
+  }
+  restoreStoreToView(viewForWebContents(foregroundWindow.webContents.id));
+}
+
 function enqueueWindowScopedAction<T>(action: () => Promise<T>): Promise<T> {
   const run = windowScopedActionQueue.then(action, action);
   windowScopedActionQueue = run.then(
@@ -353,11 +364,6 @@ async function runWindowScopedForWindow(
       Boolean(window && !window.isDestroyed() && window.isFocused()) ||
       senderIsForeground ||
       options.forceActiveWindow === true;
-    const restoreView = windowIsFocused
-      ? undefined
-      : foregroundWindow
-        ? viewForWebContents(foregroundWindow.webContents.id)
-        : undefined;
     if (window && webContentsId !== undefined) {
       if (windowIsFocused) {
         setActiveWindow(window);
@@ -378,7 +384,7 @@ async function runWindowScopedForWindow(
       void publishSelectedTranscriptToWindow(window);
       return projected;
     } finally {
-      restoreStoreToView(restoreView);
+      restoreStoreToForegroundUnlessSender(webContentsId);
     }
   });
 }
@@ -404,11 +410,6 @@ async function runWindowScopedStateResult<T extends { readonly state: DesktopApp
       Boolean(window && !window.isDestroyed() && window.isFocused()) ||
       senderIsForeground ||
       options.forceActiveWindow === true;
-    const restoreView = windowIsFocused
-      ? undefined
-      : foregroundWindow
-        ? viewForWebContents(foregroundWindow.webContents.id)
-        : undefined;
     if (window && webContentsId !== undefined) {
       if (windowIsFocused) {
         setActiveWindow(window);
@@ -429,7 +430,7 @@ async function runWindowScopedStateResult<T extends { readonly state: DesktopApp
       void publishSelectedTranscriptToWindow(window);
       return { ...result, state: projected };
     } finally {
-      restoreStoreToView(restoreView);
+      restoreStoreToForegroundUnlessSender(webContentsId);
     }
   });
 }

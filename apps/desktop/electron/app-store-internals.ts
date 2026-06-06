@@ -38,6 +38,7 @@ export interface AppStoreInternals {
   /* ── Shared helpers (called by extracted method groups) ── */
   initialize(): Promise<void>;
   refreshState(options?: RefreshStateOptions): Promise<DesktopAppState>;
+  allocateComposerDraftSyncNonce(baseNonce?: number): number;
   emit(): DesktopAppState;
   withError(error: unknown): Promise<DesktopAppState>;
   withErrorHandling(fn: () => Promise<DesktopAppState>): Promise<DesktopAppState>;

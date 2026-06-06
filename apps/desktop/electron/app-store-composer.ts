@@ -41,7 +41,7 @@ export async function updateComposerDraft(
     ...store.state,
     composerDraft,
     composerDraftSyncSource: "persist",
-    composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
+    composerDraftSyncNonce: store.allocateComposerDraftSyncNonce(),
     lastError: undefined,
     revision: store.state.revision + 1,
   };
@@ -309,7 +309,7 @@ export async function submitComposer(
           ...store.state,
           composerDraft: textInput,
           composerDraftSyncSource: "command",
-          composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
+          composerDraftSyncNonce: store.allocateComposerDraftSyncNonce(),
           composerAttachments: cloneComposerAttachments(attachments),
           revision: store.state.revision + 1,
         };
@@ -651,7 +651,7 @@ function finishComposerCommand(
     ),
     composerDraft: "",
     composerDraftSyncSource: "command",
-    composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
+    composerDraftSyncNonce: store.allocateComposerDraftSyncNonce(),
     composerAttachments: [],
     lastError: undefined,
     revision: store.state.revision + 1,

@@ -257,7 +257,7 @@ export class DesktopAppStore implements AppStoreInternals {
           ? state.composerDraftSyncSource
           : "state",
       composerDraftSyncNonce: selectionChanged
-        ? this.nextComposerDraftSyncNonce(state.composerDraftSyncNonce)
+        ? this.allocateComposerDraftSyncNonce(state.composerDraftSyncNonce)
         : state.composerDraftSyncNonce,
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       queuedComposerMessages: this.resolveQueuedComposerMessages(selectedWorkspaceId, selectedSessionId),
@@ -1363,7 +1363,7 @@ export class DesktopAppStore implements AppStoreInternals {
       case "editorText":
         this.sessionState.composerDraftsBySession.set(key, event.request.text);
         this.composerDraftSyncTarget = event.sessionRef;
-        const composerDraftSyncNonce = this.nextComposerDraftSyncNonce();
+        const composerDraftSyncNonce = this.allocateComposerDraftSyncNonce();
         if (
           this.state.selectedWorkspaceId === event.sessionRef.workspaceId &&
           this.state.selectedSessionId === event.sessionRef.sessionId
@@ -2005,7 +2005,7 @@ export class DesktopAppStore implements AppStoreInternals {
       activeView: "threads",
       composerDraft: this.resolveComposerDraft(sessionRef.workspaceId, sessionRef.sessionId),
       composerDraftSyncSource: "selection",
-      composerDraftSyncNonce: this.nextComposerDraftSyncNonce(),
+      composerDraftSyncNonce: this.allocateComposerDraftSyncNonce(),
       composerAttachments: this.resolveComposerAttachments(sessionRef.workspaceId, sessionRef.sessionId),
       lastError: undefined,
       revision: this.state.revision + 1,
@@ -2199,7 +2199,7 @@ export class DesktopAppStore implements AppStoreInternals {
     if (options.composerDraftSyncSource) {
       return {
         source: options.composerDraftSyncSource,
-        nonce: this.nextComposerDraftSyncNonce(),
+        nonce: this.allocateComposerDraftSyncNonce(),
       };
     }
 
@@ -2209,7 +2209,7 @@ export class DesktopAppStore implements AppStoreInternals {
     ) {
       return {
         source: "selection",
-        nonce: this.nextComposerDraftSyncNonce(),
+        nonce: this.allocateComposerDraftSyncNonce(),
       };
     }
 
@@ -2219,7 +2219,7 @@ export class DesktopAppStore implements AppStoreInternals {
     };
   }
 
-  private nextComposerDraftSyncNonce(baseNonce = this.state.composerDraftSyncNonce): number {
+  allocateComposerDraftSyncNonce(baseNonce = this.state.composerDraftSyncNonce): number {
     this.composerDraftProjectionNonce = Math.max(this.composerDraftProjectionNonce, baseNonce) + 1;
     return this.composerDraftProjectionNonce;
   }
