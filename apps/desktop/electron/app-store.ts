@@ -262,7 +262,9 @@ export class DesktopAppStore implements AppStoreInternals {
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       queuedComposerMessages: this.resolveQueuedComposerMessages(selectedWorkspaceId, selectedSessionId),
       editingQueuedMessageId: this.resolveEditingQueuedMessageId(selectedWorkspaceId, selectedSessionId),
-      lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, false),
+      lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, false) ?? (
+        selectedSessionId ? undefined : state.lastError
+      ),
     };
   }
 
