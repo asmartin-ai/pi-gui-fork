@@ -81,6 +81,7 @@ let quittingAfterStoreFlush = false;
 let windowScopedActionQueue: Promise<void> = Promise.resolve();
 let currentComposerDraftPersistOriginWebContentsId: number | undefined;
 let currentWindowScopedWebContentsId: number | undefined;
+let deferredActivationWebContentsId: number | undefined;
 
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
@@ -305,6 +306,32 @@ function setActiveWindow(window: BrowserWindow): void {
   notificationPermissionService?.trackWindow(window);
 }
 
+function windowForWebContentsId(webContentsId: number): BrowserWindow | undefined {
+  return [...appWindows].find((window) => !window.isDestroyed() && window.webContents.id === webContentsId);
+}
+
+function applyWindowActivation(window: BrowserWindow): void {
+  const webContentsId = window.webContents.id;
+  setActiveWindow(window);
+  applyWindowViewToStore(webContentsId);
+  store.handleWindowActivation();
+  rememberWindowView(webContentsId, store.state);
+}
+
+function applyDeferredWindowActivation(): boolean {
+  const webContentsId = deferredActivationWebContentsId;
+  deferredActivationWebContentsId = undefined;
+  if (webContentsId === undefined) {
+    return false;
+  }
+  const window = windowForWebContentsId(webContentsId);
+  if (!window || !canPublishToWindow(window)) {
+    return false;
+  }
+  applyWindowActivation(window);
+  return true;
+}
+
 function getForegroundAppWindow(): BrowserWindow | null {
   const focusedWindow = BrowserWindow.getFocusedWindow();
   if (focusedWindow && windowViews.has(focusedWindow.webContents.id) && canPublishToWindow(focusedWindow)) {
@@ -410,7 +437,9 @@ async function runWindowScopedForWindow(
       return projected;
     } finally {
       currentWindowScopedWebContentsId = previousWindowScopedWebContentsId;
-      restoreStoreToForegroundUnlessSender(webContentsId);
+      if (!applyDeferredWindowActivation()) {
+        restoreStoreToForegroundUnlessSender(webContentsId);
+      }
     }
   });
 }
@@ -459,7 +488,9 @@ async function runWindowScopedStateResult<T extends { readonly state: DesktopApp
       return { ...result, state: projected };
     } finally {
       currentWindowScopedWebContentsId = previousWindowScopedWebContentsId;
-      restoreStoreToForegroundUnlessSender(webContentsId);
+      if (!applyDeferredWindowActivation()) {
+        restoreStoreToForegroundUnlessSender(webContentsId);
+      }
     }
   });
 }
@@ -529,10 +560,11 @@ function attachViewedSessionTracking(window: BrowserWindow): void {
   stopTrackingWindowActivationByWebContentsId.get(webContentsId)?.();
 
   const handleActivation = () => {
-    setActiveWindow(window);
-    applyWindowViewToStore(webContentsId);
-    store.handleWindowActivation();
-    rememberWindowView(webContentsId, store.state);
+    if (currentWindowScopedWebContentsId !== undefined) {
+      deferredActivationWebContentsId = webContentsId;
+      return;
+    }
+    applyWindowActivation(window);
   };
   const clearTracking = () => {
     stopTrackingWindowActivationByWebContentsId.get(webContentsId)?.();

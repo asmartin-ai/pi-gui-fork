@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   createNamedThread,
@@ -175,6 +176,47 @@ async function selectSessionViaIpcAndCaptureStateEvents(window: Page, title: str
   }, title);
 }
 
+async function stubDelayedOpenDialog(harness: DesktopHarness, filePaths: readonly string[]): Promise<void> {
+  await harness.electronApp.evaluate(({ dialog }, nextFilePaths) => {
+    const original = dialog.showOpenDialog;
+    const globals = globalThis as {
+      __PI_TEST_OPEN_DIALOG_COUNT?: number;
+      __PI_TEST_RESOLVE_OPEN_DIALOG?: () => void;
+    };
+    globals.__PI_TEST_OPEN_DIALOG_COUNT = 0;
+    dialog.showOpenDialog = async () =>
+      new Promise((resolve) => {
+        globals.__PI_TEST_OPEN_DIALOG_COUNT = (globals.__PI_TEST_OPEN_DIALOG_COUNT ?? 0) + 1;
+        globals.__PI_TEST_RESOLVE_OPEN_DIALOG = () => {
+          dialog.showOpenDialog = original;
+          delete globals.__PI_TEST_RESOLVE_OPEN_DIALOG;
+          resolve({ canceled: false, filePaths: [...nextFilePaths] });
+        };
+      });
+  }, filePaths);
+}
+
+async function waitForDelayedOpenDialog(harness: DesktopHarness): Promise<void> {
+  await expect
+    .poll(() =>
+      harness.electronApp.evaluate(() => {
+        return (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT ?? 0;
+      }),
+    )
+    .toBe(1);
+}
+
+async function resolveDelayedOpenDialog(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(() => {
+    const resolveOpenDialog = (globalThis as { __PI_TEST_RESOLVE_OPEN_DIALOG?: () => void })
+      .__PI_TEST_RESOLVE_OPEN_DIALOG;
+    if (!resolveOpenDialog) {
+      throw new Error("Delayed open dialog was not pending.");
+    }
+    resolveOpenDialog();
+  });
+}
+
 test("selects an empty workspace from the sidebar row", async () => {
   const userDataDir = await makeUserDataDir();
   const alphaPath = await makeWorkspace("empty-workspace-alpha");
@@ -279,6 +321,61 @@ test("projects sender state emissions from the in-flight selection", async () =>
 
     const stateEvents = await selectSessionViaIpcAndCaptureStateEvents(window, "Fast target thread");
     expect(stateEvents[0]).toBe("Fast target thread");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps awaited sender actions scoped after another window focuses", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-awaited-scope");
+  const attachmentPath = join(workspacePath, "sender-attachment.txt");
+  await writeFile(attachmentPath, "sender scoped attachment\n", "utf8");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    await createNamedThread(firstWindow, "Attachment sender thread", { workspaceName });
+    await createNamedThread(firstWindow, "Attachment focused thread", { workspaceName });
+    await selectSession(firstWindow, "Attachment sender thread");
+
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await selectSession(secondWindow, "Attachment focused thread");
+    await expectSelected(firstWindow, workspacePath, "Attachment sender thread");
+    await expectSelected(secondWindow, workspacePath, "Attachment focused thread");
+
+    await stubDelayedOpenDialog(harness, [attachmentPath]);
+    const pickPromise = firstWindow.evaluate(async () => {
+      const app = (window as PiAppWindow).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.pickComposerAttachments();
+    });
+    await waitForDelayedOpenDialog(harness);
+
+    const secondWindowIndex = await browserWindowIndexForPage(harness, secondWindow);
+    await harness.electronApp.evaluate(({ BrowserWindow }, index) => {
+      const targetWindow = BrowserWindow.getAllWindows()[index];
+      targetWindow?.show();
+      targetWindow?.focus();
+      targetWindow?.emit("focus");
+    }, secondWindowIndex);
+
+    await resolveDelayedOpenDialog(harness);
+    await pickPromise;
+
+    await expect.poll(async () => (await getDesktopState(firstWindow)).composerAttachments.map((entry) => entry.name)).toEqual([
+      "sender-attachment.txt",
+    ]);
+    await expect.poll(async () => (await getDesktopState(secondWindow)).composerAttachments.length).toBe(0);
   } finally {
     await harness.close();
   }
