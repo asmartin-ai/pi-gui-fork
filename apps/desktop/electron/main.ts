@@ -298,6 +298,13 @@ function getForegroundAppView(): DesktopAppViewState | undefined {
   return window ? viewForWebContents(window.webContents.id) : undefined;
 }
 
+function restoreStoreToView(view: DesktopAppViewState | undefined): void {
+  if (!view) {
+    return;
+  }
+  store.state = store.projectStateForView(view, store.state);
+}
+
 function enqueueWindowScopedAction<T>(action: () => Promise<T>): Promise<T> {
   const run = windowScopedActionQueue.then(action, action);
   windowScopedActionQueue = run.then(
@@ -313,24 +320,30 @@ async function runWindowScopedForWindow(
 ): Promise<DesktopAppState> {
   return enqueueWindowScopedAction(async () => {
     const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
+    const windowIsFocused = Boolean(window && !window.isDestroyed() && window.isFocused());
+    const restoreView = windowIsFocused ? undefined : getForegroundAppView();
     if (window && webContentsId !== undefined) {
-      if (window.isFocused()) {
+      if (windowIsFocused) {
         setActiveWindow(window);
       }
       applyWindowViewToStore(webContentsId);
     }
 
-    const state = await action();
-    if (!window || webContentsId === undefined) {
-      return state;
-    }
+    try {
+      const state = await action();
+      if (!window || webContentsId === undefined) {
+        return state;
+      }
 
-    const previousView = windowViews.get(webContentsId);
-    const projected = projectStateForWindow(webContentsId, state, viewFromState(state), previousView);
-    rememberWindowView(webContentsId, projected);
-    publishStateToWindow(window, projected);
-    void publishSelectedTranscriptToWindow(window);
-    return projected;
+      const previousView = windowViews.get(webContentsId);
+      const projected = projectStateForWindow(webContentsId, state, viewFromState(state), previousView);
+      rememberWindowView(webContentsId, projected);
+      publishStateToWindow(window, projected);
+      void publishSelectedTranscriptToWindow(window);
+      return projected;
+    } finally {
+      restoreStoreToView(restoreView);
+    }
   });
 }
 
@@ -347,24 +360,30 @@ async function runWindowScopedStateResult<T extends { readonly state: DesktopApp
 ): Promise<T> {
   return enqueueWindowScopedAction(async () => {
     const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
+    const windowIsFocused = Boolean(window && !window.isDestroyed() && window.isFocused());
+    const restoreView = windowIsFocused ? undefined : getForegroundAppView();
     if (window && webContentsId !== undefined) {
-      if (window.isFocused()) {
+      if (windowIsFocused) {
         setActiveWindow(window);
       }
       applyWindowViewToStore(webContentsId);
     }
 
-    const result = await action();
-    if (!window || webContentsId === undefined) {
-      return result;
-    }
+    try {
+      const result = await action();
+      if (!window || webContentsId === undefined) {
+        return result;
+      }
 
-    const previousView = windowViews.get(webContentsId);
-    const projected = projectStateForWindow(webContentsId, result.state, viewFromState(result.state), previousView);
-    rememberWindowView(webContentsId, projected);
-    publishStateToWindow(window, projected);
-    void publishSelectedTranscriptToWindow(window);
-    return { ...result, state: projected };
+      const previousView = windowViews.get(webContentsId);
+      const projected = projectStateForWindow(webContentsId, result.state, viewFromState(result.state), previousView);
+      rememberWindowView(webContentsId, projected);
+      publishStateToWindow(window, projected);
+      void publishSelectedTranscriptToWindow(window);
+      return { ...result, state: projected };
+    } finally {
+      restoreStoreToView(restoreView);
+    }
   });
 }
 

@@ -242,3 +242,46 @@ test("keeps a background window composer draft when another window changes selec
     await harness.close();
   }
 });
+
+test("opens independent terminals for the same thread in separate windows", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-terminal");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    await createNamedThread(firstWindow, "Shared terminal thread", { workspaceName });
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await expectSelected(secondWindow, workspacePath, "Shared terminal thread");
+
+    await firstWindow.getByLabel("Toggle terminal").click();
+    const firstTerminal = firstWindow.getByTestId("integrated-terminal");
+    await expect(firstTerminal).toBeVisible();
+    await firstTerminal.locator(".xterm").click();
+    await firstWindow.keyboard.type("printf 'FIRST_WINDOW_TERMINAL\\n'");
+    await firstWindow.keyboard.press("Enter");
+    await expect(firstTerminal.locator(".xterm-rows")).toContainText("FIRST_WINDOW_TERMINAL", {
+      timeout: 15_000,
+    });
+
+    await secondWindow.getByLabel("Toggle terminal").click();
+    const secondTerminal = secondWindow.getByTestId("integrated-terminal");
+    await expect(secondTerminal).toBeVisible();
+    await secondTerminal.locator(".xterm").click();
+    await secondWindow.keyboard.type("printf 'SECOND_WINDOW_TERMINAL\\n'");
+    await secondWindow.keyboard.press("Enter");
+    await expect(secondTerminal.locator(".xterm-rows")).toContainText("SECOND_WINDOW_TERMINAL", {
+      timeout: 15_000,
+    });
+    await expect(firstTerminal.locator(".xterm-rows")).not.toContainText("SECOND_WINDOW_TERMINAL");
+  } finally {
+    await harness.close();
+  }
+});

@@ -77,7 +77,7 @@ export class TerminalService {
     terminalScopeId: string,
     size?: Partial<TerminalSize>,
   ): TerminalPanelSnapshot {
-    const root = this.ensureRoot(workspaceId, terminalScopeId);
+    const root = this.ensureRoot(webContents, workspaceId, terminalScopeId);
     if (!root.activeSessionId || root.sessionIds.length === 0) {
       const session = this.createSessionForRoot(webContents, root, size);
       root.sessionIds.push(session.id);
@@ -92,7 +92,7 @@ export class TerminalService {
     terminalScopeId: string,
     size?: Partial<TerminalSize>,
   ): TerminalPanelSnapshot {
-    const root = this.ensureRoot(workspaceId, terminalScopeId);
+    const root = this.ensureRoot(webContents, workspaceId, terminalScopeId);
     if (root.sessionIds.length >= MAX_TERMINAL_SESSIONS_PER_ROOT) {
       throw new Error(`A workspace can have up to ${MAX_TERMINAL_SESSIONS_PER_ROOT} terminal tabs.`);
     }
@@ -203,7 +203,7 @@ export class TerminalService {
     this.rootsByKey.clear();
   }
 
-  private ensureRoot(workspaceId: string, terminalScopeId: string): TerminalRoot {
+  private ensureRoot(webContents: WebContents, workspaceId: string, terminalScopeId: string): TerminalRoot {
     const normalizedScopeId = terminalScopeId.trim();
     if (!normalizedScopeId) {
       throw new Error("Terminal scope is required");
@@ -214,7 +214,7 @@ export class TerminalService {
     }
     ensureDirectory(workspacePath);
     const workspaceRootKey = normalizeRootKey(workspacePath);
-    const rootKey = `${workspaceRootKey}\0${normalizedScopeId}`;
+    const rootKey = `${webContents.id}\0${workspaceRootKey}\0${normalizedScopeId}`;
     const existingRoot = this.rootsByKey.get(rootKey);
     if (existingRoot) {
       return existingRoot;
