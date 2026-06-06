@@ -145,6 +145,36 @@ async function selectSessionViaIpc(window: Page, title: string): Promise<void> {
   }, title);
 }
 
+async function selectSessionViaIpcAndCaptureStateEvents(window: Page, title: string): Promise<readonly string[]> {
+  return window.evaluate(async (targetTitle) => {
+    const app = (window as PiAppWindow).piApp;
+    if (!app) {
+      throw new Error("piApp IPC bridge is unavailable");
+    }
+    const stateEvents: string[] = [];
+    const unsubscribe = app.onStateChanged((nextState) => {
+      const workspace = nextState.workspaces.find((entry) => entry.id === nextState.selectedWorkspaceId);
+      const session = workspace?.sessions.find((entry) => entry.id === nextState.selectedSessionId);
+      stateEvents.push(session?.title ?? "");
+    });
+    try {
+      const state = await app.getState();
+      for (const workspace of state.workspaces) {
+        const session = workspace.sessions.find((entry) => entry.title === targetTitle);
+        if (!session) {
+          continue;
+        }
+        await app.selectSession({ workspaceId: workspace.id, sessionId: session.id });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return stateEvents;
+      }
+      throw new Error(`Session not found: ${targetTitle}`);
+    } finally {
+      unsubscribe();
+    }
+  }, title);
+}
+
 test("selects an empty workspace from the sidebar row", async () => {
   const userDataDir = await makeUserDataDir();
   const alphaPath = await makeWorkspace("empty-workspace-alpha");
@@ -226,6 +256,29 @@ test("opens multiple app windows with independent workspace and thread selection
     const thirdWindow = await openWindowViaSecondInstanceEvent(harness, firstWindow);
     await expectSelected(thirdWindow, alphaPath, "Alpha thread");
     await waitForWindowCount(harness, 3);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("projects sender state emissions from the in-flight selection", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-sender-projection");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Fast source thread", { workspaceName });
+    await createNamedThread(window, "Fast target thread", { workspaceName });
+    await selectSession(window, "Fast source thread");
+
+    const stateEvents = await selectSessionViaIpcAndCaptureStateEvents(window, "Fast target thread");
+    expect(stateEvents[0]).toBe("Fast target thread");
   } finally {
     await harness.close();
   }

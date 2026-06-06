@@ -271,7 +271,8 @@ function publishStateToWindow(window: BrowserWindow, state: DesktopAppState = st
     return;
   }
   const webContentsId = window.webContents.id;
-  const projected = projectStateForWindow(webContentsId, state);
+  const view = webContentsId === currentWindowScopedWebContentsId ? viewFromState(state) : viewForWebContents(webContentsId);
+  const projected = projectStateForWindow(webContentsId, state, view);
   rememberWindowView(webContentsId, projected);
   window.webContents.send(desktopIpc.stateChanged, projected);
 }
