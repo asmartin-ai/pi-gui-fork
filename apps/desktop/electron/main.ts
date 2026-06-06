@@ -70,6 +70,7 @@ interface WindowViewState {
 const appWindows = new Set<BrowserWindow>();
 const windowViews = new Map<number, WindowViewState>();
 const stopPublishingStateByWebContentsId = new Map<number, () => void>();
+const stopPublishingSelectedTranscriptByWebContentsId = new Map<number, () => void>();
 const stopTrackingWindowActivationByWebContentsId = new Map<number, () => void>();
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
@@ -77,6 +78,7 @@ let stopPruningTerminals: (() => void) | undefined;
 let retainedTerminalWorkspacePathSignature = "";
 const terminalFocusedWebContentsIds = new Set<number>();
 let quittingAfterStoreFlush = false;
+let windowScopedActionQueue: Promise<void> = Promise.resolve();
 
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
@@ -275,27 +277,38 @@ function setActiveWindow(window: BrowserWindow): void {
   notificationPermissionService?.trackWindow(window);
 }
 
+function enqueueWindowScopedAction<T>(action: () => Promise<T>): Promise<T> {
+  const run = windowScopedActionQueue.then(action, action);
+  windowScopedActionQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function runWindowScopedForWindow(
   window: BrowserWindow | null | undefined,
   action: () => Promise<DesktopAppState>,
 ): Promise<DesktopAppState> {
-  const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
-  if (window && webContentsId !== undefined) {
-    setActiveWindow(window);
-    applyWindowViewToStore(webContentsId);
-  }
+  return enqueueWindowScopedAction(async () => {
+    const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
+    if (window && webContentsId !== undefined) {
+      setActiveWindow(window);
+      applyWindowViewToStore(webContentsId);
+    }
 
-  const state = await action();
-  if (!window || webContentsId === undefined) {
-    return state;
-  }
+    const state = await action();
+    if (!window || webContentsId === undefined) {
+      return state;
+    }
 
-  rememberWindowView(webContentsId, state);
-  const projected = projectStateForWindow(webContentsId, state);
-  rememberWindowView(webContentsId, projected);
-  publishStateToWindow(window, projected);
-  void publishSelectedTranscriptToWindow(window);
-  return projected;
+    rememberWindowView(webContentsId, state);
+    const projected = projectStateForWindow(webContentsId, state);
+    rememberWindowView(webContentsId, projected);
+    publishStateToWindow(window, projected);
+    void publishSelectedTranscriptToWindow(window);
+    return projected;
+  });
 }
 
 function runWindowScopedForEvent(
@@ -309,23 +322,25 @@ async function runWindowScopedStateResult<T extends { readonly state: DesktopApp
   window: BrowserWindow | null | undefined,
   action: () => Promise<T>,
 ): Promise<T> {
-  const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
-  if (window && webContentsId !== undefined) {
-    setActiveWindow(window);
-    applyWindowViewToStore(webContentsId);
-  }
+  return enqueueWindowScopedAction(async () => {
+    const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
+    if (window && webContentsId !== undefined) {
+      setActiveWindow(window);
+      applyWindowViewToStore(webContentsId);
+    }
 
-  const result = await action();
-  if (!window || webContentsId === undefined) {
-    return result;
-  }
+    const result = await action();
+    if (!window || webContentsId === undefined) {
+      return result;
+    }
 
-  rememberWindowView(webContentsId, result.state);
-  const projected = projectStateForWindow(webContentsId, result.state);
-  rememberWindowView(webContentsId, projected);
-  publishStateToWindow(window, projected);
-  void publishSelectedTranscriptToWindow(window);
-  return { ...result, state: projected };
+    rememberWindowView(webContentsId, result.state);
+    const projected = projectStateForWindow(webContentsId, result.state);
+    rememberWindowView(webContentsId, projected);
+    publishStateToWindow(window, projected);
+    void publishSelectedTranscriptToWindow(window);
+    return { ...result, state: projected };
+  });
 }
 
 function createAppWindow(sourceView?: DesktopAppViewState): BrowserWindow {
@@ -360,11 +375,16 @@ function createAppWindow(sourceView?: DesktopAppViewState): BrowserWindow {
 function attachStatePublisher(window: BrowserWindow): void {
   const webContentsId = window.webContents.id;
   stopPublishingStateByWebContentsId.get(webContentsId)?.();
+  stopPublishingSelectedTranscriptByWebContentsId.get(webContentsId)?.();
   const stopPublishingState = store.subscribe((state) => {
     publishStateToWindow(window, state);
     void publishSelectedTranscriptToWindow(window);
   });
+  const stopPublishingSelectedTranscript = store.subscribeToSelectedTranscript(() => {
+    void publishSelectedTranscriptToWindow(window);
+  });
   stopPublishingStateByWebContentsId.set(webContentsId, stopPublishingState);
+  stopPublishingSelectedTranscriptByWebContentsId.set(webContentsId, stopPublishingSelectedTranscript);
   let disposed = false;
   const clearPublishing = () => {
     if (disposed) {
@@ -373,6 +393,8 @@ function attachStatePublisher(window: BrowserWindow): void {
     disposed = true;
     stopPublishingStateByWebContentsId.get(webContentsId)?.();
     stopPublishingStateByWebContentsId.delete(webContentsId);
+    stopPublishingSelectedTranscriptByWebContentsId.get(webContentsId)?.();
+    stopPublishingSelectedTranscriptByWebContentsId.delete(webContentsId);
   };
   window.webContents.once("render-process-gone", clearPublishing);
   window.once("closed", clearPublishing);
