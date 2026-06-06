@@ -14,6 +14,7 @@ export type ComposerDraftSyncSource =
   | "state"
   | "selection"
   | "persist"
+  | "remote-persist"
   | "command"
   | "extension-editor-text"
   | "queued-message-edit";

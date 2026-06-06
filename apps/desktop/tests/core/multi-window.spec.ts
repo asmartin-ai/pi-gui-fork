@@ -332,3 +332,32 @@ test("applies editor text sync to the window showing the target session", async 
     await harness.close();
   }
 });
+
+test("mirrors composer draft updates when the same thread is open twice", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-shared-draft");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    await createNamedThread(firstWindow, "Shared draft thread", { workspaceName });
+
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await expectSelected(secondWindow, workspacePath, "Shared draft thread");
+
+    const sharedDraft = "draft from first window";
+    await firstWindow.getByTestId("composer").fill(sharedDraft);
+    await expect(secondWindow.getByTestId("composer")).toHaveValue(sharedDraft, { timeout: 5_000 });
+    await secondWindow.waitForTimeout(600);
+    await expect.poll(async () => (await getDesktopState(firstWindow)).composerDraft).toBe(sharedDraft);
+  } finally {
+    await harness.close();
+  }
+});

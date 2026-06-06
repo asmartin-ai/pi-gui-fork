@@ -79,6 +79,7 @@ let retainedTerminalWorkspacePathSignature = "";
 const terminalFocusedWebContentsIds = new Set<number>();
 let quittingAfterStoreFlush = false;
 let windowScopedActionQueue: Promise<void> = Promise.resolve();
+let currentComposerDraftPersistOriginWebContentsId: number | undefined;
 
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
@@ -250,7 +251,18 @@ function projectStateForWindow(
   view: WindowViewState = viewForWebContents(webContentsId),
   previousView: WindowViewState | undefined = windowViews.get(webContentsId),
 ): DesktopAppState {
-  return store.projectStateForView(view, state, previousView);
+  const projected = store.projectStateForView(view, state, previousView);
+  if (
+    projected.composerDraftSyncSource === "persist" &&
+    currentComposerDraftPersistOriginWebContentsId !== undefined &&
+    webContentsId !== currentComposerDraftPersistOriginWebContentsId
+  ) {
+    return {
+      ...projected,
+      composerDraftSyncSource: "remote-persist",
+    };
+  }
+  return projected;
 }
 
 function publishStateToWindow(window: BrowserWindow, state: DesktopAppState = store.state): void {
@@ -1002,7 +1014,14 @@ app.whenReady().then(async () => {
     runWindowScopedForEvent(event, () => store.steerQueuedComposerMessage(messageId)),
   );
   ipcMain.handle(desktopIpc.updateComposerDraft, (event, composerDraft: string) =>
-    runWindowScopedForEvent(event, () => store.updateComposerDraft(composerDraft)),
+    runWindowScopedForEvent(event, async () => {
+      currentComposerDraftPersistOriginWebContentsId = event.sender.id;
+      try {
+        return await store.updateComposerDraft(composerDraft);
+      } finally {
+        currentComposerDraftPersistOriginWebContentsId = undefined;
+      }
+    }),
   );
   ipcMain.handle(
     desktopIpc.submitComposer,
