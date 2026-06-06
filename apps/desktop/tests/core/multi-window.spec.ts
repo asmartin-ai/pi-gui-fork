@@ -118,6 +118,33 @@ async function expectSelected(window: Page, workspacePath: string, sessionTitle:
   await expect(window.locator(".topbar__session")).toHaveText(sessionTitle);
 }
 
+async function pendingDialogCount(
+  window: Page,
+  sessionRef: { readonly workspaceId: string; readonly sessionId: string },
+): Promise<number> {
+  const state = await getDesktopState(window);
+  return state.sessionExtensionUiBySession[`${sessionRef.workspaceId}:${sessionRef.sessionId}`]?.pendingDialogs.length ?? 0;
+}
+
+async function selectSessionViaIpc(window: Page, title: string): Promise<void> {
+  await window.evaluate(async (targetTitle) => {
+    const app = (window as PiAppWindow).piApp;
+    if (!app) {
+      throw new Error("piApp IPC bridge is unavailable");
+    }
+    const state = await app.getState();
+    for (const workspace of state.workspaces) {
+      const session = workspace.sessions.find((entry) => entry.title === targetTitle);
+      if (!session) {
+        continue;
+      }
+      await app.selectSession({ workspaceId: workspace.id, sessionId: session.id });
+      return;
+    }
+    throw new Error(`Session not found: ${targetTitle}`);
+  }, title);
+}
+
 test("selects an empty workspace from the sidebar row", async () => {
   const userDataDir = await makeUserDataDir();
   const alphaPath = await makeWorkspace("empty-workspace-alpha");
@@ -328,6 +355,64 @@ test("applies editor text sync to the window showing the target session", async 
 
     await expect(secondWindow.getByTestId("composer")).toHaveValue("replacement for target window");
     await expect(firstWindow.getByTestId("composer")).not.toHaveValue("replacement for target window");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("cancels pending dialogs when the last visible same-session window closes", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-dialog-close");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    await createNamedThread(firstWindow, "Shared dialog thread", { workspaceName });
+    await createNamedThread(firstWindow, "Other dialog thread", { workspaceName });
+    await selectSession(firstWindow, "Shared dialog thread");
+
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await expectSelected(secondWindow, workspacePath, "Shared dialog thread");
+    const secondWindowIndex = await browserWindowIndexForPage(harness, secondWindow);
+    await harness.electronApp.evaluate(({ BrowserWindow }, index) => {
+      BrowserWindow.getAllWindows()[index]?.show();
+    }, secondWindowIndex);
+
+    const targetState = await getDesktopState(secondWindow);
+    const sessionRef = {
+      workspaceId: targetState.selectedWorkspaceId,
+      sessionId: targetState.selectedSessionId,
+    };
+    await emitTestSessionEvent(harness, {
+      type: "hostUiRequest",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      request: {
+        kind: "confirm",
+        requestId: "multi-window-shared-confirm",
+        title: "Confirm shared dialog?",
+        message: "Keep this dialog alive while another window shows the session.",
+      },
+    });
+
+    await expect(secondWindow.getByTestId("extension-dialog")).toContainText("Confirm shared dialog?");
+    await expect.poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 }).toBe(1);
+
+    await selectSessionViaIpc(firstWindow, "Other dialog thread");
+    await expectSelected(firstWindow, workspacePath, "Other dialog thread");
+    await expect(secondWindow.getByTestId("extension-dialog")).toContainText("Confirm shared dialog?");
+    await expect.poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 }).toBe(1);
+
+    await secondWindow.close();
+    await waitForWindowCount(harness, 1);
+    await expect.poll(() => pendingDialogCount(firstWindow, sessionRef), { timeout: 5_000 }).toBe(0);
   } finally {
     await harness.close();
   }

@@ -1181,8 +1181,11 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.sessionSubscriptions.set(targetKey, unsubscribe);
   }
 
-  async cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void> {
-    if (this.shouldKeepSessionDialogs(sessionRef)) {
+  async cancelPendingDialogsForSession(
+    sessionRef: SessionRef,
+    options: { readonly force?: boolean } = {},
+  ): Promise<void> {
+    if (!options.force && this.shouldKeepSessionDialogs(sessionRef)) {
       return;
     }
     const key = sessionKey(sessionRef);
@@ -1193,6 +1196,14 @@ export class DesktopAppStore implements AppStoreInternals {
 
     const pendingDialogs = [...uiState.pendingDialogs];
     uiState.pendingDialogs = [];
+    this.state = this.syncDerivedSessionState(
+      {
+        ...this.state,
+        revision: this.state.revision + 1,
+      },
+      sessionRef,
+    );
+    this.emit();
     await Promise.all(
       pendingDialogs.map((dialog) =>
         this.driver.respondToHostUiRequest(sessionRef, {
@@ -1200,6 +1211,26 @@ export class DesktopAppStore implements AppStoreInternals {
           cancelled: true,
         } satisfies HostUiResponse),
       ),
+    );
+  }
+
+  async cancelPendingDialogsWithoutVisibleWindow(
+    isSessionVisible: (sessionRef: SessionRef) => boolean,
+  ): Promise<void> {
+    await this.initialize();
+    const pendingSessionRefs: SessionRef[] = [];
+    for (const workspace of this.state.workspaces) {
+      for (const session of workspace.sessions) {
+        const sessionRef = { workspaceId: workspace.id, sessionId: session.id };
+        const uiState = this.sessionState.extensionUiBySession.get(sessionKey(sessionRef));
+        if (uiState && uiState.pendingDialogs.length > 0 && !isSessionVisible(sessionRef)) {
+          pendingSessionRefs.push(sessionRef);
+        }
+      }
+    }
+
+    await Promise.all(
+      pendingSessionRefs.map((sessionRef) => this.cancelPendingDialogsForSession(sessionRef, { force: true })),
     );
   }
 

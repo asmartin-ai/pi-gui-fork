@@ -478,6 +478,7 @@ function createAppWindow(sourceView?: DesktopAppViewState): BrowserWindow {
     windowViews.delete(webContentsId);
     terminalFocusedWebContentsIds.delete(webContentsId);
     terminalService?.disposeWebContents(webContentsId);
+    void store.cancelPendingDialogsWithoutVisibleWindow((sessionRef) => isSessionVisibleInAnotherWindow(sessionRef));
     if (mainWindow === window) {
       mainWindow = [...appWindows].find((candidate) => !candidate.isDestroyed()) ?? null;
       if (mainWindow) {
