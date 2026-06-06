@@ -195,6 +195,21 @@ export class TerminalService {
     }
   }
 
+  disposeWebContents(webContentsId: number): void {
+    const rootKeysToDelete = new Set<string>();
+    for (const [sessionId, session] of this.sessionsById) {
+      if (session.ownerWebContentsId !== webContentsId) {
+        continue;
+      }
+      this.disposeSession(session);
+      this.sessionsById.delete(sessionId);
+      rootKeysToDelete.add(session.rootKey);
+    }
+    for (const rootKey of rootKeysToDelete) {
+      this.rootsByKey.delete(rootKey);
+    }
+  }
+
   dispose(): void {
     for (const session of this.sessionsById.values()) {
       this.disposeSession(session);

@@ -267,8 +267,17 @@ async function publishSelectedTranscriptToWindow(window: BrowserWindow): Promise
   if (!canPublishToWindow(window)) {
     return;
   }
-  const payload = await store.getSelectedTranscriptForView(viewForWebContents(window.webContents.id));
+  const webContentsId = window.webContents.id;
+  const payload = await store.getSelectedTranscriptForView(viewForWebContents(webContentsId));
   if (canPublishToWindow(window)) {
+    const projected = projectStateForWindow(webContentsId);
+    if (payload) {
+      if (projected.selectedWorkspaceId !== payload.workspaceId || projected.selectedSessionId !== payload.sessionId) {
+        return;
+      }
+    } else if (projected.selectedSessionId) {
+      return;
+    }
     window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
   }
 }
@@ -314,14 +323,29 @@ function enqueueWindowScopedAction<T>(action: () => Promise<T>): Promise<T> {
   return run;
 }
 
+interface WindowScopedActionOptions {
+  readonly forceActiveWindow?: boolean;
+}
+
 async function runWindowScopedForWindow(
   window: BrowserWindow | null | undefined,
   action: () => Promise<DesktopAppState>,
+  options: WindowScopedActionOptions = {},
 ): Promise<DesktopAppState> {
   return enqueueWindowScopedAction(async () => {
     const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
-    const windowIsFocused = Boolean(window && !window.isDestroyed() && window.isFocused());
-    const restoreView = windowIsFocused ? undefined : getForegroundAppView();
+    const foregroundWindow = getForegroundAppWindow();
+    const senderIsForeground =
+      Boolean(window && foregroundWindow && window.webContents.id === foregroundWindow.webContents.id);
+    const windowIsFocused =
+      Boolean(window && !window.isDestroyed() && window.isFocused()) ||
+      senderIsForeground ||
+      options.forceActiveWindow === true;
+    const restoreView = windowIsFocused
+      ? undefined
+      : foregroundWindow
+        ? viewForWebContents(foregroundWindow.webContents.id)
+        : undefined;
     if (window && webContentsId !== undefined) {
       if (windowIsFocused) {
         setActiveWindow(window);
@@ -357,11 +381,22 @@ function runWindowScopedForEvent(
 async function runWindowScopedStateResult<T extends { readonly state: DesktopAppState }>(
   window: BrowserWindow | null | undefined,
   action: () => Promise<T>,
+  options: WindowScopedActionOptions = {},
 ): Promise<T> {
   return enqueueWindowScopedAction(async () => {
     const webContentsId = window && !window.isDestroyed() ? window.webContents.id : undefined;
-    const windowIsFocused = Boolean(window && !window.isDestroyed() && window.isFocused());
-    const restoreView = windowIsFocused ? undefined : getForegroundAppView();
+    const foregroundWindow = getForegroundAppWindow();
+    const senderIsForeground =
+      Boolean(window && foregroundWindow && window.webContents.id === foregroundWindow.webContents.id);
+    const windowIsFocused =
+      Boolean(window && !window.isDestroyed() && window.isFocused()) ||
+      senderIsForeground ||
+      options.forceActiveWindow === true;
+    const restoreView = windowIsFocused
+      ? undefined
+      : foregroundWindow
+        ? viewForWebContents(foregroundWindow.webContents.id)
+        : undefined;
     if (window && webContentsId !== undefined) {
       if (windowIsFocused) {
         setActiveWindow(window);
@@ -401,6 +436,7 @@ function createAppWindow(sourceView?: DesktopAppViewState): BrowserWindow {
     appWindows.delete(window);
     windowViews.delete(webContentsId);
     terminalFocusedWebContentsIds.delete(webContentsId);
+    terminalService?.disposeWebContents(webContentsId);
     if (mainWindow === window) {
       mainWindow = [...appWindows].find((candidate) => !candidate.isDestroyed()) ?? null;
       if (mainWindow) {
@@ -718,7 +754,15 @@ app.whenReady().then(async () => {
       }
     }
   });
-  notificationManager = new NotificationManager(store, () => mainWindow, notificationPermissionService);
+  notificationManager = new NotificationManager(
+    store,
+    () => mainWindow,
+    notificationPermissionService,
+    async (sessionRef) => {
+      const window = getForegroundAppWindow();
+      await runWindowScopedForWindow(window, () => store.selectSession(sessionRef), { forceActiveWindow: true });
+    },
+  );
   stopNotifications = notificationManager.start();
   if (!isDev) {
     stopUpdateChecker = initUpdateChecker();
