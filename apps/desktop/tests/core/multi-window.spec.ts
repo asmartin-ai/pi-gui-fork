@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import {
   createNamedThread,
+  emitTestSessionEvent,
   getDesktopState,
   launchDesktop,
   makeUserDataDir,
@@ -281,6 +282,52 @@ test("opens independent terminals for the same thread in separate windows", asyn
       timeout: 15_000,
     });
     await expect(firstTerminal.locator(".xterm-rows")).not.toContainText("SECOND_WINDOW_TERMINAL");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("applies editor text sync to the window showing the target session", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-editor-text");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+
+    await createNamedThread(firstWindow, "Editor source one", { workspaceName });
+    await createNamedThread(firstWindow, "Editor target two", { workspaceName });
+    await selectSession(firstWindow, "Editor source one");
+
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await selectSession(secondWindow, "Editor target two");
+    await expectSelected(firstWindow, workspacePath, "Editor source one");
+    await expectSelected(secondWindow, workspacePath, "Editor target two");
+
+    const targetState = await getDesktopState(secondWindow);
+    await emitTestSessionEvent(harness, {
+      type: "hostUiRequest",
+      sessionRef: {
+        workspaceId: targetState.selectedWorkspaceId,
+        sessionId: targetState.selectedSessionId,
+      },
+      timestamp: new Date().toISOString(),
+      request: {
+        kind: "editorText",
+        requestId: "multi-window-editor-text",
+        text: "replacement for target window",
+      },
+    });
+
+    await expect(secondWindow.getByTestId("composer")).toHaveValue("replacement for target window");
+    await expect(firstWindow.getByTestId("composer")).not.toHaveValue("replacement for target window");
   } finally {
     await harness.close();
   }

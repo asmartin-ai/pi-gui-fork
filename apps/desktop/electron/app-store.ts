@@ -153,6 +153,8 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
   private readonly initialWorkspacePaths: readonly string[];
   private readonly getWindow: () => BrowserWindow | null;
+  private composerDraftSyncTarget: SessionRef | undefined;
+  private composerDraftProjectionNonce = 0;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
@@ -235,6 +237,10 @@ export class DesktopAppStore implements AppStoreInternals {
       selectedWorkspaceId !== previousWorkspaceId || selectedSessionId !== previousSessionId;
     const matchesStateSelection =
       selectedWorkspaceId === state.selectedWorkspaceId && selectedSessionId === state.selectedSessionId;
+    const syncTargetsProjectedSession =
+      state.composerDraftSyncSource === "extension-editor-text" &&
+      this.composerDraftSyncTarget?.workspaceId === selectedWorkspaceId &&
+      this.composerDraftSyncTarget?.sessionId === selectedSessionId;
     const activeView = view.activeView ?? state.activeView;
     const sidebarCollapsed = view.sidebarCollapsed ?? state.sidebarCollapsed;
 
@@ -247,10 +253,12 @@ export class DesktopAppStore implements AppStoreInternals {
       composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId),
       composerDraftSyncSource: selectionChanged
         ? "selection"
-        : matchesStateSelection
+        : syncTargetsProjectedSession || (matchesStateSelection && state.composerDraftSyncSource !== "extension-editor-text")
           ? state.composerDraftSyncSource
           : "state",
-      composerDraftSyncNonce: selectionChanged ? state.composerDraftSyncNonce + 1 : state.composerDraftSyncNonce,
+      composerDraftSyncNonce: selectionChanged
+        ? this.nextComposerDraftSyncNonce(state.composerDraftSyncNonce)
+        : state.composerDraftSyncNonce,
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       queuedComposerMessages: this.resolveQueuedComposerMessages(selectedWorkspaceId, selectedSessionId),
       editingQueuedMessageId: this.resolveEditingQueuedMessageId(selectedWorkspaceId, selectedSessionId),
@@ -1354,6 +1362,8 @@ export class DesktopAppStore implements AppStoreInternals {
     switch (event.request.kind) {
       case "editorText":
         this.sessionState.composerDraftsBySession.set(key, event.request.text);
+        this.composerDraftSyncTarget = event.sessionRef;
+        const composerDraftSyncNonce = this.nextComposerDraftSyncNonce();
         if (
           this.state.selectedWorkspaceId === event.sessionRef.workspaceId &&
           this.state.selectedSessionId === event.sessionRef.sessionId
@@ -1362,7 +1372,13 @@ export class DesktopAppStore implements AppStoreInternals {
             ...this.state,
             composerDraft: event.request.text,
             composerDraftSyncSource: "extension-editor-text",
-            composerDraftSyncNonce: this.state.composerDraftSyncNonce + 1,
+            composerDraftSyncNonce,
+          };
+        } else {
+          this.state = {
+            ...this.state,
+            composerDraftSyncSource: "extension-editor-text",
+            composerDraftSyncNonce,
           };
         }
         break;
@@ -1989,7 +2005,7 @@ export class DesktopAppStore implements AppStoreInternals {
       activeView: "threads",
       composerDraft: this.resolveComposerDraft(sessionRef.workspaceId, sessionRef.sessionId),
       composerDraftSyncSource: "selection",
-      composerDraftSyncNonce: this.state.composerDraftSyncNonce + 1,
+      composerDraftSyncNonce: this.nextComposerDraftSyncNonce(),
       composerAttachments: this.resolveComposerAttachments(sessionRef.workspaceId, sessionRef.sessionId),
       lastError: undefined,
       revision: this.state.revision + 1,
@@ -2183,7 +2199,7 @@ export class DesktopAppStore implements AppStoreInternals {
     if (options.composerDraftSyncSource) {
       return {
         source: options.composerDraftSyncSource,
-        nonce: this.state.composerDraftSyncNonce + 1,
+        nonce: this.nextComposerDraftSyncNonce(),
       };
     }
 
@@ -2193,7 +2209,7 @@ export class DesktopAppStore implements AppStoreInternals {
     ) {
       return {
         source: "selection",
-        nonce: this.state.composerDraftSyncNonce + 1,
+        nonce: this.nextComposerDraftSyncNonce(),
       };
     }
 
@@ -2201,6 +2217,11 @@ export class DesktopAppStore implements AppStoreInternals {
       source: this.state.composerDraftSyncSource,
       nonce: this.state.composerDraftSyncNonce,
     };
+  }
+
+  private nextComposerDraftSyncNonce(baseNonce = this.state.composerDraftSyncNonce): number {
+    this.composerDraftProjectionNonce = Math.max(this.composerDraftProjectionNonce, baseNonce) + 1;
+    return this.composerDraftProjectionNonce;
   }
 
   private resolveComposerAttachments(
