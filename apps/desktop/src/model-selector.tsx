@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   buildModelOptions,
-  MODEL_OPTIONS_EMPTY_DESCRIPTION,
   MODEL_OPTIONS_EMPTY_TITLE,
   THINKING_OPTIONS,
   type ComposerModelOption,
@@ -19,7 +18,6 @@ interface ModelSelectorProps {
   readonly unselectedModelLabel?: string;
   readonly emptyModelLabel?: string;
   readonly emptyModelTitle?: string;
-  readonly emptyModelDescription?: string;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
 }
@@ -37,20 +35,37 @@ export function ModelSelector({
   unselectedModelLabel = "Choose model",
   emptyModelLabel = "Choose model",
   emptyModelTitle = MODEL_OPTIONS_EMPTY_TITLE,
-  emptyModelDescription = MODEL_OPTIONS_EMPTY_DESCRIPTION,
   onSetModel,
   onSetThinking,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
+  const [modelFilter, setModelFilter] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
-  const hasModelControl = Boolean(provider && modelId) || groupedModels.length > 0;
+  const modelOptions = useMemo(() => buildModelOptions(runtime), [runtime]);
+  const filteredModels = useMemo(() => {
+    if (!modelFilter) return modelOptions;
+    const q = modelFilter.toLowerCase();
+    return modelOptions.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        opt.description.toLowerCase().includes(q) ||
+        opt.providerId.toLowerCase().includes(q),
+    );
+  }, [modelOptions, modelFilter]);
+
+  const groupedModels = useMemo(() => groupByProvider(filteredModels), [filteredModels]);
+  const hasAvailableModelOptions = modelOptions.length > 0;
+  const hasModelControl = Boolean(provider && modelId) || hasAvailableModelOptions;
   const shouldRenderModelControl = hasModelControl || showEmptyModelControl;
-  const modelBadgeLabel = provider && modelId ? `${provider}:${modelId}` : groupedModels.length > 0 ? unselectedModelLabel : emptyModelLabel;
+  const modelBadgeLabel = provider && modelId ? `${provider}:${modelId}` : hasAvailableModelOptions ? unselectedModelLabel : emptyModelLabel;
+  const noMatchingModels = hasAvailableModelOptions && modelFilter.trim().length > 0 && groupedModels.length === 0;
 
   useEffect(() => {
-    if (open === "none") return undefined;
+    if (open === "none") {
+      setModelFilter("");
+      return undefined;
+    }
 
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -93,6 +108,15 @@ export function ModelSelector({
               className={`model-selector__dropdown ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
               onWheel={(event) => event.stopPropagation()}
             >
+              <div className="model-selector__filter">
+                <input
+                  className="model-selector__filter-input"
+                  placeholder="Filter models..."
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  autoFocus
+                />
+              </div>
               {groupedModels.map((group) => (
                 <div key={group.provider}>
                   <div className="model-selector__group-title">{group.provider}</div>
@@ -118,7 +142,12 @@ export function ModelSelector({
                 </div>
               ))}
               {groupedModels.length === 0 ? (
-                <div className="model-selector__group-title">{emptyModelTitle}</div>
+                <>
+                  <div className="model-selector__group-title">
+                    {noMatchingModels ? "No matching models" : emptyModelTitle}
+                  </div>
+                  {noMatchingModels ? <div className="model-selector__empty">Try a different filter.</div> : null}
+                </>
               ) : null}
             </div>
           ) : null}

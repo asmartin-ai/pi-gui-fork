@@ -285,7 +285,6 @@ function NewThreadComposerFooter({
               unselectedModelLabel={modelOnboarding.unselectedModelLabel}
               emptyModelLabel={MODEL_OPTIONS_EMPTY_TITLE}
               emptyModelTitle={modelOnboarding.emptyModelTitle}
-              emptyModelDescription={modelOnboarding.emptyModelDescription}
               onSetModel={onSetModel}
               onSetThinking={onSetThinking}
             />

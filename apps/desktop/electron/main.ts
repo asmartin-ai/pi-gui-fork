@@ -140,13 +140,16 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
 
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
+  const enableTransparency = store ? store.state.enableTransparency : false;
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
     minWidth: 1200,
     minHeight: 760,
-    backgroundColor: "#f3f4f8",
+    transparent: enableTransparency,
+    vibrancy: process.platform === "darwin" && enableTransparency ? "under-window" : undefined,
     titleBarStyle: "hiddenInset",
+    backgroundColor: enableTransparency ? "#00000000" : "#f3f4f8",
     trafficLightPosition: { x: 18, y: 18 },
     show: false,
     icon: appIcon,
@@ -774,12 +777,15 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-app.on("second-instance", () => {
+app.on("second-instance", async () => {
   if (!store) {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
       mainWindow.focus();
     }
+    return;
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
   const window = createAppWindow(getForegroundAppView());
@@ -1013,6 +1019,15 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setIntegratedTerminalShell, (event, shellPath: string) =>
     runWindowScopedForEvent(event, () => store.setIntegratedTerminalShell(shellPath)),
   );
+  ipcMain.handle(desktopIpc.setEnableTransparency, async (_event, enabled: boolean) => {
+    const nextState = await store.setEnableTransparency(enabled);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (process.platform === "darwin") {
+        mainWindow.setVibrancy(enabled ? "under-window" : null);
+      }
+    }
+    return nextState;
+  });
   ipcMain.handle(desktopIpc.terminalEnsurePanel, (event, workspaceId: string, terminalScopeId: string, size) => {
     return getTerminalService().ensurePanel(event.sender, workspaceId, terminalScopeId, size);
   });

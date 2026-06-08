@@ -27,6 +27,7 @@ interface SettingsViewProps {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
+  readonly enableTransparency: boolean;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
@@ -44,6 +45,7 @@ interface SettingsViewProps {
   readonly onSetLockedComputerUseEnabled: (enabled: boolean) => void;
   readonly onOpenComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
+  readonly onSetEnableTransparency: (enabled: boolean) => void;
 }
 
 export function SettingsView({
@@ -58,6 +60,7 @@ export function SettingsView({
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
+  enableTransparency,
   onSetModelSettingsScopeMode,
   onSetDefaultModel,
   onSetThinkingLevel,
@@ -75,6 +78,7 @@ export function SettingsView({
   onSetLockedComputerUseEnabled,
   onOpenComputerUsePrivacySettings,
   onSetThemeMode,
+  onSetEnableTransparency,
 }: SettingsViewProps) {
   if (
     !workspace &&
@@ -112,6 +116,8 @@ export function SettingsView({
             <SettingsAppearanceSection
               themeMode={themeMode}
               onSetThemeMode={onSetThemeMode}
+              enableTransparency={enableTransparency}
+              onSetEnableTransparency={onSetEnableTransparency}
             />
           ) : null}
 
