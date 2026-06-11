@@ -70,7 +70,7 @@ import {
   truncate,
   workspaceToRef,
 } from "./session-supervisor-utils.js";
-import type { SessionTranscriptMessage } from "./transcript.js";
+import type { SessionTranscriptItem } from "./transcript.js";
 import {
   createAgentSessionRuntimeWithNpmFallback,
   type PiCreateAgentSessionOptions,
@@ -283,9 +283,40 @@ export class SessionSupervisor {
     }
   }
 
-  async getTranscript(sessionRef: SessionRef): Promise<SessionTranscriptMessage[]> {
-    const record = await this.ensureRecord(sessionRef);
-    return transcriptFromMessages(record.session?.messages ?? [], record.updatedAt);
+  async getTranscript(sessionRef: SessionRef): Promise<SessionTranscriptItem[]> {
+    const record = this.records.get(sessionKey(sessionRef));
+    if (record && record.session && !record.closed) {
+      return transcriptFromMessages(record.session.messages ?? [], record.updatedAt);
+    }
+    return this.readTranscriptFromDisk(sessionRef);
+  }
+
+  /**
+   * Build a transcript straight from the session's JSONL file without binding
+   * an agent runtime. Pi's file is the source of truth for closed sessions, so
+   * this can never serve a stale view.
+   */
+  private async readTranscriptFromDisk(sessionRef: SessionRef): Promise<SessionTranscriptItem[]> {
+    const sessionEntry = await this.catalogs.sessions.getSession(sessionRef);
+    const sessionFile =
+      sessionEntry?.sessionFilePath ??
+      (await this.catalogs.getSessionFile(sessionRef)) ??
+      (await this.findSessionFileOnDisk(sessionRef));
+    if (!sessionFile) {
+      throw new Error(`Session ${sessionKey(sessionRef)} has no tracked session file.`);
+    }
+
+    const sessionManager = SessionManager.open(sessionFile);
+    return transcriptFromMessages(sessionManager.buildSessionContext().messages, sessionEntry?.updatedAt);
+  }
+
+  private async findSessionFileOnDisk(sessionRef: SessionRef): Promise<string | undefined> {
+    const workspace = await this.catalogs.workspaces.getWorkspace(sessionRef.workspaceId);
+    if (!workspace) {
+      return undefined;
+    }
+    const infos = await SessionManager.list(workspace.path);
+    return infos.find((info) => info.id === sessionRef.sessionId)?.path;
   }
 
   async getSessionCommands(sessionRef: SessionRef): Promise<readonly RuntimeCommandRecord[]> {
