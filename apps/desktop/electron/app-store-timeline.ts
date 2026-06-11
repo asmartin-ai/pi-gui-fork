@@ -1,4 +1,5 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
+import type { SessionTranscriptItem } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
 import {
@@ -22,6 +23,23 @@ interface TimelineRuntimeState {
   readonly runningSinceBySession: Map<string, string>;
   readonly activeAssistantMessageBySession: Map<string, string>;
   readonly activeWorkingActivityBySession: Map<string, string>;
+}
+
+export function timelineFromDriverTranscript(items: readonly SessionTranscriptItem[]): TranscriptMessage[] {
+  return items.map((item) => {
+    if (item.kind !== "tool") {
+      return item;
+    }
+    const detail = detailFromOutput(item.output);
+    return {
+      ...makeToolItem(item.callId, item.toolName, item.status, toolLabel(item.toolName, item.input), {
+        ...(detail !== undefined ? { detail } : {}),
+        ...(item.input !== undefined ? { input: item.input } : {}),
+        ...(item.output !== undefined ? { output: item.output } : {}),
+      }),
+      createdAt: item.createdAt,
+    };
+  });
 }
 
 export function appendUserMessage(

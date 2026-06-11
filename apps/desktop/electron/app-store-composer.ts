@@ -240,7 +240,6 @@ export async function steerQueuedComposerMessage(
   if (optimisticSteerMessage) {
     appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
     store.publishSelectedTranscriptFor(sessionRef);
-    store.persistTranscriptCacheForSession(sessionRef);
   }
 
   try {
@@ -351,7 +350,6 @@ export async function submitComposer(
       if (optimisticSteerMessage) {
         appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
         store.publishSelectedTranscriptFor(sessionRef);
-        store.persistTranscriptCacheForSession(sessionRef);
       }
       await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
       return store.refreshState({
@@ -470,7 +468,6 @@ export async function sendMessageToSession(
     toTranscriptAttachments(attachments),
   );
   store.publishSelectedTranscriptFor(sessionRef);
-  store.persistTranscriptCacheForSession(sessionRef);
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
   store.sessionState.composerDraftsBySession.delete(key);
@@ -486,7 +483,6 @@ export async function sendMessageToSession(
       const transcript = store.sessionState.transcriptCache.get(key) ?? [];
       store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));
       store.publishSelectedTranscriptFor(sessionRef);
-      store.persistTranscriptCacheForSession(sessionRef);
     }
     throw error;
   }
@@ -529,7 +525,6 @@ function removeOptimisticQueuedUserMessage(
     transcript.filter((message) => message.id !== messageId),
   );
   store.publishSelectedTranscriptFor(sessionRef);
-  store.persistTranscriptCacheForSession(sessionRef);
 }
 
 /** Eagerly merge config fields so finishComposerCommand sees them before the async sessionUpdated event arrives. */
@@ -617,7 +612,6 @@ function appendLocalActivity(store: AppStoreInternals, sessionRef: SessionRef, l
   const transcript = [...(store.sessionState.transcriptCache.get(key) ?? [])];
   transcript.push(makeActivityItem(label));
   store.sessionState.transcriptCache.set(key, transcript);
-  store.persistTranscriptCacheForSession(sessionRef);
 }
 
 function finishComposerCommand(
