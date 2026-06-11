@@ -202,19 +202,35 @@ export class SessionSupervisor {
       await Promise.all(
         existingSessions.map(async (session) => {
           const key = sessionKey(session.sessionRef);
-          if (discoveredKeys.has(key) || !session.sessionFilePath) {
+          if (discoveredKeys.has(key)) {
+            return undefined;
+          }
+
+          const sessionFilePath = session.sessionFilePath ?? (await this.catalogs.getSessionFile(session.sessionRef));
+          if (!sessionFilePath) {
             return undefined;
           }
 
           try {
-            await access(session.sessionFilePath);
-            return session;
-          } catch {
-            return undefined;
+            await access(sessionFilePath);
+          } catch (error) {
+            // Only a confirmed missing file may drop a session. Transient
+            // failures (unmounted volume, permissions) must not delete state.
+            if (isMissingFileError(error)) {
+              return undefined;
+            }
           }
+
+          const record = this.records.get(key);
+          const runtimeSnapshot = record && record.session && !record.closed ? buildSnapshot(record) : undefined;
+          return {
+            ...session,
+            sessionFilePath,
+            status: runtimeSnapshot?.status ?? ("idle" as const),
+          };
         }),
       )
-    ).filter((session): session is (typeof existingSessions)[number] => Boolean(session));
+    ).filter((session): session is NonNullable<typeof session> => Boolean(session));
     const preservedKeys = new Set(preservedEntries.map((entry) => sessionKey(entry.sessionRef)));
     const mergedEntries = [...nextEntries, ...preservedEntries];
     const nextSessionFiles = Object.fromEntries([
@@ -1642,6 +1658,10 @@ async function canonicalizePath(path: string): Promise<string> {
   } catch {
     return resolvedPath;
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 function runtimeSourceInfoFromLoose(
