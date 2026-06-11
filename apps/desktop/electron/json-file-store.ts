@@ -1,4 +1,4 @@
-import { readFile, unlink } from "node:fs/promises";
+import { readdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomicQueued } from "./atomic-file-write";
 
@@ -20,6 +20,15 @@ export class JsonFileStore<T> {
 
   async write(sessionKey: string, data: T): Promise<void> {
     await writeFileAtomicQueued(this.filePath(sessionKey), `${JSON.stringify(data, null, 2)}\n`);
+  }
+
+  async listKeys(): Promise<string[]> {
+    try {
+      const entries = await readdir(this.rootDir);
+      return entries.filter((name) => name.endsWith(".json")).map((name) => decodeURIComponent(name.slice(0, -".json".length)));
+    } catch {
+      return [];
+    }
   }
 
   async remove(sessionKey: string): Promise<void> {
