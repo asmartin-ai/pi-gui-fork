@@ -1,5 +1,3 @@
-import { appendFile, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
@@ -9,6 +7,7 @@ import {
   makeWorkspace,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
+import { appendMessagesToSessionFile, sessionFilePathFromCatalog } from "../helpers/session-file";
 
 /**
  * The transcript shown after a relaunch must come straight from pi's session
@@ -39,32 +38,11 @@ test("shows messages appended to the pi session file by an external writer after
     await firstRun.close();
   }
 
-  const catalogs = JSON.parse(await readFile(join(userDataDir, "catalogs.json"), "utf8")) as {
-    sessions: Array<{ sessionRef: { workspaceId: string; sessionId: string }; sessionFilePath?: string }>;
-    sessionFiles?: Record<string, string>;
-  };
-  const sessionFilePath =
-    catalogs.sessions.find(
-      (session) => session.sessionRef.workspaceId === workspaceId && session.sessionRef.sessionId === sessionId,
-    )?.sessionFilePath ?? catalogs.sessionFiles?.[`${workspaceId}:${sessionId}`];
-  expect(sessionFilePath).toBeTruthy();
-
   // Append a user message the way pi itself would, chaining off the current leaf.
-  const lines = (await readFile(sessionFilePath as string, "utf8")).split("\n").filter(Boolean);
-  const lastEntry = JSON.parse(lines.at(-1) as string) as { id?: string };
-  const parentId = lastEntry.id ?? null;
-  const externalEntry = {
-    type: "message",
-    id: "external-writer-entry-1",
-    parentId,
-    timestamp: new Date().toISOString(),
-    message: {
-      role: "user",
-      content: "external writer message survives relaunch",
-      timestamp: Date.now(),
-    },
-  };
-  await appendFile(sessionFilePath as string, `${JSON.stringify(externalEntry)}\n`, "utf8");
+  const sessionFilePath = await sessionFilePathFromCatalog(userDataDir, { workspaceId, sessionId });
+  await appendMessagesToSessionFile(sessionFilePath, [
+    { role: "user", text: "external writer message survives relaunch" },
+  ]);
 
   const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {
