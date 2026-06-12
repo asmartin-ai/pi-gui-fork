@@ -55,6 +55,7 @@ import {
   applyTimelineEvent,
   appendAssistantDelta,
   clearActiveAssistantMessage,
+  timelineFromDriverTranscript,
 } from "./app-store-timeline";
 import { applySessionEventState, updateSessionRecord } from "./app-store-session-state";
 import type { AppStoreInternals, RefreshStateOptions } from "./app-store-internals";
@@ -98,25 +99,6 @@ import { isSessionActivelyViewed, isSessionVisibleInWindow } from "./session-vis
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
-type TranscriptMessageRow = Extract<TranscriptMessage, { kind: "message" }>;
-
-const LEGACY_TRANSCRIPT_HISTORY_LIMIT = 180;
-
-interface PersistedTranscriptRecord {
-  readonly version: 1;
-  readonly transcript: readonly TranscriptMessage[];
-}
-
-type PersistedTranscriptStoreValue = PersistedTranscriptRecord | readonly TranscriptMessage[];
-
-function isPersistedTranscriptRecord(value: PersistedTranscriptStoreValue): value is PersistedTranscriptRecord {
-  if (Array.isArray(value)) {
-    return false;
-  }
-  const candidate = value as { version?: unknown; transcript?: unknown };
-  return candidate.version === 1 && Array.isArray(candidate.transcript);
-}
-
 export interface DesktopAppStoreOptions {
   readonly userDataDir: string;
   readonly initialWorkspacePaths: readonly string[];
@@ -145,7 +127,6 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
   private readonly uiStateFilePath: string;
-  private readonly transcriptStore: JsonFileStore<PersistedTranscriptStoreValue>;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
   readonly sessionState = new SessionStateMap();
   readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
@@ -158,7 +139,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private composerDraftSyncTarget: SessionRef | undefined;
   private composerDraftProjectionNonce = 0;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
-  private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
+  private readonly extensionDialogTimeoutTimers = new Map<string, NodeJS.Timeout>();
   private readonly restoredSelectedSessionKeysAwaitingSelection = new Set<string>();
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
@@ -178,7 +159,6 @@ export class DesktopAppStore implements AppStoreInternals {
     this.catalogStore = new JsonCatalogStore({ catalogFilePath });
     this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
-    this.transcriptStore = new JsonFileStore<PersistedTranscriptStoreValue>(options.userDataDir, "transcripts");
     this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
@@ -278,16 +258,6 @@ export class DesktopAppStore implements AppStoreInternals {
       clearTimeout(this.persistUiStateTimer);
       this.persistUiStateTimer = undefined;
     }
-
-    const pendingTranscriptWrites = [...this.transcriptPersistTimers.entries()];
-    this.transcriptPersistTimers.clear();
-    await Promise.all(
-      pendingTranscriptWrites.map(async ([key, timer]) => {
-        clearTimeout(timer);
-        const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
-        await this.writePersistedTranscript(key, transcript);
-      }),
-    );
 
     await this.persistUiState();
   }
@@ -905,21 +875,6 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private async migrateLegacyPersistence(persisted: LegacyPersistedUiState): Promise<void> {
-    const transcriptEntries = Object.entries(persisted.transcripts ?? {});
-    await Promise.all(
-      transcriptEntries.map(async ([key, transcript]) => {
-        const clonedTranscript = transcript.map((item) => cloneTranscriptMessage(item as TranscriptMessage));
-        if (clonedTranscript.length > 0) {
-          if (this.isPossiblyTrimmedLegacyTranscript(clonedTranscript)) {
-            return;
-          }
-          this.sessionState.transcriptCache.set(key, clonedTranscript);
-          this.sessionState.loadedTranscriptKeys.add(key);
-          await this.writePersistedTranscript(key, clonedTranscript);
-        }
-      }),
-    );
-
     const attachmentEntries = Object.entries(persisted.composerAttachmentsBySession ?? {});
     await Promise.all(
       attachmentEntries.map(async ([key, attachments]) => {
@@ -1077,6 +1032,29 @@ export class DesktopAppStore implements AppStoreInternals {
   private async pruneStaleSessionSubscriptions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
     const activeKeys = new Set(sessions.map((session) => sessionKey(session.sessionRef)));
     this.sessionState.prune(activeKeys);
+    this.pruneOrphanedUiState(activeKeys);
+    await this.pruneOrphanedAttachmentFiles(activeKeys);
+  }
+
+  /** Drop ui-state entries for sessions that no longer exist in the catalog. */
+  private pruneOrphanedUiState(activeKeys: Set<string>): void {
+    let changed = false;
+    for (const map of [this.sessionState.composerDraftsBySession, this.sessionState.lastViewedAtBySession]) {
+      for (const key of map.keys()) {
+        if (!activeKeys.has(key)) {
+          map.delete(key);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      this.schedulePersistUiState();
+    }
+  }
+
+  private async pruneOrphanedAttachmentFiles(activeKeys: Set<string>): Promise<void> {
+    const keys = await this.attachmentStore.listKeys();
+    await Promise.all(keys.filter((key) => !activeKeys.has(key)).map((key) => this.attachmentStore.remove(key)));
   }
 
   private async ensureSubscriptionsForSessions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
@@ -1115,25 +1093,16 @@ export class DesktopAppStore implements AppStoreInternals {
       return;
     }
 
-    const cachedTranscript = await this.readPersistedTranscript(key);
-    const transcript = cachedTranscript
-      ? await this.resolveLoadedTranscript(sessionRef, cachedTranscript)
-      : await this.driver.getTranscript(sessionRef);
-
-    if (!cachedTranscript || cachedTranscript.format === "legacy") {
-      await this.writePersistedTranscript(key, transcript);
-    }
-
+    const transcript = timelineFromDriverTranscript(await this.driver.getTranscript(sessionRef));
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
   }
 
   async reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
-    const transcript = await this.driver.getTranscript(sessionRef);
+    const transcript = timelineFromDriverTranscript(await this.driver.getTranscript(sessionRef));
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
-    void this.writePersistedTranscript(key, transcript);
     this.publishSelectedTranscriptFor(sessionRef);
   }
 
@@ -1563,9 +1532,6 @@ export class DesktopAppStore implements AppStoreInternals {
         this.startSelectedSessionHydration(event.sessionRef);
       }
     }
-    if (event.type !== "hostUiRequest") {
-      this.persistTranscriptCacheForSession(event.sessionRef);
-    }
     if (event.type === "runCompleted" || event.type === "runFailed" || event.type === "sessionClosed") {
       await this.persistUiState();
     } else if (event.type !== "hostUiRequest") {
@@ -1887,79 +1853,6 @@ export class DesktopAppStore implements AppStoreInternals {
   ): Promise<void> {
     await this.attachmentStore.write(key, cloneComposerAttachments(attachments));
     await this.persistUiState();
-  }
-
-  persistTranscriptCacheForSession(sessionRef: SessionRef): void {
-    const key = sessionKey(sessionRef);
-    const existing = this.transcriptPersistTimers.get(key);
-    if (existing) {
-      clearTimeout(existing);
-    }
-
-    const timer = setTimeout(() => {
-      this.transcriptPersistTimers.delete(key);
-      const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
-      void this.writePersistedTranscript(key, transcript);
-    }, 250);
-
-    this.transcriptPersistTimers.set(key, timer);
-  }
-
-  private async readPersistedTranscript(
-    key: string,
-  ): Promise<
-    | {
-        readonly format: "versioned" | "legacy";
-        readonly transcript: TranscriptMessage[];
-      }
-    | null
-  > {
-    const persisted = await this.transcriptStore.read(key);
-    if (!persisted) {
-      return null;
-    }
-
-    if (isPersistedTranscriptRecord(persisted)) {
-      return {
-        format: "versioned",
-        transcript: persisted.transcript.map((item) => cloneTranscriptMessage(item as TranscriptMessage)),
-      };
-    }
-
-    if (Array.isArray(persisted)) {
-      return {
-        format: "legacy",
-        transcript: persisted.map((item) => cloneTranscriptMessage(item as TranscriptMessage)),
-      };
-    }
-
-    return null;
-  }
-
-  private async resolveLoadedTranscript(
-    sessionRef: SessionRef,
-    persisted: {
-      readonly format: "versioned" | "legacy";
-      readonly transcript: TranscriptMessage[];
-    },
-  ): Promise<TranscriptMessage[]> {
-    if (persisted.format !== "legacy" || !this.isPossiblyTrimmedLegacyTranscript(persisted.transcript)) {
-      return persisted.transcript;
-    }
-
-    const driverTranscript = await this.driver.getTranscript(sessionRef);
-    return shouldReplaceLegacyTranscript(persisted.transcript, driverTranscript) ? driverTranscript : persisted.transcript;
-  }
-
-  private isPossiblyTrimmedLegacyTranscript(transcript: readonly TranscriptMessage[]): boolean {
-    return transcript.length === LEGACY_TRANSCRIPT_HISTORY_LIMIT;
-  }
-
-  private async writePersistedTranscript(key: string, transcript: readonly TranscriptMessage[]): Promise<void> {
-    await this.transcriptStore.write(key, {
-      version: 1,
-      transcript: transcript.map(cloneTranscriptMessage),
-    });
   }
 
   schedulePersistUiState(): void {
@@ -2615,44 +2508,6 @@ function resolveSelectedWorkspaceIdFromCatalog(
     return preferredWorkspaceId;
   }
   return workspaces[0]?.workspaceId ?? "";
-}
-
-function shouldReplaceLegacyTranscript(
-  legacyTranscript: readonly TranscriptMessage[],
-  driverTranscript: readonly TranscriptMessageRow[],
-): boolean {
-  if (driverTranscript.length === 0) {
-    return false;
-  }
-
-  const legacyMessages = legacyTranscript.filter(isTranscriptMessageRow);
-  if (driverTranscript.length > legacyMessages.length) {
-    return true;
-  }
-  if (driverTranscript.length < legacyMessages.length) {
-    return false;
-  }
-
-  return !sameTranscriptMessage(legacyMessages[0], driverTranscript[0]) ||
-    !sameTranscriptMessage(legacyMessages.at(-1), driverTranscript.at(-1));
-}
-
-function isTranscriptMessageRow(item: TranscriptMessage): item is TranscriptMessageRow {
-  return item.kind === "message";
-}
-
-function sameTranscriptMessage(
-  left: TranscriptMessageRow | undefined,
-  right: TranscriptMessageRow | undefined,
-): boolean {
-  if (!left || !right) {
-    return left === right;
-  }
-
-  return left.id === right.id &&
-    left.role === right.role &&
-    left.text === right.text &&
-    left.createdAt === right.createdAt;
 }
 
 function resolveSelectedSessionIdFromCatalog(
