@@ -40,7 +40,7 @@ import type {
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
-import { JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
+import { isMissingFileError, JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
 import {
   applyHostUiRequestToExtensionUiState,
   createEmptyExtensionUiState,
@@ -1658,10 +1658,6 @@ async function canonicalizePath(path: string): Promise<string> {
   } catch {
     return resolvedPath;
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 function runtimeSourceInfoFromLoose(
