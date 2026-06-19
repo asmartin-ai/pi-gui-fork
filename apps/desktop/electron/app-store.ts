@@ -1030,6 +1030,11 @@ export class DesktopAppStore implements AppStoreInternals {
         lastError: this.resolveSelectedSessionError(selectedWorkspaceId, selectedSessionId, options.clearLastError),
         revision: this.state.revision + 1,
       };
+      await orchestration.hydrateOrchestrationChildren(this);
+      this.state = {
+        ...this.state,
+        orchestrationChildren: orchestration.projectOrchestrationChildren(this),
+      };
 
       if (options.markSelectedSessionViewed ?? true) {
         this.markSelectedSessionViewedIfVisible();
@@ -1613,6 +1618,12 @@ export class DesktopAppStore implements AppStoreInternals {
     );
     this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
+    if (orchestration.hasOrchestrationChildSession(this.state.orchestrationChildren, event.sessionRef)) {
+      this.state = {
+        ...this.state,
+        orchestrationChildren: orchestration.projectOrchestrationChildren(this),
+      };
+    }
     if (shouldFollowSessionMutation && event.type !== "sessionClosed") {
       this.applyFastSessionSelection(event.sessionRef);
       if (!refreshedFollowedSession) {
@@ -1929,8 +1940,7 @@ export class DesktopAppStore implements AppStoreInternals {
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       enableTransparency: this.state.enableTransparency,
-      orchestrationChildren:
-        this.state.orchestrationChildren.length > 0 ? this.state.orchestrationChildren : undefined,
+      orchestrationChildren: orchestration.toPersistedOrchestrationChildren(this.state.orchestrationChildren),
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -2028,6 +2038,18 @@ export class DesktopAppStore implements AppStoreInternals {
     this.state = {
       ...this.state,
       lastError: message,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async withSessionError(sessionRef: SessionRef, error: unknown): Promise<DesktopAppState> {
+    const message = error instanceof Error ? error.message : String(error);
+    this.sessionState.sessionErrorsBySession.set(sessionKey(sessionRef), message);
+    this.state = {
+      ...this.state,
+      lastError: this.isSelectedSession(sessionRef) ? message : this.state.lastError,
       revision: this.state.revision + 1,
     };
     await this.persistUiState();

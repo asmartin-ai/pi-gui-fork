@@ -9,6 +9,7 @@ import {
   type ComposerImageAttachment,
   type DesktopAppState,
   type NewThreadEnvironment,
+  type OrchestrationChildThread,
   type SelectedTranscriptRecord,
   type StartThreadInput,
   type WorkspaceRecord,
@@ -1905,6 +1906,18 @@ export default function App() {
     );
   };
 
+  const handleOpenChildThread = (child: OrchestrationChildThread) => {
+    if (!child.childSessionId) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.selectSession({
+        workspaceId: child.childWorkspaceId,
+        sessionId: child.childSessionId,
+      }),
+    );
+  };
+
   const handleTimelineScroll = () => {
     const pane = timelinePaneRef.current;
     if (!pane) {
@@ -2415,6 +2428,7 @@ export default function App() {
             onSelectMode={setWorkbenchMode}
             onSpawnChild={handleSpawnChildThread}
             onSendFollowUp={handleSendChildThreadFollowUp}
+            onOpenChild={handleOpenChildThread}
             onAttachPreviewEvidence={handleAttachPreviewEvidence}
           />
         ) : null}

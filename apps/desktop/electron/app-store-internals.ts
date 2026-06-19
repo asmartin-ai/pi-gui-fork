@@ -41,12 +41,13 @@ export interface AppStoreInternals {
   allocateComposerDraftSyncNonce(baseNonce?: number): number;
   emit(): DesktopAppState;
   withError(error: unknown): Promise<DesktopAppState>;
+  withSessionError(sessionRef: SessionRef, error: unknown): Promise<DesktopAppState>;
   withErrorHandling(fn: () => Promise<DesktopAppState>): Promise<DesktopAppState>;
   selectSessionFast(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined;
   selectedSessionRef(): SessionRef | undefined;
   getExtensionFilePath(workspaceId: string, filePath: string): string | undefined;
-  sessionFromState(sessionRef: SessionRef): { archivedAt?: string; updatedAt: string; title: string; status: string } | undefined;
+  sessionFromState(sessionRef: SessionRef): { archivedAt?: string; updatedAt: string; title: string; status: string; preview?: string } | undefined;
   ensureSessionReady(sessionRef: SessionRef): Promise<SessionSnapshot | undefined>;
   ensureSessionSubscription(sessionRef: SessionRef): Promise<void>;
   ensureSessionSubscribed(sessionRef: SessionRef): Promise<void>;

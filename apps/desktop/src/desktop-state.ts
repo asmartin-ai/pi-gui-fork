@@ -81,12 +81,13 @@ export interface OrchestrationChildThread {
   readonly id: string;
   readonly parentWorkspaceId: string;
   readonly parentSessionId: string;
+  readonly childWorkspaceId: string;
+  readonly childSessionId: string;
   readonly title: string;
   readonly goal: string;
   readonly status: OrchestrationChildThreadStatus;
   readonly latestTranscript: string;
   readonly transcript: readonly OrchestrationChildTranscriptMessage[];
-  readonly mocked: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

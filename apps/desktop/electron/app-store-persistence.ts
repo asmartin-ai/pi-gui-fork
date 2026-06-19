@@ -10,10 +10,8 @@ import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types
 import { readFile } from "node:fs/promises";
 import { writeFileAtomicQueued } from "./atomic-file-write";
 
-const MAX_PERSISTED_ORCHESTRATION_TRANSCRIPT_MESSAGES = 40;
-
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -43,7 +41,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 10
+        parsed.version === 11
+          ? 11
+          : parsed.version === 10
           ? 10
           : parsed.version === 9
           ? 9
@@ -97,7 +97,7 @@ export async function writePersistedUiState(
   const serialized = `${JSON.stringify(
     {
       ...payload,
-      version: 10,
+      version: 11,
     } satisfies PersistedUiState,
     null,
     2,
@@ -118,9 +118,10 @@ function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThr
     const id = stringValue(candidate.id);
     const parentWorkspaceId = stringValue(candidate.parentWorkspaceId);
     const parentSessionId = stringValue(candidate.parentSessionId);
+    const childWorkspaceId = stringValue(candidate.childWorkspaceId) ?? parentWorkspaceId ?? "";
+    const childSessionId = stringValue(candidate.childSessionId) ?? "";
     const title = stringValue(candidate.title);
     const goal = stringValue(candidate.goal);
-    const status = toOrchestrationStatus(candidate.status);
     const createdAt = stringValue(candidate.createdAt);
     const updatedAt = stringValue(candidate.updatedAt);
     if (!id || !parentWorkspaceId || !parentSessionId || !title || !goal || !createdAt || !updatedAt) {
@@ -153,12 +154,13 @@ function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThr
         id,
         parentWorkspaceId,
         parentSessionId,
+        childWorkspaceId,
+        childSessionId,
         title,
         goal,
-        status,
+        status: toOrchestrationStatus(candidate.status),
         latestTranscript: stringValue(candidate.latestTranscript) || retainedTranscript.at(-1)?.text || goal,
         transcript: retainedTranscript,
-        mocked: candidate.mocked !== false,
         createdAt,
         updatedAt,
       },
@@ -191,3 +193,4 @@ function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot
     enabledModelPatterns,
   };
 }
+const MAX_PERSISTED_ORCHESTRATION_TRANSCRIPT_MESSAGES = 40;

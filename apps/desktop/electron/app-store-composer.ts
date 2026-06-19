@@ -252,7 +252,7 @@ export async function steerQueuedComposerMessage(
     if (optimisticSteerMessage) {
       removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
     }
-    return store.withError(error);
+    return store.withSessionError(sessionRef, error);
   }
 }
 
@@ -261,6 +261,7 @@ export async function submitComposer(
   textInput: string,
   options: {
     readonly deliverAs?: "steer" | "followUp";
+    readonly allowCommands?: boolean;
   } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -276,21 +277,36 @@ export async function submitComposer(
     return store.withError("Create or select a session before sending a message.");
   }
 
+  return submitComposerToSession(store, sessionRef, textInput, attachments, options);
+}
+
+export async function submitComposerToSession(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  textInput: string,
+  attachments: readonly ComposerAttachment[],
+  options: {
+    readonly deliverAs?: "steer" | "followUp";
+    readonly allowCommands?: boolean;
+  } = {},
+): Promise<DesktopAppState> {
+  const text = textInput.trim();
+  const key = sessionKey(sessionRef);
   const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
   const sessionCommands = store.sessionState.sessionCommandsBySession.get(sessionKey(sessionRef)) ?? [];
-  const runtimeSlashCommand = hasRuntimeSlashCommand(text, runtime, sessionCommands);
+  const allowCommands = options.allowCommands ?? true;
+  const runtimeSlashCommand = allowCommands && hasRuntimeSlashCommand(text, runtime, sessionCommands);
   const resolvedRuntimeSlashCommand = runtimeSlashCommand
     ? resolveRuntimeSlashCommand(text, runtime, sessionCommands)
     : undefined;
 
-  if (text.startsWith("/") && !runtimeSlashCommand) {
+  if (allowCommands && text.startsWith("/") && !runtimeSlashCommand) {
     const handled = await runComposerCommand(store, sessionRef, text);
     if (handled) {
       return handled;
     }
   }
 
-  const key = sessionKey(sessionRef);
   const selectedSession = store.sessionFromState(sessionRef);
   const isRunning = selectedSession?.status === "running";
   const editingState = store.getQueuedComposerEditState(sessionRef);
@@ -386,7 +402,7 @@ export async function submitComposer(
     if (optimisticSteerMessage) {
       removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
     }
-    return store.withError(error);
+    return store.withSessionError(sessionRef, error);
   }
 }
 

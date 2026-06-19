@@ -19,6 +19,7 @@ interface OrchestratedWorkbenchProps {
   readonly onSelectMode: (mode: OrchestratedWorkbenchMode) => void;
   readonly onSpawnChild: (prompt: string) => void;
   readonly onSendFollowUp: (childThreadId: string, text: string) => void;
+  readonly onOpenChild: (child: OrchestrationChildThread) => void;
   readonly onAttachPreviewEvidence: (evidence: string) => void;
 }
 
@@ -41,6 +42,7 @@ export function OrchestratedWorkbench({
   onSelectMode,
   onSpawnChild,
   onSendFollowUp,
+  onOpenChild,
   onAttachPreviewEvidence,
 }: OrchestratedWorkbenchProps) {
   return (
@@ -70,6 +72,7 @@ export function OrchestratedWorkbench({
             childrenThreads={childrenThreads}
             onSpawnChild={onSpawnChild}
             onSendFollowUp={onSendFollowUp}
+            onOpenChild={onOpenChild}
           />
         ) : null}
         {mode === "files" ? (

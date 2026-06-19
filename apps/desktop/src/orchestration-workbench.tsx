@@ -7,12 +7,14 @@ interface OrchestrationWorkbenchProps {
   readonly childrenThreads: readonly OrchestrationChildThread[];
   readonly onSpawnChild: (prompt: string) => void;
   readonly onSendFollowUp: (childThreadId: string, text: string) => void;
+  readonly onOpenChild: (child: OrchestrationChildThread) => void;
 }
 
 export function OrchestrationWorkbench({
   childrenThreads,
   onSpawnChild,
   onSendFollowUp,
+  onOpenChild,
 }: OrchestrationWorkbenchProps) {
   const [spawnPrompt, setSpawnPrompt] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
@@ -56,7 +58,7 @@ export function OrchestrationWorkbench({
     <section className="orchestration-panel" data-testid="orchestration-workbench">
       <div className="orchestration-panel__head">
         <div>
-          <div className="orchestration-panel__eyebrow">Mocked child runner</div>
+          <div className="orchestration-panel__eyebrow">Child runner</div>
           <h2>Child threads</h2>
         </div>
         <span className="orchestration-panel__count">{childrenThreads.length}</span>
@@ -99,7 +101,7 @@ export function OrchestrationWorkbench({
                 </span>
               </span>
               <span className="orchestration-child-row__meta">
-                {child.mocked ? "Mocked" : "Live"} · {formatRelativeTime(child.updatedAt)}
+                {formatRelativeTime(child.updatedAt)}
               </span>
               <span className="orchestration-child-row__preview">{child.latestTranscript}</span>
             </button>
@@ -115,6 +117,15 @@ export function OrchestrationWorkbench({
               {selectedChild.status}
             </span>
           </div>
+          <button
+            className="button orchestration-detail__open"
+            data-testid="child-thread-open"
+            disabled={!selectedChild.childSessionId}
+            type="button"
+            onClick={() => onOpenChild(selectedChild)}
+          >
+            Open thread
+          </button>
           <div className="orchestration-detail__goal">{selectedChild.goal}</div>
           <div className="orchestration-transcript" data-testid="child-thread-transcript">
             {selectedChild.transcript.map((message) => (

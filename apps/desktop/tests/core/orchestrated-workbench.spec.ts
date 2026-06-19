@@ -3,16 +3,21 @@ import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
+import type { SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
+import type { OrchestrationChildThread } from "../../src/desktop-state";
 import {
   commitAllInGitRepo,
   createNamedThread,
+  emitTestSessionEvent,
+  getDesktopState,
   initGitRepo,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  selectSession,
 } from "../helpers/electron-app";
 
-test("integrates mocked child threads, files, preview evidence, and relaunch persistence", async () => {
+test("integrates real child threads, files, preview evidence, and relaunch persistence", async () => {
   test.setTimeout(120_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("orchestrated-workbench");
@@ -43,14 +48,24 @@ test("integrates mocked child threads, files, preview evidence, and relaunch per
 
     await expect(window.getByTestId("child-thread-row")).toHaveCount(1);
     await expect(window.getByTestId("child-thread-row")).toContainText("Audit the renderer state ownership boundary");
-    await expect(window.getByTestId("child-thread-row")).toContainText("Mocked");
+    await expect(window.getByTestId("child-thread-row")).not.toContainText("Mocked");
+    await expect(window.locator(".session-row__select", { hasText: "Audit the renderer state ownership boundary" })).toBeVisible();
+    const child = await waitForChildThread(window);
+    await expect
+      .poll(async () => (await waitForChildThread(window)).transcript.map((message) => message.text))
+      .toContain("Audit the renderer state ownership boundary");
+
+    await expect(window.getByTestId("child-thread-detail")).toContainText("failed");
+    await emitChildRunningSnapshot(firstRun, window, child);
     await expect(window.getByTestId("child-thread-detail")).toContainText("running");
-    await expect(window.getByTestId("child-thread-transcript")).toContainText("Mock child thread created");
 
     await window.getByTestId("child-thread-follow-up").fill("Focus on persistence and IPC decisions");
     await window.getByTestId("child-thread-detail").getByRole("button", { name: "Send" }).click();
     await expect(window.getByTestId("child-thread-detail")).toContainText("waiting");
-    await expect(window.getByTestId("child-thread-transcript")).toContainText("Focus on persistence and IPC decisions");
+    await window.getByTestId("child-thread-open").click();
+    await expect(window.locator(".topbar__session")).toHaveText("Audit the renderer state ownership boundary");
+    await expect(window.getByTestId("queued-composer-message")).toContainText("Focus on persistence and IPC decisions");
+    await selectSession(window, "Parent orchestration session");
 
     await window.getByTestId("workbench-tab-files").click();
     const fileWorkbench = window.locator(".file-workbench");
@@ -102,7 +117,7 @@ test("integrates mocked child threads, files, preview evidence, and relaunch per
           return "";
         }
       })
-      .toContain("Focus on persistence and IPC decisions");
+      .toContain("childSessionId");
   } finally {
     await firstRun.close();
     await previewServer.close();
@@ -113,12 +128,69 @@ test("integrates mocked child threads, files, preview evidence, and relaunch per
     const window = await secondRun.firstWindow();
     await expect(window.getByTestId("orchestrated-workbench")).toBeVisible();
     await expect(window.getByTestId("child-thread-row")).toContainText("Audit the renderer state ownership boundary");
-    await expect(window.getByTestId("child-thread-detail")).toContainText("waiting");
-    await expect(window.getByTestId("child-thread-transcript")).toContainText("Focus on persistence and IPC decisions");
+    await expect(window.getByTestId("child-thread-row")).not.toContainText("Mocked");
+    await expect(window.getByTestId("child-thread-transcript")).toContainText("Audit the renderer state ownership boundary");
+    await window.getByTestId("child-thread-open").click();
+    await expect(window.locator(".topbar__session")).toHaveText("Audit the renderer state ownership boundary");
   } finally {
     await secondRun.close();
   }
 });
+
+async function waitForChildThread(window: Parameters<typeof getDesktopState>[0]): Promise<OrchestrationChildThread> {
+  return expect.poll(async () => {
+    const state = await getDesktopState(window);
+    return state.orchestrationChildren[0] ?? null;
+  }, { timeout: 15_000 }).not.toBeNull().then(async () => {
+    const state = await getDesktopState(window);
+    const child = state.orchestrationChildren[0];
+    if (!child) {
+      throw new Error("Expected a child thread link");
+    }
+    return child;
+  });
+}
+
+async function emitChildRunningSnapshot(
+  harness: Awaited<ReturnType<typeof launchDesktop>>,
+  window: Parameters<typeof getDesktopState>[0],
+  child: OrchestrationChildThread,
+): Promise<void> {
+  const state = await getDesktopState(window);
+  const workspace = state.workspaces.find((entry) => entry.id === child.childWorkspaceId);
+  const session = workspace?.sessions.find((entry) => entry.id === child.childSessionId);
+  if (!workspace || !session) {
+    throw new Error("Expected child session to exist before emitting running snapshot");
+  }
+
+  const sessionRef: SessionRef = {
+    workspaceId: child.childWorkspaceId,
+    sessionId: child.childSessionId,
+  };
+  const workspaceRef: WorkspaceRef = {
+    workspaceId: workspace.id,
+    path: workspace.path,
+    displayName: workspace.name,
+  };
+  const timestamp = new Date().toISOString();
+  const event: Extract<SessionDriverEvent, { type: "sessionUpdated" }> = {
+    type: "sessionUpdated",
+    sessionRef,
+    timestamp,
+    runId: "orchestrated-workbench-child-run",
+    snapshot: {
+      ref: sessionRef,
+      workspace: workspaceRef,
+      title: session.title,
+      status: "running",
+      updatedAt: timestamp,
+      preview: session.preview,
+      runningRunId: "orchestrated-workbench-child-run",
+      queuedMessages: [],
+    },
+  };
+  await emitTestSessionEvent(harness, event);
+}
 
 async function startPreviewServer(): Promise<{ readonly url: string; readonly close: () => Promise<void> }> {
   const server = createServer((_request, response) => {
