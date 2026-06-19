@@ -196,7 +196,8 @@
 }
 
 .shell--sidebar-collapsed .topbar {
-  padding-left: var(--titlebar-collapsed-main-padding-left);
+  margin-left: var(--titlebar-collapsed-main-padding-left);
+  padding-left: 0;
 }
 
 .canvas {
