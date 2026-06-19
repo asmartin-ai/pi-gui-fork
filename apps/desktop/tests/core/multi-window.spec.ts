@@ -77,25 +77,31 @@ async function openWindowViaShortcut(harness: DesktopHarness, source: Page): Pro
   return opened;
 }
 
-async function openWindowViaSecondInstanceEvent(harness: DesktopHarness, source?: Page): Promise<Page> {
-  const existing = new Set(harness.electronApp.windows());
-  const sourceIndex = source ? await browserWindowIndexForPage(harness, source) : -1;
+async function expectSecondInstanceRestoresExistingWindow(harness: DesktopHarness, source: Page): Promise<void> {
+  const existingWindowCount = harness.electronApp.windows().length;
+  const sourceIndex = await browserWindowIndexForPage(harness, source);
   await harness.electronApp.evaluate(({ app, BrowserWindow }, index) => {
-    if (index >= 0) {
-      const window = BrowserWindow.getAllWindows()[index];
-      window?.show();
-      window?.focus();
-      window?.emit("focus");
-    }
+    const window = BrowserWindow.getAllWindows()[index];
+    window?.show();
+    window?.focus();
+    window?.emit("focus");
+    window?.minimize();
     app.emit("second-instance");
   }, sourceIndex);
-  await waitForWindowCount(harness, existing.size + 1);
-  const opened = harness.electronApp.windows().find((candidate) => !existing.has(candidate));
-  if (!opened) {
-    throw new Error("Expected the singleton second-instance path to create another Electron window.");
-  }
-  await waitForPiApp(opened);
-  return opened;
+  await waitForWindowCount(harness, existingWindowCount);
+  await expect
+    .poll(
+      () =>
+        harness.electronApp.evaluate(({ BrowserWindow }, index) => {
+          const targetWindow = BrowserWindow.getAllWindows()[index];
+          return {
+            targetMinimized: targetWindow?.isMinimized() ?? true,
+            targetVisible: targetWindow?.isVisible() ?? false,
+          };
+        }, sourceIndex),
+      { timeout: 15_000 },
+    )
+    .toEqual({ targetMinimized: false, targetVisible: true });
 }
 
 async function selectedSummary(window: Page): Promise<{
@@ -295,9 +301,9 @@ test("opens multiple app windows with independent workspace and thread selection
     await expectSelected(firstWindow, alphaPath, "Alpha thread");
     await expectSelected(secondWindow, betaPath, "Beta follow-up");
 
-    const thirdWindow = await openWindowViaSecondInstanceEvent(harness, firstWindow);
-    await expectSelected(thirdWindow, alphaPath, "Alpha thread");
-    await waitForWindowCount(harness, 3);
+    await expectSecondInstanceRestoresExistingWindow(harness, firstWindow);
+    await expectSelected(firstWindow, alphaPath, "Alpha thread");
+    await waitForWindowCount(harness, 2);
   } finally {
     await harness.close();
   }

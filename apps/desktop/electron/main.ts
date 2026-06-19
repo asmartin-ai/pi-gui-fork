@@ -845,18 +845,11 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-app.on("second-instance", async () => {
-  if (!store) {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+app.on("second-instance", () => {
+  const window = getForegroundAppWindow();
+  if (!window) {
     return;
   }
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-  const window = createAppWindow(getForegroundAppView());
   if (window.isMinimized()) {
     window.restore();
   }
