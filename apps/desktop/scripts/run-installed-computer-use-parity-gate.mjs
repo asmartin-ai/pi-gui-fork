@@ -271,6 +271,7 @@ async function runInstalledBackgroundProbe() {
         ...process.env,
         PI_GUI_COMPUTER_USE_STRICT_FOCUS_GUARD: "1",
         PI_GUI_COMPUTER_USE_ALLOW_USER_FOCUS_CHANGES: "1",
+        PI_GUI_COMPUTER_USE_ALLOW_USER_POINTER_CHANGES: "1",
       },
     },
   );

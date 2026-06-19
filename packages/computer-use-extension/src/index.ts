@@ -394,10 +394,15 @@ function registerComputerUseTools(pi: ExtensionAPI, runtimeConfig: ComputerUseRu
     return { content: result.content, details: result.details, isError: true };
   });
 
+  // End the locked-use lease at turn boundaries, but keep the visible agent
+  // cursor alive until session shutdown so the installed app can prove cursor
+  // continuity across active tool sequences.
   pi.on("turn_end", async (_event, ctx) =>
-    cleanupComputerUseRuntime(binding, ctx),
+    cleanupComputerUseRuntime(binding, ctx, { hideCursor: false }),
   );
-  pi.on("session_shutdown", async (_event, ctx) => cleanupComputerUseRuntime(binding, ctx));
+  pi.on("session_shutdown", async (_event, ctx) =>
+    cleanupComputerUseRuntime(binding, ctx, { hideCursor: true }),
+  );
 }
 
 function bindRuntimeBinding(tool: ComputerUseTool, binding: ComputerUseRuntimeBinding): ComputerUseTool {
@@ -412,11 +417,14 @@ function bindRuntimeBinding(tool: ComputerUseTool, binding: ComputerUseRuntimeBi
 async function cleanupComputerUseRuntime(
   binding: ComputerUseRuntimeBinding,
   ctx?: ExtensionContext,
+  options: { readonly hideCursor: boolean } = { hideCursor: true },
 ): Promise<void> {
   await runtimeBindingStorage.run(binding, async () => {
     computerUseFailureResults.clear();
     await endLockedUseLease();
-    await hideAgentCursorOverlay();
+    if (options.hideCursor) {
+      await hideAgentCursorOverlay();
+    }
     try {
       ctx?.ui.setWidget("computer-use", undefined);
     } catch {

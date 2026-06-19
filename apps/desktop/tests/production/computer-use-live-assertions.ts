@@ -15,6 +15,12 @@ const cursorPidPath = join(tmpdir(), "pi-gui-computer-use-agent-cursor.pid");
 const execFileAsync = promisify(execFile);
 
 export async function clearAgentCursorObservation(): Promise<void> {
+  const rawPid = await readFile(cursorPidPath, "utf8").catch(() => "");
+  const pid = Number(rawPid.trim());
+  if (Number.isInteger(pid) && pid > 0 && (await agentCursorDaemonCommand(pid))) {
+    await execFileAsync("kill", ["-TERM", `${pid}`]).catch(() => undefined);
+    await delay(150);
+  }
   await rm(cursorPositionPath, { force: true });
   await rm(cursorPidPath, { force: true });
 }

@@ -343,7 +343,11 @@ await assertFailureResult({
 });
 
 await configuredHandlers.get("turn_end")({}, { ui: { setWidget() {} } });
-await waitForLineCount(hideCursorLogPath, 1);
+assert.equal(
+  await logLineCount(hideCursorLogPath),
+  0,
+  "turn_end should keep the active agent cursor visible until session shutdown",
+);
 const secondConfiguredRuntimeThrown = await executeToolExpectingError(
   configuredTools.get("click"),
   "call-runtime-config-second-turn",
@@ -360,6 +364,7 @@ await assertFailureResult({
   expectedDetails: { errorCode: "screen_recording_denied", screenRecording: "denied" },
 });
 await configuredHandlers.get("session_shutdown")({}, { ui: { setWidget() {} } });
+await waitForLineCount(hideCursorLogPath, 1);
 await writeFile(beginCountPath, "0", "utf8");
 process.env.PI_GUI_COMPUTER_USE_TEST_BEGIN_COUNT_PATH = beginCountPath;
 process.env.PI_GUI_COMPUTER_USE_TEST_NOT_NEEDED_AFTER_FIRST_BEGIN = "1";
@@ -449,14 +454,22 @@ async function executeToolExpectingError(tool, toolCallId, input, expectedMessag
 async function waitForLineCount(path, expectedCount) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
-    const lines = (await readFile(path, "utf8")).trim().split("\n").filter(Boolean);
+    const lines = await logLines(path);
     if (lines.length >= expectedCount) {
       return lines;
     }
     await delay(25);
   }
-  const lines = (await readFile(path, "utf8")).trim().split("\n").filter(Boolean);
+  const lines = await logLines(path);
   assert.fail(`Expected at least ${expectedCount} lines in ${path}, found ${lines.length}`);
+}
+
+async function logLineCount(path) {
+  return (await logLines(path)).length;
+}
+
+async function logLines(path) {
+  return (await readFile(path, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
 }
 
 async function assertFailureResult({ toolCallId, toolName, input, thrown, expectedText, expectedDetails }) {
