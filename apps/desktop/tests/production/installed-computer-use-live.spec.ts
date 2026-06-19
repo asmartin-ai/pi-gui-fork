@@ -10,6 +10,7 @@ import {
 } from "./computer-use-live-assertions";
 import {
   createNamedThread,
+  getAvailableRealAuthModelPatterns,
   getRealAuthConfig,
   launchDesktopByExecutable,
   makeUserDataDir,
@@ -30,12 +31,14 @@ test("installed app runs Computer Use through the real UI without foregrounding 
   const userDataDir = await makeUserDataDir("pi-gui-installed-computer-use-live-");
   const workspacePath = await makeWorkspace("installed-computer-use-live-workspace");
   const executablePath = await resolveAppBundleExecutable(installedAppBundle);
+  const enabledModels = await getAvailableRealAuthModelPatterns(realAuth.sourceDir);
   await clearAgentCursorObservation();
 
   const harness = await launchDesktopByExecutable(executablePath, userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
     realAuthSourceDir: realAuth.sourceDir,
+    enabledModels,
     envOverrides: {
       PI_GUI_DISABLE_BUILTIN_COMPUTER_USE: undefined,
       PI_GUI_COMPUTER_USE_ALLOW_PHYSICAL_INPUT: "0",

@@ -77,6 +77,7 @@ export interface LaunchDesktopOptions {
   readonly testMode?: DesktopTestMode;
   readonly agentDir?: string;
   readonly realAuthSourceDir?: string;
+  readonly enabledModels?: readonly string[];
   readonly scrubProviderEnv?: boolean;
   readonly envOverrides?: Readonly<Record<string, string | undefined>>;
   readonly inheritParentEnv?: boolean;
@@ -92,6 +93,50 @@ export interface RealAuthConfig {
   readonly enabled: boolean;
   readonly sourceDir?: string;
   readonly skipReason?: string;
+}
+
+export const preferredRealAuthComputerUseModelPatterns = [
+  "openai-codex/gpt-5.4",
+  "openai-codex/gpt-5.2",
+  "openai-codex/gpt-5.1",
+  "openai/gpt-5",
+  "anthropic/claude-sonnet-4-5",
+] as const;
+
+export async function getAvailableRealAuthModelPatterns(
+  sourceDir: string,
+  preferredPatterns: readonly string[] = preferredRealAuthComputerUseModelPatterns,
+): Promise<readonly string[]> {
+  const { AuthStorage, ModelRegistry } = (await import(
+    "../../../../node_modules/@earendil-works/pi-coding-agent/dist/index.js"
+  )) as {
+    AuthStorage: {
+      create(authPath: string): unknown;
+    };
+    ModelRegistry: {
+      create(
+        authStorage: unknown,
+        modelsPath: string,
+      ): {
+        getAvailable(): Promise<Array<{ provider: string; id: string }>>;
+      };
+    };
+  };
+
+  return withProviderEnvScrubbed(async () => {
+    const authStorage = AuthStorage.create(join(sourceDir, "auth.json"));
+    const modelRegistry = ModelRegistry.create(authStorage, join(sourceDir, "models.json"));
+    const availablePatterns = (await modelRegistry.getAvailable()).map((model) => `${model.provider}/${model.id}`);
+    const preferredPattern = preferredPatterns.find((pattern) => availablePatterns.includes(pattern));
+    const selectedPattern = preferredPattern ?? availablePatterns[0];
+    if (!selectedPattern) {
+      throw new Error(
+        `Real-auth source dir has no available models under installed-app env: ${sourceDir}. ` +
+          `Use a pi agent auth dir with a provider that exposes at least one available model.`,
+      );
+    }
+    return [selectedPattern];
+  });
 }
 
 export function getRealAuthConfig(): RealAuthConfig {
@@ -299,6 +344,25 @@ function resolvePackagedReleaseDir(rawPath: string | undefined): string | undefi
   return resolve(desktopDir, trimmed);
 }
 
+async function withProviderEnvScrubbed<T>(fn: () => Promise<T>): Promise<T> {
+  const previousValues = new Map<string, string | undefined>();
+  for (const key of PROVIDER_ENV_VARS) {
+    previousValues.set(key, process.env[key]);
+    delete process.env[key];
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previousValues) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 async function prepareAgentDir(
   userDataDir: string,
   options: LaunchDesktopOptions,
@@ -314,10 +378,11 @@ async function prepareAgentDir(
   const agentDir = join(userDataDir, "agent");
   if (options.realAuthSourceDir) {
     await seedAgentDirFromRealAuth(agentDir, options.realAuthSourceDir);
+    await writeAgentEnabledModels(agentDir, options.enabledModels);
     return agentDir;
   }
 
-  await seedAgentDir(agentDir);
+  await seedAgentDir(agentDir, { enabledModels: options.enabledModels });
   return agentDir;
 }
 
@@ -357,6 +422,58 @@ async function copyAgentFile(
 
     throw error;
   }
+}
+
+async function writeAgentEnabledModels(agentDir: string, enabledModels: readonly string[] | undefined): Promise<void> {
+  if (!enabledModels) {
+    return;
+  }
+
+  const settingsPath = join(agentDir, "settings.json");
+  const existingSettings = await readJsonObject(settingsPath);
+  const firstModel = enabledModels[0];
+  const defaultSelection = firstModel ? splitModelPattern(firstModel) : undefined;
+  await writeFile(
+    settingsPath,
+    `${JSON.stringify(
+      {
+        ...existingSettings,
+        ...(defaultSelection
+          ? {
+              defaultProvider: defaultSelection.provider,
+              defaultModel: defaultSelection.modelId,
+            }
+          : {}),
+        enabledModels: [...enabledModels],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+async function readJsonObject(filePath: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await readFile(filePath, "utf8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+function splitModelPattern(pattern: string): { provider: string; modelId: string } | undefined {
+  const separatorIndex = pattern.indexOf("/");
+  if (separatorIndex <= 0 || separatorIndex >= pattern.length - 1) {
+    return undefined;
+  }
+  return {
+    provider: pattern.slice(0, separatorIndex),
+    modelId: pattern.slice(separatorIndex + 1),
+  };
 }
 
 export async function resolvePackagedAppBundle(releaseDir = packagedReleaseDir): Promise<string> {
