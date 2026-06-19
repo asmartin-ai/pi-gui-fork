@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createNamedThread,
-  desktopShortcut,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -18,6 +17,14 @@ export default function dialogExtension(pi) {
     handler: async (_args, ctx) => {
       const confirmed = await ctx.ui.confirm("Confirm change?", "Approve this change.");
       ctx.ui.notify(confirmed ? "Confirm accepted" : "Confirm rejected", "info");
+    },
+  });
+
+  pi.registerCommand("dialog-confirm-timeout", {
+    description: "Open a confirmation dialog that times out",
+    handler: async (_args, ctx) => {
+      const confirmed = await ctx.ui.confirm("Timeout confirm?", "This should close itself.", { timeout: 100 });
+      ctx.ui.notify(confirmed ? "Timeout accepted" : "Timeout rejected", "info");
     },
   });
 
@@ -136,9 +143,16 @@ test("renders extension dialogs in the Electron surface and routes responses bac
     await expect(dialog.getByTestId("extension-dialog-confirm")).toBeFocused();
     await dialog.getByTestId("extension-dialog-confirm").press("Tab");
     await expect(dialog.getByTestId("extension-dialog-cancel")).toBeFocused();
-    await window.keyboard.press(desktopShortcut("Enter"));
+    await dialog.getByTestId("extension-dialog-confirm").click();
     await expect(dialog).toHaveCount(0);
     await expect(window.locator(".timeline")).toContainText("Confirm accepted");
+
+    await composer.fill("/dialog-confirm-timeout ");
+    await composer.press("Enter");
+    await expect(window.getByRole("dialog", { name: "Timeout confirm?" })).toBeVisible();
+    await expect(dialog).toContainText("This should close itself.");
+    await expect(dialog).toHaveCount(0, { timeout: 5_000 });
+    await expect(window.locator(".timeline")).toContainText("Timeout rejected");
 
     await composer.fill("/dialog-select ");
     await composer.press("Enter");

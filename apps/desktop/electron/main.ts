@@ -473,6 +473,23 @@ async function runUnscopedStateResultForWindow(
   return projected;
 }
 
+async function runImmediateStateResultForWindow(
+  window: BrowserWindow | null | undefined,
+  action: () => Promise<DesktopAppState>,
+): Promise<DesktopAppState> {
+  const state = await action();
+  if (!window || !canPublishToWindow(window)) {
+    return state;
+  }
+
+  const webContentsId = window.webContents.id;
+  const projected = projectStateForWindow(webContentsId, state);
+  rememberWindowView(webContentsId, projected);
+  window.webContents.send(desktopIpc.stateChanged, projected);
+  void publishSelectedTranscriptToWindow(window);
+  return projected;
+}
+
 async function runWindowScopedStateResult<T extends { readonly state: DesktopAppState }>(
   window: BrowserWindow | null | undefined,
   action: () => Promise<T>,
@@ -1011,7 +1028,10 @@ app.whenReady().then(async () => {
     runWindowScopedForEvent(event, () => store.setExtensionEnabled(workspaceId, filePath, enabled)),
   );
   ipcMain.handle(desktopIpc.respondToHostUiRequest, (event, workspaceId: string, sessionId: string, response) =>
-    runWindowScopedForEvent(event, () => store.respondToHostUiRequest({ workspaceId, sessionId }, response)),
+    runImmediateStateResultForWindow(
+      BrowserWindow.fromWebContents(event.sender),
+      () => store.respondToHostUiRequest({ workspaceId, sessionId }, response),
+    ),
   );
   ipcMain.handle(desktopIpc.setNotificationPreferences, (event, preferences) =>
     runWindowScopedForEvent(event, () => store.setNotificationPreferences(preferences)),
