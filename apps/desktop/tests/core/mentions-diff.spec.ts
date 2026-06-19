@@ -81,11 +81,12 @@ test("toggles the diff panel from the keyboard shortcut and renders changed file
     await createNamedThread(window, "Diff test");
 
     const diffPanel = window.locator(".diff-panel");
+    await expect(window.getByTestId("orchestrated-workbench")).toBeVisible();
     await expect(diffPanel).toHaveCount(0);
 
     await window.keyboard.press(desktopShortcut("D"));
     await expect(diffPanel).toBeVisible();
-    await expect(diffPanel.locator(".diff-panel__title")).toContainText("Changes");
+    await expect(diffPanel.locator(".diff-panel__title")).toContainText("Files");
     await expect(diffPanel.locator(".diff-panel__file-name")).toContainText("README.md");
 
     const mainBox = await window.locator(".main").boundingBox();
@@ -100,6 +101,7 @@ test("toggles the diff panel from the keyboard shortcut and renders changed file
 
     await window.keyboard.press(desktopShortcut("D"));
     await expect(diffPanel).toHaveCount(0);
+    await expect(window.getByTestId("orchestrated-workbench")).toHaveCount(0);
   } finally {
     await harness.close();
   }

@@ -46,7 +46,9 @@ import {
   type NotificationPreferences,
   type QueuedComposerMessage,
   type RemoveWorktreeInput,
+  type SendChildThreadFollowUpInput,
   type SelectedTranscriptRecord,
+  type SpawnChildThreadInput,
   type StartThreadInput,
   type TranscriptMessage,
   type WorkspaceSessionTarget,
@@ -94,6 +96,7 @@ import { GitWorktreeManager } from "./worktree-manager";
 import * as workspace from "./app-store-workspace";
 import * as worktree from "./app-store-worktree";
 import * as composer from "./app-store-composer";
+import * as orchestration from "./app-store-orchestration";
 import { isSessionActivelyViewed, isSessionVisibleInWindow } from "./session-visibility";
 
 type StateListener = (state: DesktopAppState) => void;
@@ -476,6 +479,14 @@ export class DesktopAppStore implements AppStoreInternals {
     return workspace.createSession(this, input);
   }
 
+  async spawnChildThread(input: SpawnChildThreadInput): Promise<DesktopAppState> {
+    return orchestration.spawnChildThread(this, input);
+  }
+
+  async sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState> {
+    return orchestration.sendChildThreadFollowUp(this, input);
+  }
+
   /* ── View / UI state ───────────────────────────────────── */
 
   async setActiveView(activeView: AppView): Promise<DesktopAppState> {
@@ -814,6 +825,7 @@ export class DesktopAppStore implements AppStoreInternals {
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
+        orchestrationChildren: persisted.orchestrationChildren ?? [],
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -1004,6 +1016,7 @@ export class DesktopAppStore implements AppStoreInternals {
         sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
         sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
         extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
+        orchestrationChildren: this.state.orchestrationChildren,
         lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
         workspaceOrder: this.state.workspaceOrder,
         modelSettingsScopeMode: this.state.modelSettingsScopeMode,
@@ -1916,6 +1929,8 @@ export class DesktopAppStore implements AppStoreInternals {
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       enableTransparency: this.state.enableTransparency,
+      orchestrationChildren:
+        this.state.orchestrationChildren.length > 0 ? this.state.orchestrationChildren : undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

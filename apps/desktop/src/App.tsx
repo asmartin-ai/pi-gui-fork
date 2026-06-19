@@ -11,10 +11,12 @@ import {
   type NewThreadEnvironment,
   type SelectedTranscriptRecord,
   type StartThreadInput,
+  type WorkspaceRecord,
+  type WorktreeRecord,
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
-import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
+import { type DiffPanelFileRequest, type FileWorkbenchContext } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import {
@@ -38,6 +40,7 @@ import { SidebarToggleButton } from "./sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
 import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
+import { OrchestratedWorkbench, type OrchestratedWorkbenchMode } from "./orchestrated-workbench";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
@@ -200,7 +203,7 @@ export default function App() {
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [workbenchMode, setWorkbenchMode] = useState<OrchestratedWorkbenchMode | null>("children");
   const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
   const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
@@ -384,10 +387,36 @@ export default function App() {
     selectedTranscript.sessionId !== selectedSession?.id
   );
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
+  const selectedOrchestrationChildren =
+    selectedWorkspace && selectedSession
+      ? snapshot?.orchestrationChildren.filter(
+          (child) =>
+            child.parentWorkspaceId === selectedWorkspace.id &&
+            child.parentSessionId === selectedSession.id,
+        ) ?? []
+      : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
+  const fileWorkbenchContexts = useMemo(
+    () =>
+      buildFileWorkbenchContexts({
+        workspaces: snapshot?.workspaces ?? [],
+        selectedWorkspace,
+        selectedSessionTitle: selectedExtensionUi?.title || selectedSession?.title,
+        rootWorkspace,
+        activeWorktrees,
+      }),
+    [
+      activeWorktrees,
+      rootWorkspace,
+      selectedExtensionUi?.title,
+      selectedSession?.title,
+      selectedWorkspace,
+      snapshot?.workspaces,
+    ],
+  );
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {
       setOpenTerminalSessionKey("");
@@ -622,18 +651,18 @@ export default function App() {
   }, [requestPinnedBottomAlignment]);
 
   const handleViewFileInDiff = useCallback((path: string) => {
-    setShowDiffPanel(true);
+    setWorkbenchMode("files");
     setDiffFileRequest({ path, nonce: Date.now() });
   }, []);
 
-  const toggleDiffPanel = useCallback(() => {
+  const toggleWorkbenchMode = useCallback((mode: OrchestratedWorkbenchMode) => {
     const pane = timelinePaneRef.current;
     const shouldPreserveBottom = pane ? isNearBottom(pane) || pinnedToBottomRef.current : pinnedToBottomRef.current;
     if (shouldPreserveBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
     }
 
-    setShowDiffPanel((prev) => !prev);
+    setWorkbenchMode((current) => (current === mode ? null : mode));
 
     if (!shouldPreserveBottom) {
       return;
@@ -641,6 +670,18 @@ export default function App() {
 
     schedulePinnedBottomRealignment(3);
   }, [schedulePinnedBottomRealignment]);
+
+  const toggleWorkbenchPanel = useCallback(() => {
+    toggleWorkbenchMode("children");
+  }, [toggleWorkbenchMode]);
+
+  const toggleDiffPanel = useCallback(() => {
+    toggleWorkbenchMode("files");
+  }, [toggleWorkbenchMode]);
+
+  const togglePreviewPanel = useCallback(() => {
+    toggleWorkbenchMode("preview");
+  }, [toggleWorkbenchMode]);
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -1240,7 +1281,7 @@ export default function App() {
       resizeObserver.disconnect();
       previousTimelinePaneSizeRef.current = null;
     };
-  }, [requestPinnedBottomAlignment, selectedSessionKey, showDiffPanel, snapshot?.activeView, timelinePaneMountVersion]);
+  }, [requestPinnedBottomAlignment, selectedSessionKey, workbenchMode, snapshot?.activeView, timelinePaneMountVersion]);
 
   useEffect(() => {
     const pane = timelinePaneRef.current;
@@ -1275,6 +1316,15 @@ export default function App() {
     });
   }, [requestPinnedBottomAlignment]);
 
+  const workbenchAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession);
+  useEffect(() => {
+    if (!workbenchAvailable) {
+      setWorkbenchMode(null);
+      return;
+    }
+    setWorkbenchMode((current) => current ?? "children");
+  }, [workbenchAvailable, selectedSessionKey]);
+
   if (!api || !snapshot) {
     return (
       <div className="shell shell--loading">
@@ -1290,7 +1340,9 @@ export default function App() {
   const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeoverForSelectedThread && Boolean(selectedWorkspace);
   const mainClassName = [
     "main",
-    showDiffPanel ? "main--with-diff" : "",
+    workbenchMode ? "main--with-side-panel" : "",
+    workbenchMode === "files" ? "main--with-diff" : "",
+    workbenchMode === "preview" ? "main--with-preview" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
@@ -1413,6 +1465,16 @@ export default function App() {
 
   const handleRemoveAttachment = (attachmentId: string) => {
     void updateSnapshot(api, setSnapshot, () => api.removeComposerAttachment(attachmentId));
+  };
+
+  const handleAttachPreviewEvidence = (evidence: string) => {
+    setComposerDraft((current) => {
+      const separator = current.trim() ? "\n\n" : "";
+      return `${current}${separator}${evidence}`;
+    });
+    window.setTimeout(() => {
+      composerRef.current?.focus();
+    }, 0);
   };
 
   const handleEditQueuedMessage = (messageId: string) => {
@@ -1821,6 +1883,28 @@ export default function App() {
     });
   };
 
+  const handleSpawnChildThread = (prompt: string) => {
+    if (!selectedWorkspace || !selectedSession) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.spawnChildThread({
+        parentWorkspaceId: selectedWorkspace.id,
+        parentSessionId: selectedSession.id,
+        prompt,
+      }),
+    );
+  };
+
+  const handleSendChildThreadFollowUp = (childThreadId: string, text: string) => {
+    void updateSnapshot(api, setSnapshot, () =>
+      api.sendChildThreadFollowUp({
+        childThreadId,
+        text,
+      }),
+    );
+  };
+
   const handleTimelineScroll = () => {
     const pane = timelinePaneRef.current;
     if (!pane) {
@@ -2112,8 +2196,13 @@ export default function App() {
           terminalAvailable={Boolean(selectedSessionKey)}
           terminalVisible={isTerminalVisibleForSelectedThread}
           onToggleTerminal={toggleTerminal}
-          showDiffPanel={showDiffPanel}
+          workbenchAvailable={workbenchAvailable}
+          workbenchVisible={Boolean(workbenchMode)}
+          onToggleWorkbench={toggleWorkbenchPanel}
+          showDiffPanel={workbenchMode === "files"}
           onToggleDiffPanel={toggleDiffPanel}
+          previewVisible={workbenchMode === "preview"}
+          onTogglePreviewPanel={togglePreviewPanel}
         />
 
         {showTerminalTakeover ? (
@@ -2312,13 +2401,21 @@ export default function App() {
         {terminalPanel}
           </>
         )}
-        {showDiffPanel && selectedWorkspace && selectedSession ? (
-          <DiffPanel
+        {workbenchMode && selectedWorkspace && selectedSession ? (
+          <OrchestratedWorkbench
+            mode={workbenchMode}
+            childrenThreads={selectedOrchestrationChildren}
             workspaceId={selectedWorkspace.id}
             sessionId={selectedSession.id}
             api={api}
             sessionStatus={selectedSession.status}
+            sessionTitle={displayedSessionTitle || selectedSession.title}
             fileRequest={diffFileRequest}
+            fileContexts={fileWorkbenchContexts}
+            onSelectMode={setWorkbenchMode}
+            onSpawnChild={handleSpawnChildThread}
+            onSendFollowUp={handleSendChildThreadFollowUp}
+            onAttachPreviewEvidence={handleAttachPreviewEvidence}
           />
         ) : null}
       </main>
@@ -2334,4 +2431,53 @@ function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTra
 function isNearBottom(element: HTMLDivElement): boolean {
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
   return remaining < 32;
+}
+
+function buildFileWorkbenchContexts({
+  workspaces,
+  selectedWorkspace,
+  selectedSessionTitle,
+  rootWorkspace,
+  activeWorktrees,
+}: {
+  readonly workspaces: readonly WorkspaceRecord[];
+  readonly selectedWorkspace: WorkspaceRecord | undefined;
+  readonly selectedSessionTitle: string | undefined;
+  readonly rootWorkspace: WorkspaceRecord | undefined;
+  readonly activeWorktrees: readonly WorktreeRecord[];
+}): readonly FileWorkbenchContext[] {
+  if (!selectedWorkspace) {
+    return [];
+  }
+
+  const workspacesById = new Map(workspaces.map((workspace) => [workspace.id, workspace] as const));
+  const contexts: FileWorkbenchContext[] = [{
+    workspace: selectedWorkspace,
+    role: "thread",
+    sessionTitle: selectedSessionTitle,
+  }];
+  const seenWorkspaceIds = new Set([selectedWorkspace.id]);
+
+  const addWorkspace = (
+    workspace: WorkspaceRecord | undefined,
+    role: FileWorkbenchContext["role"],
+    worktree?: WorktreeRecord,
+  ) => {
+    if (!workspace || seenWorkspaceIds.has(workspace.id)) {
+      return;
+    }
+    contexts.push({ workspace, role, worktree });
+    seenWorkspaceIds.add(workspace.id);
+  };
+
+  addWorkspace(rootWorkspace, "workspace");
+  for (const worktree of activeWorktrees) {
+    addWorkspace(
+      worktree.linkedWorkspaceId ? workspacesById.get(worktree.linkedWorkspaceId) : undefined,
+      "worktree",
+      worktree,
+    );
+  }
+
+  return contexts;
 }

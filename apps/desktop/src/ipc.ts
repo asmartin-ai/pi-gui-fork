@@ -14,7 +14,9 @@ import type {
   ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
+  SendChildThreadFollowUpInput,
   SelectedTranscriptRecord,
+  SpawnChildThreadInput,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
@@ -81,6 +83,8 @@ export const desktopIpc = {
   unarchiveSession: "pi-gui:unarchive-session",
   createSession: "pi-gui:create-session",
   startThread: "pi-gui:start-thread",
+  spawnChildThread: "pi-gui:spawn-child-thread",
+  sendChildThreadFollowUp: "pi-gui:send-child-thread-follow-up",
   cancelCurrentRun: "pi-gui:cancel-current-run",
   setActiveView: "pi-gui:set-active-view",
   setSidebarCollapsed: "pi-gui:set-sidebar-collapsed",
@@ -134,6 +138,7 @@ export const desktopIpc = {
   navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
   listWorkspaceFiles: "pi-gui:list-workspace-files",
+  readWorkspaceFile: "pi-gui:read-workspace-file",
   getChangedFiles: "pi-gui:get-changed-files",
   getFileDiff: "pi-gui:get-file-diff",
   stageFile: "pi-gui:stage-file",
@@ -159,6 +164,20 @@ export function getDesktopShortcutLabel(platform: NodeJS.Platform, key: string):
 export type PiDesktopStateListener = (state: DesktopAppState) => void;
 export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 export type PiDesktopCommand = (typeof desktopCommands)[keyof typeof desktopCommands];
+
+export interface ChangedFileEntry {
+  readonly path: string;
+  readonly status: "added" | "modified" | "deleted" | "untracked";
+  readonly staged: boolean;
+}
+
+export interface WorkspaceFilePreview {
+  readonly path: string;
+  readonly content: string;
+  readonly truncated: boolean;
+  readonly binary: boolean;
+  readonly sizeBytes: number;
+}
 
 export interface TerminalSize {
   readonly cols: number;
@@ -269,6 +288,8 @@ export interface PiDesktopApi {
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
+  spawnChildThread(input: SpawnChildThreadInput): Promise<DesktopAppState>;
+  sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
   setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
@@ -357,8 +378,9 @@ export interface PiDesktopApi {
     targetId: string,
     options?: NavigateSessionTreeOptions,
   ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
-  listWorkspaceFiles(workspaceId: string): Promise<string[]>;
-  getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>;
+  listWorkspaceFiles(workspaceId: string, options?: { readonly force?: boolean }): Promise<string[]>;
+  readWorkspaceFile(workspaceId: string, filePath: string): Promise<WorkspaceFilePreview>;
+  getChangedFiles(workspaceId: string): Promise<ChangedFileEntry[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
   stageFile(workspaceId: string, filePath: string): Promise<void>;
   toggleWindowMaximize(): Promise<void>;

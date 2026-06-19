@@ -68,6 +68,40 @@ export interface SessionRecord {
   readonly config?: SessionConfig;
 }
 
+export type OrchestrationChildThreadStatus = "running" | "waiting" | "complete" | "failed";
+
+export interface OrchestrationChildTranscriptMessage {
+  readonly id: string;
+  readonly role: "parent" | "child" | "system";
+  readonly text: string;
+  readonly createdAt: string;
+}
+
+export interface OrchestrationChildThread {
+  readonly id: string;
+  readonly parentWorkspaceId: string;
+  readonly parentSessionId: string;
+  readonly title: string;
+  readonly goal: string;
+  readonly status: OrchestrationChildThreadStatus;
+  readonly latestTranscript: string;
+  readonly transcript: readonly OrchestrationChildTranscriptMessage[];
+  readonly mocked: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SpawnChildThreadInput {
+  readonly parentWorkspaceId: string;
+  readonly parentSessionId: string;
+  readonly prompt: string;
+}
+
+export interface SendChildThreadFollowUpInput {
+  readonly childThreadId: string;
+  readonly text: string;
+}
+
 export interface SelectedTranscriptRecord {
   readonly workspaceId: string;
   readonly sessionId: string;
@@ -168,6 +202,7 @@ export interface DesktopAppState {
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly extensionCommandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
+  readonly orchestrationChildren: readonly OrchestrationChildThread[];
   readonly notificationPreferences: NotificationPreferences;
   readonly integratedTerminalShell: string;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
@@ -206,6 +241,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     sessionCommandsBySession: {},
     sessionExtensionUiBySession: {},
     extensionCommandCompatibilityByWorkspace: {},
+    orchestrationChildren: [],
     notificationPreferences: {
       backgroundCompletion: true,
       backgroundFailure: true,

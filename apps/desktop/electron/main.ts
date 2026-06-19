@@ -23,7 +23,7 @@ import {
   setLockedComputerUseEnabled,
 } from "./computer-use-status";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
-import { listWorkspaceFiles } from "./app-store-files";
+import { listWorkspaceFiles, readWorkspaceFile } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import {
@@ -42,6 +42,8 @@ import type {
   CreateSessionInput,
   CreateWorktreeInput,
   RemoveWorktreeInput,
+  SendChildThreadFollowUpInput,
+  SpawnChildThreadInput,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -1145,6 +1147,12 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.startThread, (event, input: StartThreadInput) =>
     runWindowScopedForEvent(event, () => store.startThread(input)),
   );
+  ipcMain.handle(desktopIpc.spawnChildThread, (event, input: SpawnChildThreadInput) =>
+    runWindowScopedForEvent(event, () => store.spawnChildThread(input)),
+  );
+  ipcMain.handle(desktopIpc.sendChildThreadFollowUp, (event, input: SendChildThreadFollowUpInput) =>
+    runWindowScopedForEvent(event, () => store.sendChildThreadFollowUp(input)),
+  );
   ipcMain.handle(desktopIpc.openSkillInFinder, async (_event, workspaceId: string, filePath: string) => {
     const resolved = store.getSkillFilePath(workspaceId, filePath);
     if (!resolved) {
@@ -1227,12 +1235,19 @@ app.whenReady().then(async () => {
         store.navigateSessionTree(target, targetId, options),
       ),
   );
-  ipcMain.handle(desktopIpc.listWorkspaceFiles, async (_event, workspaceId: string) => {
+  ipcMain.handle(desktopIpc.listWorkspaceFiles, async (_event, workspaceId: string, options?: { readonly force?: boolean }) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {
       return [];
     }
-    return listWorkspaceFiles(workspacePath);
+    return listWorkspaceFiles(workspacePath, options);
+  });
+  ipcMain.handle(desktopIpc.readWorkspaceFile, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    return readWorkspaceFile(workspacePath, filePath);
   });
   ipcMain.handle(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);

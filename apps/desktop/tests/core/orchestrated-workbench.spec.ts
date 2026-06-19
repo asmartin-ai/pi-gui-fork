@@ -1,0 +1,158 @@
+import { createServer, type Server } from "node:http";
+import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { expect, test } from "@playwright/test";
+import {
+  commitAllInGitRepo,
+  createNamedThread,
+  initGitRepo,
+  launchDesktop,
+  makeUserDataDir,
+  makeWorkspace,
+} from "../helpers/electron-app";
+
+test("integrates mocked child threads, files, preview evidence, and relaunch persistence", async () => {
+  test.setTimeout(120_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("orchestrated-workbench");
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
+  await writeFile(join(workspacePath, "workbench-notes.txt"), "orchestrated file preview\n", "utf8");
+  const outsideDir = await mkdtemp(join(tmpdir(), "pi-gui-outside-preview-"));
+  const outsideFile = join(outsideDir, "secret.txt");
+  await writeFile(outsideFile, "outside workspace\n", "utf8");
+  await symlink(outsideFile, join(workspacePath, "escape-link.txt"));
+  const previewServer = await startPreviewServer();
+
+  const firstRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await firstRun.firstWindow();
+    await createNamedThread(window, "Parent orchestration session");
+
+    await expect(window.getByTestId("orchestrated-workbench")).toBeVisible();
+    await expect(window.getByTestId("orchestration-workbench")).toBeVisible();
+    await expect(window.getByTestId("child-thread-list")).toContainText("No child threads");
+
+    await window.getByTestId("child-thread-prompt").fill("Audit the renderer state ownership boundary");
+    await window.getByRole("button", { name: "Spawn" }).click();
+
+    await expect(window.getByTestId("child-thread-row")).toHaveCount(1);
+    await expect(window.getByTestId("child-thread-row")).toContainText("Audit the renderer state ownership boundary");
+    await expect(window.getByTestId("child-thread-row")).toContainText("Mocked");
+    await expect(window.getByTestId("child-thread-detail")).toContainText("running");
+    await expect(window.getByTestId("child-thread-transcript")).toContainText("Mock child thread created");
+
+    await window.getByTestId("child-thread-follow-up").fill("Focus on persistence and IPC decisions");
+    await window.getByTestId("child-thread-detail").getByRole("button", { name: "Send" }).click();
+    await expect(window.getByTestId("child-thread-detail")).toContainText("waiting");
+    await expect(window.getByTestId("child-thread-transcript")).toContainText("Focus on persistence and IPC decisions");
+
+    await window.getByTestId("workbench-tab-files").click();
+    const fileWorkbench = window.locator(".file-workbench");
+    await expect(fileWorkbench).toBeVisible();
+    await expect(fileWorkbench.getByTestId("file-workbench-tree")).toContainText("workbench-notes.txt");
+    await expect(fileWorkbench.locator(".diff-panel__file-name").filter({ hasText: "workbench-notes.txt" })).toBeVisible();
+
+    await fileWorkbench.getByTestId("file-workbench-tree").getByText("workbench-notes.txt").click();
+    await expect(fileWorkbench.getByTestId("file-workbench-preview")).toContainText("orchestrated file preview");
+
+    await expect
+      .poll(async () =>
+        window.evaluate(async () => {
+          const app = window.piApp;
+          if (!app) {
+            throw new Error("piApp IPC bridge is unavailable");
+          }
+          const state = await app.getState();
+          try {
+            await app.readWorkspaceFile(state.selectedWorkspaceId, "escape-link.txt");
+            return "allowed";
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
+        }),
+      )
+      .toContain("Path escapes workspace");
+
+    await fileWorkbench.locator(".diff-panel__file-name").filter({ hasText: "workbench-notes.txt" }).click();
+    await expect(fileWorkbench.locator(".diff-inline")).toBeVisible();
+    await expect(fileWorkbench.locator(".diff-line--added")).toContainText("orchestrated file preview");
+
+    await window.getByTestId("workbench-tab-preview").click();
+    await expect(window.getByTestId("preview-workbench")).toBeVisible();
+    await window.getByLabel("Preview URL").fill(previewServer.url);
+    await window.getByRole("button", { name: "Load" }).click();
+    await expect(window.getByTestId("preview-frame")).toBeVisible();
+    await expect(window.getByTestId("preview-status")).toContainText("Ready");
+    await window.getByLabel("Preview evidence observation").fill("Preview rendered inside the workbench");
+    await window.getByRole("button", { name: "Attach evidence" }).click();
+    await expect(window.getByTestId("composer")).toHaveValue(/Preview evidence/);
+    await expect(window.getByTestId("composer")).toHaveValue(/Preview rendered inside the workbench/);
+
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(join(userDataDir, "ui-state.json"), "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .toContain("Focus on persistence and IPC decisions");
+  } finally {
+    await firstRun.close();
+    await previewServer.close();
+  }
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    await expect(window.getByTestId("orchestrated-workbench")).toBeVisible();
+    await expect(window.getByTestId("child-thread-row")).toContainText("Audit the renderer state ownership boundary");
+    await expect(window.getByTestId("child-thread-detail")).toContainText("waiting");
+    await expect(window.getByTestId("child-thread-transcript")).toContainText("Focus on persistence and IPC decisions");
+  } finally {
+    await secondRun.close();
+  }
+});
+
+async function startPreviewServer(): Promise<{ readonly url: string; readonly close: () => Promise<void> }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Workbench preview</title><main>Preview ready</main>");
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Preview server did not bind to a TCP port.");
+  }
+
+  return {
+    url: `http://127.0.0.1:${address.port}/`,
+    close: () => closeServer(server),
+  };
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}

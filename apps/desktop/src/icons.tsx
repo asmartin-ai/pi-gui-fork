@@ -25,6 +25,17 @@ export function TerminalIcon() {
   );
 }
 
+export function BrowserPreviewIcon() {
+  return (
+    <Icon>
+      <rect x="3.1" y="4.1" width="13.8" height="11.8" rx="2" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M3.4 7.4h13.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+      <path d="M6 5.75h.02M8.15 5.75h.02" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="m8.1 10.1 1.8 1.8 3.5-3.6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
+    </Icon>
+  );
+}
+
 export function SidebarToggleIcon() {
   return (
     <Icon>

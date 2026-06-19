@@ -126,7 +126,7 @@ test("reviewed checkboxes update counter, prune on changes, and survive relaunch
 
   expect(
     await firstWindow.evaluate((key) => globalThis.localStorage.getItem(key), storageKey),
-  ).toBe(JSON.stringify(["src/foo.ts"]));
+  ).toBe(JSON.stringify([JSON.stringify([sessionRef.workspaceId, "src/foo.ts"])]));
 
   await diffPanel.getByTestId("diff-panel-reviewed-src/foo.ts").uncheck();
   await expect(counter).toHaveText("Reviewed 0 of 3");
@@ -161,7 +161,7 @@ test("reviewed checkboxes update counter, prune on changes, and survive relaunch
 
     expect(
       await window.evaluate((key) => globalThis.localStorage.getItem(key), storageKey),
-    ).toBe(JSON.stringify(["script.py"]));
+    ).toBe(JSON.stringify([JSON.stringify([sessionRef.workspaceId, "script.py"])]));
   } finally {
     await reopened.close();
   }

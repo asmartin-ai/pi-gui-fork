@@ -5,6 +5,7 @@ import {
   type DesktopComputerUsePrivacyPane,
   type DesktopComputerUseStatus,
   type DesktopNotificationPermissionStatus,
+  type WorkspaceFilePreview,
   type PiDesktopCommand,
   type TerminalDataEvent,
   type TerminalErrorEvent,
@@ -30,7 +31,9 @@ import type {
   DesktopAppState,
   NotificationPreferences,
   RemoveWorktreeInput,
+  SendChildThreadFollowUpInput,
   SelectedTranscriptRecord,
+  SpawnChildThreadInput,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -147,6 +150,10 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<DesktopAppState>,
   startThread: (input: StartThreadInput) =>
     ipcRenderer.invoke(desktopIpc.startThread, input) as Promise<DesktopAppState>,
+  spawnChildThread: (input: SpawnChildThreadInput) =>
+    ipcRenderer.invoke(desktopIpc.spawnChildThread, input) as Promise<DesktopAppState>,
+  sendChildThreadFollowUp: (input: SendChildThreadFollowUpInput) =>
+    ipcRenderer.invoke(desktopIpc.sendChildThreadFollowUp, input) as Promise<DesktopAppState>,
   cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<DesktopAppState>,
   setActiveView: (view: AppView) =>
     ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
@@ -256,8 +263,10 @@ contextBridge.exposeInMainWorld("piApp", {
       readonly state: DesktopAppState;
       readonly result: NavigateSessionTreeResult;
     }>,
-  listWorkspaceFiles: (workspaceId: string) =>
-    ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId) as Promise<string[]>,
+  listWorkspaceFiles: (workspaceId: string, options?: { readonly force?: boolean }) =>
+    ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId, options) as Promise<string[]>,
+  readWorkspaceFile: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.readWorkspaceFile, workspaceId, filePath) as Promise<WorkspaceFilePreview>,
   getChangedFiles: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.getChangedFiles, workspaceId) as Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>,
   getFileDiff: (workspaceId: string, filePath: string) =>

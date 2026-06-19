@@ -3,13 +3,17 @@ import type {
   ExtensionCommandCompatibilityRecord,
   ModelSettingsScopeMode,
   NotificationPreferences,
+  OrchestrationChildThread,
+  OrchestrationChildTranscriptMessage,
 } from "../src/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { readFile } from "node:fs/promises";
 import { writeFileAtomicQueued } from "./atomic-file-write";
 
+const MAX_PERSISTED_ORCHESTRATION_TRANSCRIPT_MESSAGES = 40;
+
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -25,6 +29,7 @@ export interface PersistedUiState {
   readonly sidebarCollapsed?: boolean;
   readonly allowMultiple?: boolean;
   readonly enableTransparency?: boolean;
+  readonly orchestrationChildren?: readonly OrchestrationChildThread[];
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -38,7 +43,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 9
+        parsed.version === 10
+          ? 10
+          : parsed.version === 9
           ? 9
           : parsed.version === 8
             ? 8
@@ -74,6 +81,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       sidebarCollapsed: typeof parsed.sidebarCollapsed === "boolean" ? parsed.sidebarCollapsed : undefined,
       allowMultiple: typeof parsed.allowMultiple === "boolean" ? parsed.allowMultiple : undefined,
       enableTransparency: typeof parsed.enableTransparency === "boolean" ? parsed.enableTransparency : undefined,
+      orchestrationChildren: toPersistedOrchestrationChildren(parsed.orchestrationChildren),
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
@@ -88,13 +96,82 @@ export async function writePersistedUiState(
 ): Promise<void> {
   const serialized = `${JSON.stringify(
     {
-      version: 9,
       ...payload,
+      version: 10,
     } satisfies PersistedUiState,
     null,
     2,
   )}\n`;
   await writeFileAtomicQueued(uiStateFilePath, serialized);
+}
+
+function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThread[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.flatMap((entry): OrchestrationChildThread[] => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const candidate = entry as Record<string, unknown>;
+    const id = stringValue(candidate.id);
+    const parentWorkspaceId = stringValue(candidate.parentWorkspaceId);
+    const parentSessionId = stringValue(candidate.parentSessionId);
+    const title = stringValue(candidate.title);
+    const goal = stringValue(candidate.goal);
+    const status = toOrchestrationStatus(candidate.status);
+    const createdAt = stringValue(candidate.createdAt);
+    const updatedAt = stringValue(candidate.updatedAt);
+    if (!id || !parentWorkspaceId || !parentSessionId || !title || !goal || !createdAt || !updatedAt) {
+      return [];
+    }
+
+    const transcript = Array.isArray(candidate.transcript)
+      ? candidate.transcript.flatMap((message): OrchestrationChildTranscriptMessage[] => {
+          if (!message || typeof message !== "object") {
+            return [];
+          }
+          const record = message as Record<string, unknown>;
+          const messageId = stringValue(record.id);
+          const role =
+            record.role === "parent" || record.role === "child" || record.role === "system"
+              ? record.role
+              : undefined;
+          const text = stringValue(record.text);
+          const messageCreatedAt = stringValue(record.createdAt);
+          if (!messageId || !role || !text || !messageCreatedAt) {
+            return [];
+          }
+          return [{ id: messageId, role, text, createdAt: messageCreatedAt }];
+        })
+      : [];
+    const retainedTranscript = transcript.slice(-MAX_PERSISTED_ORCHESTRATION_TRANSCRIPT_MESSAGES);
+
+    return [
+      {
+        id,
+        parentWorkspaceId,
+        parentSessionId,
+        title,
+        goal,
+        status,
+        latestTranscript: stringValue(candidate.latestTranscript) || retainedTranscript.at(-1)?.text || goal,
+        transcript: retainedTranscript,
+        mocked: candidate.mocked !== false,
+        createdAt,
+        updatedAt,
+      },
+    ];
+  });
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function toOrchestrationStatus(value: unknown): OrchestrationChildThread["status"] {
+  return value === "waiting" || value === "complete" || value === "failed" ? value : "running";
 }
 
 function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot | undefined {
@@ -114,4 +191,3 @@ function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot
     enabledModelPatterns,
   };
 }
-
