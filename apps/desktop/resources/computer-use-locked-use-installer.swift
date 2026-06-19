@@ -79,6 +79,7 @@ func lockedUseStatus() throws -> String {
     let pluginInstalled = FileManager.default.fileExists(atPath: installedPluginPath)
     let configurationInstalled = FileManager.default.fileExists(atPath: configurationPath())
     let helperInstalled = FileManager.default.fileExists(atPath: installedHelperAppPath)
+    let helperCurrent = installedHelperMatchesBundled()
     let screensaverRule = try authorizationRule(named: screensaverRightName)
     let screensaverHasPiGuiDelegates = currentScreensaverHasPiGuiDelegates(screensaverRule)
     let screensaverUsesPiGuiWrapper = isPiGuiScreensaverWrapper(screensaverRule)
@@ -86,7 +87,7 @@ func lockedUseStatus() throws -> String {
     let remoteContainsMechanism = remoteRule.flatMap { stringArray(in: $0, key: "mechanisms").contains(mechanismName) } ?? false
     let originalRuleInstalled = (try? authorizationRule(named: originalScreensaverRightName)) != nil
 
-    if pluginInstalled && configurationInstalled && helperInstalled && screensaverUsesPiGuiWrapper && remoteContainsMechanism && originalRuleInstalled {
+    if pluginInstalled && configurationInstalled && helperInstalled && helperCurrent && screensaverUsesPiGuiWrapper && remoteContainsMechanism && originalRuleInstalled {
         return "installed"
     }
     if !pluginInstalled && !configurationInstalled && !helperInstalled && !screensaverHasPiGuiDelegates && !remoteContainsMechanism && !originalRuleInstalled {
@@ -244,6 +245,24 @@ func bundledHelperAppPath(resourceDirectory: String) throws -> String {
         throw InstallerError.commandFailed("missing bundled Computer Use helper at \(sourceHelperExecutablePath)")
     }
     return sourceHelperAppPath
+}
+
+func installedHelperMatchesBundled() -> Bool {
+    let resourceDirectory = (try? resourceDirectoryArgument(arguments))
+        ?? URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().path
+    let sourceHelperExecutablePath = URL(fileURLWithPath: helperAppPath(resourceDirectory: resourceDirectory))
+        .appendingPathComponent("Contents")
+        .appendingPathComponent("MacOS")
+        .appendingPathComponent(helperExecutableName)
+        .path
+    let installedHelperExecutablePath = helperExecutablePath()
+    guard FileManager.default.fileExists(atPath: sourceHelperExecutablePath),
+          FileManager.default.fileExists(atPath: installedHelperExecutablePath),
+          let sourceData = try? Data(contentsOf: URL(fileURLWithPath: sourceHelperExecutablePath)),
+          let installedData = try? Data(contentsOf: URL(fileURLWithPath: installedHelperExecutablePath)) else {
+        return false
+    }
+    return sourceData == installedData
 }
 
 func installHelperApp(sourceHelperAppPath: String) throws {

@@ -47,6 +47,12 @@ on run argv
 end run
 `;
 
+const LOCK_DESKTOP_SCRIPT = `
+tell application "System Events"
+  key code 12 using {control down, command down}
+end tell
+`;
+
 const LOCK_DESKTOP_COMMAND = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession";
 
 export async function assertAccessibilityReady(): Promise<void> {
@@ -113,7 +119,16 @@ export async function getDesktopLockState(): Promise<"locked" | "unlocked" | "un
 }
 
 export async function lockDesktop(): Promise<void> {
-  await execFileAsync(LOCK_DESKTOP_COMMAND, ["-suspend"], { timeout: DEFAULT_TIMEOUT_MS });
+  try {
+    await execFileAsync(LOCK_DESKTOP_COMMAND, ["-suspend"], { timeout: DEFAULT_TIMEOUT_MS });
+    return;
+  } catch (error) {
+    if (!isCgSessionFallbackError(error)) {
+      throw error;
+    }
+  }
+  await assertAccessibilityReady();
+  await runAppleScript(LOCK_DESKTOP_SCRIPT, [], DEFAULT_TIMEOUT_MS);
 }
 
 export async function waitForDesktopLocked(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<void> {
@@ -164,4 +179,11 @@ async function runAppleScript(script: string, values: readonly string[], timeout
 
     throw new Error(String(error));
   }
+}
+
+function isCgSessionFallbackError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return error.code === "ENOENT" || typeof error.code === "number";
 }

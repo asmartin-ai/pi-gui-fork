@@ -2403,14 +2403,37 @@ func lockedUseLeaseSeconds() -> TimeInterval {
 
 func lockDesktop() {
     let lockCommand = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+    if !FileManager.default.isExecutableFile(atPath: lockCommand) {
+        postLockScreenShortcut()
+        return
+    }
+
     let process = Process()
     process.executableURL = URL(fileURLWithPath: lockCommand)
     process.arguments = ["-suspend"]
     do {
         try process.run()
         process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            postLockScreenShortcut()
+        }
     } catch {
-        return
+        postLockScreenShortcut()
+    }
+}
+
+func postLockScreenShortcut() {
+    let source = CGEventSource(stateID: .hidSystemState)
+    let flags: CGEventFlags = [.maskCommand, .maskControl]
+    let lockScreenKeyCode = CGKeyCode(12)
+    if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: lockScreenKeyCode, keyDown: true) {
+        keyDown.flags = flags
+        keyDown.post(tap: .cghidEventTap)
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: lockScreenKeyCode, keyDown: false) {
+        keyUp.flags = flags
+        keyUp.post(tap: .cghidEventTap)
     }
 }
 
