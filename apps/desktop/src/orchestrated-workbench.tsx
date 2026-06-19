@@ -17,7 +17,6 @@ interface OrchestratedWorkbenchProps {
   readonly fileRequest?: DiffPanelFileRequest | null;
   readonly fileContexts: readonly FileWorkbenchContext[];
   readonly onSelectMode: (mode: OrchestratedWorkbenchMode) => void;
-  readonly onSpawnChild: (prompt: string) => void;
   readonly onSendFollowUp: (childThreadId: string, text: string) => void;
   readonly onOpenChild: (child: OrchestrationChildThread) => void;
   readonly onAttachPreviewEvidence: (evidence: string) => void;
@@ -40,7 +39,6 @@ export function OrchestratedWorkbench({
   fileRequest,
   fileContexts,
   onSelectMode,
-  onSpawnChild,
   onSendFollowUp,
   onOpenChild,
   onAttachPreviewEvidence,
@@ -70,7 +68,6 @@ export function OrchestratedWorkbench({
         {mode === "children" ? (
           <OrchestrationWorkbench
             childrenThreads={childrenThreads}
-            onSpawnChild={onSpawnChild}
             onSendFollowUp={onSendFollowUp}
             onOpenChild={onOpenChild}
           />

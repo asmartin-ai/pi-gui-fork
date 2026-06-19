@@ -48,7 +48,6 @@ import {
   type RemoveWorktreeInput,
   type SendChildThreadFollowUpInput,
   type SelectedTranscriptRecord,
-  type SpawnChildThreadInput,
   type StartThreadInput,
   type TranscriptMessage,
   type WorkspaceSessionTarget,
@@ -477,10 +476,6 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async createSession(input: CreateSessionInput): Promise<DesktopAppState> {
     return workspace.createSession(this, input);
-  }
-
-  async spawnChildThread(input: SpawnChildThreadInput): Promise<DesktopAppState> {
-    return orchestration.spawnChildThread(this, input);
   }
 
   async sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState> {
@@ -1040,9 +1035,11 @@ export class DesktopAppStore implements AppStoreInternals {
         this.markSelectedSessionViewedIfVisible();
       }
 
-      await this.persistUiState();
-      const snapshot = this.emit();
-      if (this.currentSelectedSessionKey() !== previousSelectedKey) {
+      if (options.persistState ?? true) {
+        await this.persistUiState();
+      }
+      const snapshot = options.emitState === false ? structuredClone(this.state) : this.emit();
+      if ((options.publishSelectedTranscript ?? true) && this.currentSelectedSessionKey() !== previousSelectedKey) {
         this.publishSelectedTranscript();
       }
       return snapshot;
@@ -1616,6 +1613,9 @@ export class DesktopAppStore implements AppStoreInternals {
       this.sessionState.runningSinceBySession,
       this.sessionState.lastViewedAtBySession,
     );
+    if (event.type === "toolFinished") {
+      await orchestration.handleOrchestrationThreadToolResult(this, event);
+    }
     this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
     if (orchestration.hasOrchestrationChildSession(this.state.orchestrationChildren, event.sessionRef)) {

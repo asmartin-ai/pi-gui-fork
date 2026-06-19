@@ -10,6 +10,12 @@ import {
   makeTranscriptMessage,
   makeTranscriptMessageWithAttachments,
 } from "./app-store-utils";
+import {
+  createChildThreadToolName,
+  listThreadsToolName,
+  readThreadToolName,
+  sendMessageToThreadToolName,
+} from "./orchestration-runtime";
 
 export interface RunMetrics {
   readonly startedAt: string;
@@ -304,6 +310,18 @@ function clearRunState(
 
 function toolLabel(toolName: string, input: unknown): string {
   const detail = inputLabel(input);
+  if (toolName === createChildThreadToolName) {
+    return detail ? `Started child thread: ${detail}` : "Started child thread";
+  }
+  if (toolName === listThreadsToolName) {
+    return "Listed threads";
+  }
+  if (toolName === readThreadToolName) {
+    return detail ? `Read thread: ${detail}` : "Read thread";
+  }
+  if (toolName === sendMessageToThreadToolName) {
+    return detail ? `Sent message to thread: ${detail}` : "Sent message to thread";
+  }
   if (looksLikeSearch(toolName, input)) {
     return detail ? `Searched ${detail}` : `Searched with ${toolName}`;
   }
@@ -412,7 +430,7 @@ function inputLabel(input: unknown): string | undefined {
     return undefined;
   }
 
-  const candidates = ["path", "filePath", "query", "q", "url", "command", "text", "title", "app"];
+  const candidates = ["path", "filePath", "query", "q", "url", "command", "text", "prompt", "title", "app"];
   for (const key of candidates) {
     const value = input[key];
     if (typeof value === "string" && value.trim()) {

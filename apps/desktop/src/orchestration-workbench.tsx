@@ -1,22 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { OrchestrationChildThread } from "./desktop-state";
-import { PlusIcon } from "./icons";
 import { formatRelativeTime } from "./string-utils";
 
 interface OrchestrationWorkbenchProps {
   readonly childrenThreads: readonly OrchestrationChildThread[];
-  readonly onSpawnChild: (prompt: string) => void;
   readonly onSendFollowUp: (childThreadId: string, text: string) => void;
   readonly onOpenChild: (child: OrchestrationChildThread) => void;
 }
 
 export function OrchestrationWorkbench({
   childrenThreads,
-  onSpawnChild,
   onSendFollowUp,
   onOpenChild,
 }: OrchestrationWorkbenchProps) {
-  const [spawnPrompt, setSpawnPrompt] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
   const [selectedChildId, setSelectedChildId] = useState("");
   const selectedChild = useMemo(
@@ -33,16 +29,6 @@ export function OrchestrationWorkbench({
       setSelectedChildId("");
     }
   }, [selectedChild, selectedChildId]);
-
-  function handleSpawnSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const prompt = spawnPrompt.trim();
-    if (!prompt) {
-      return;
-    }
-    onSpawnChild(prompt);
-    setSpawnPrompt("");
-  }
 
   function handleFollowUpSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,24 +49,6 @@ export function OrchestrationWorkbench({
         </div>
         <span className="orchestration-panel__count">{childrenThreads.length}</span>
       </div>
-
-      <form className="orchestration-spawn" onSubmit={handleSpawnSubmit}>
-        <textarea
-          aria-label="Child thread prompt"
-          data-testid="child-thread-prompt"
-          placeholder="Investigate this in a child thread"
-          value={spawnPrompt}
-          onChange={(event) => setSpawnPrompt(event.target.value)}
-        />
-        <button
-          className="button button--primary orchestration-spawn__button"
-          disabled={!spawnPrompt.trim()}
-          type="submit"
-        >
-          <PlusIcon />
-          <span>Spawn</span>
-        </button>
-      </form>
 
       <div className="orchestration-child-list" data-testid="child-thread-list">
         {childrenThreads.length === 0 ? (

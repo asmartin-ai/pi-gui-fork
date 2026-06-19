@@ -4,12 +4,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
 import type { SessionDriverEvent, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
-import type { OrchestrationChildThread } from "../../src/desktop-state";
+import {
+  createChildThreadToolName,
+  listThreadsToolName,
+  readThreadToolName,
+  sendMessageToThreadToolName,
+} from "../../electron/orchestration-runtime";
+import type { OrchestrationChildThread, TimelineToolCall } from "../../src/desktop-state";
 import {
   commitAllInGitRepo,
   createNamedThread,
+  createSessionViaIpc,
   emitTestSessionEvent,
   getDesktopState,
+  getSelectedTranscript,
   initGitRepo,
   launchDesktop,
   makeUserDataDir,
@@ -21,8 +29,11 @@ test("integrates real child threads, files, preview evidence, and relaunch persi
   test.setTimeout(120_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("orchestrated-workbench");
+  const unrelatedWorkspacePath = await makeWorkspace("orchestrated-workbench-unrelated");
   await initGitRepo(workspacePath);
   await commitAllInGitRepo(workspacePath, "init");
+  await initGitRepo(unrelatedWorkspacePath);
+  await commitAllInGitRepo(unrelatedWorkspacePath, "init");
   await writeFile(join(workspacePath, "workbench-notes.txt"), "orchestrated file preview\n", "utf8");
   const outsideDir = await mkdtemp(join(tmpdir(), "pi-gui-outside-preview-"));
   const outsideFile = join(outsideDir, "secret.txt");
@@ -31,7 +42,7 @@ test("integrates real child threads, files, preview evidence, and relaunch persi
   const previewServer = await startPreviewServer();
 
   const firstRun = await launchDesktop(userDataDir, {
-    initialWorkspaces: [workspacePath],
+    initialWorkspaces: [workspacePath, unrelatedWorkspacePath],
     testMode: "background",
   });
 
@@ -43,28 +54,149 @@ test("integrates real child threads, files, preview evidence, and relaunch persi
     await expect(window.getByTestId("orchestration-workbench")).toBeVisible();
     await expect(window.getByTestId("child-thread-list")).toContainText("No child threads");
 
-    await window.getByTestId("child-thread-prompt").fill("Audit the renderer state ownership boundary");
-    await window.getByRole("button", { name: "Spawn" }).click();
+    const parentState = await getDesktopState(window);
+    const parentRef = {
+      workspaceId: parentState.selectedWorkspaceId,
+      sessionId: parentState.selectedSessionId,
+    };
+    await createSessionViaIpc(window, unrelatedWorkspacePath, "Unrelated isolated session");
+    const unrelatedState = await getDesktopState(window);
+    const unrelatedWorkspace = unrelatedState.workspaces.find((workspace) => workspace.path === unrelatedWorkspacePath);
+    const unrelatedSession = unrelatedWorkspace?.sessions.find((session) => session.title === "Unrelated isolated session");
+    if (!unrelatedWorkspace || !unrelatedSession) {
+      throw new Error("Expected unrelated workspace session to exist");
+    }
+    const unrelatedThreadRef = `${unrelatedWorkspace.id}:${unrelatedSession.id}`;
+    await selectSession(window, "Parent orchestration session");
+
+    const childPrompt = "Audit the renderer state ownership boundary";
+    const toolCallId = "create-child-thread-test";
+    const createChildToolResult = await runOrchestrationRuntimeTool(
+      firstRun,
+      parentRef,
+      createChildThreadToolName,
+      { prompt: childPrompt },
+      toolCallId,
+    );
+    expect(toolResultText(createChildToolResult)).toContain("Created child thread");
+    const createChildDetails = toolResultDetails(createChildToolResult);
+    expect(createChildDetails.childThreadId).toEqual(expect.any(String));
+    expect(createChildDetails.childWorkspaceId).toEqual(expect.any(String));
+    expect(createChildDetails.childSessionId).toEqual(expect.any(String));
+    expect(createChildDetails.title).toBe("Audit the renderer state ownership boundary");
+    await emitTestSessionEvent(firstRun, {
+      type: "toolStarted",
+      sessionRef: parentRef,
+      timestamp: new Date().toISOString(),
+      toolName: createChildThreadToolName,
+      callId: toolCallId,
+      input: { prompt: childPrompt },
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Started child thread");
+    await emitTestSessionEvent(firstRun, {
+      type: "toolFinished",
+      sessionRef: parentRef,
+      timestamp: new Date().toISOString(),
+      callId: toolCallId,
+      success: true,
+      output: {
+        ...createChildToolResult,
+      },
+    });
+    await expect(window.getByTestId("transcript")).toContainText(createChildThreadToolName);
 
     await expect(window.getByTestId("child-thread-row")).toHaveCount(1);
     await expect(window.getByTestId("child-thread-row")).toContainText("Audit the renderer state ownership boundary");
     await expect(window.getByTestId("child-thread-row")).not.toContainText("Mocked");
-    await expect(window.locator(".session-row__select", { hasText: "Audit the renderer state ownership boundary" })).toBeVisible();
+    await expect(window.locator(".session-row__select", { hasText: "Audit the renderer state ownership boundary" }).first()).toBeVisible();
     const child = await waitForChildThread(window);
+    expect(child.id).toBe(createChildDetails.childThreadId);
+    expect(child.childWorkspaceId).toBe(createChildDetails.childWorkspaceId);
+    expect(child.childSessionId).toBe(createChildDetails.childSessionId);
     await expect
       .poll(async () => (await waitForChildThread(window)).transcript.map((message) => message.text))
+      .toContain("Audit the renderer state ownership boundary");
+
+    const listThreadsCallId = "list-threads-test";
+    const listThreadsToolResult = await runOrchestrationRuntimeTool(firstRun, parentRef, listThreadsToolName, {});
+    expect(toolResultText(listThreadsToolResult)).toContain(child.id);
+    expect(toolResultText(listThreadsToolResult)).toContain("Parent orchestration session");
+    expect(toolResultText(listThreadsToolResult)).not.toContain("Unrelated isolated session");
+    await emitRuntimeToolCall(firstRun, parentRef, listThreadsToolName, listThreadsCallId, {}, {
+      ...listThreadsToolResult,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Listed threads");
+    await expect
+      .poll(async () => toolOutputText(window, listThreadsCallId))
+      .toContain(child.id);
+    await expect
+      .poll(async () => toolOutputText(window, listThreadsCallId))
+      .toContain("Parent orchestration session");
+    await expect
+      .poll(async () => toolOutputText(window, listThreadsCallId))
+      .not.toContain("Unrelated isolated session");
+
+    const rejectedReadThreadCallId = "read-unrelated-thread-test";
+    const rejectedReadThreadToolResult = await runOrchestrationRuntimeTool(
+      firstRun,
+      parentRef,
+      readThreadToolName,
+      { thread_id: unrelatedThreadRef },
+    );
+    expect(toolResultText(rejectedReadThreadToolResult)).toContain(`Unknown thread: ${unrelatedThreadRef}`);
+    await emitRuntimeToolCall(firstRun, parentRef, readThreadToolName, rejectedReadThreadCallId, { thread_id: unrelatedThreadRef }, {
+      ...rejectedReadThreadToolResult,
+    });
+    await expect
+      .poll(async () => toolOutputText(window, rejectedReadThreadCallId))
+      .toContain(`Unknown thread: ${unrelatedThreadRef}`);
+
+    const readThreadCallId = "read-child-thread-test";
+    const readThreadToolResult = await runOrchestrationRuntimeTool(
+      firstRun,
+      parentRef,
+      readThreadToolName,
+      { thread_id: child.id },
+    );
+    expect(toolResultText(readThreadToolResult)).toContain("Audit the renderer state ownership boundary");
+    await emitRuntimeToolCall(firstRun, parentRef, readThreadToolName, readThreadCallId, { thread_id: child.id }, {
+      ...readThreadToolResult,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Read thread");
+    await expect
+      .poll(async () => toolOutputText(window, readThreadCallId))
       .toContain("Audit the renderer state ownership boundary");
 
     await expect(window.getByTestId("child-thread-detail")).toContainText("failed");
     await emitChildRunningSnapshot(firstRun, window, child);
     await expect(window.getByTestId("child-thread-detail")).toContainText("running");
 
-    await window.getByTestId("child-thread-follow-up").fill("Focus on persistence and IPC decisions");
-    await window.getByTestId("child-thread-detail").getByRole("button", { name: "Send" }).click();
+    const runtimeFollowUp = "Report whether IPC boundaries stay tight";
+    const sendMessageCallId = "send-message-to-child-thread-test";
+    const sendMessageToolResult = await runOrchestrationRuntimeTool(
+      firstRun,
+      parentRef,
+      sendMessageToThreadToolName,
+      { thread_id: child.id, message: runtimeFollowUp },
+    );
+    expect(toolResultText(sendMessageToolResult)).toContain("Queued message to thread");
+    await emitRuntimeToolCall(
+      firstRun,
+      parentRef,
+      sendMessageToThreadToolName,
+      sendMessageCallId,
+      { thread_id: child.id, message: runtimeFollowUp },
+      {
+        ...sendMessageToolResult,
+      },
+    );
+    await expect
+      .poll(async () => toolOutputText(window, sendMessageCallId))
+      .toContain("Queued message to thread");
     await expect(window.getByTestId("child-thread-detail")).toContainText("waiting");
     await window.getByTestId("child-thread-open").click();
     await expect(window.locator(".topbar__session")).toHaveText("Audit the renderer state ownership boundary");
-    await expect(window.getByTestId("queued-composer-message")).toContainText("Focus on persistence and IPC decisions");
+    await expect(window.getByTestId("queued-composer-message")).toContainText(runtimeFollowUp);
     await selectSession(window, "Parent orchestration session");
 
     await window.getByTestId("workbench-tab-files").click();
@@ -149,6 +281,93 @@ async function waitForChildThread(window: Parameters<typeof getDesktopState>[0])
     }
     return child;
   });
+}
+
+async function emitRuntimeToolCall(
+  harness: Awaited<ReturnType<typeof launchDesktop>>,
+  sessionRef: SessionRef,
+  toolName: string,
+  callId: string,
+  input: unknown,
+  output: unknown,
+): Promise<void> {
+  await emitTestSessionEvent(harness, {
+    type: "toolStarted",
+    sessionRef,
+    timestamp: new Date().toISOString(),
+    toolName,
+    callId,
+    input,
+  });
+  await emitTestSessionEvent(harness, {
+    type: "toolFinished",
+    sessionRef,
+    timestamp: new Date().toISOString(),
+    callId,
+    success: true,
+    output,
+  });
+}
+
+async function runOrchestrationRuntimeTool(
+  harness: Awaited<ReturnType<typeof launchDesktop>>,
+  sessionRef: SessionRef,
+  toolName: string,
+  params: unknown,
+  toolCallId?: string,
+): Promise<unknown> {
+  return harness.electronApp.evaluate(async (_, input) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: {
+        runOrchestrationRuntimeTool?: (toolInput: {
+          readonly toolName: string;
+          readonly toolCallId?: string;
+          readonly sessionRef: SessionRef;
+          readonly params: unknown;
+        }) => Promise<unknown>;
+      };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.runOrchestrationRuntimeTool) {
+      throw new Error("Orchestration runtime tool test hook is unavailable");
+    }
+    return hooks.runOrchestrationRuntimeTool(input);
+  }, { toolName, toolCallId, sessionRef, params });
+}
+
+async function toolOutputText(window: Parameters<typeof getDesktopState>[0], callId: string): Promise<string> {
+  const transcript = await getSelectedTranscript(window);
+  const tool = transcript?.transcript.find(
+    (item): item is TimelineToolCall => item.kind === "tool" && item.callId === callId,
+  );
+  if (!tool) {
+    return "";
+  }
+  return JSON.stringify(tool.output);
+}
+
+function toolResultText(result: unknown): string {
+  if (typeof result !== "object" || result === null || !("content" in result) || !Array.isArray(result.content)) {
+    return JSON.stringify(result);
+  }
+  return result.content
+    .map((item) =>
+      typeof item === "object" && item !== null && "type" in item && item.type === "text" && "text" in item
+        ? item.text
+        : "",
+    )
+    .filter((text): text is string => typeof text === "string" && text.length > 0)
+    .join("\n");
+}
+
+function toolResultDetails(result: unknown): Record<string, unknown> {
+  if (typeof result !== "object" || result === null || !("details" in result)) {
+    throw new Error(`Tool result did not include details: ${JSON.stringify(result)}`);
+  }
+  const details = result.details;
+  if (typeof details !== "object" || details === null) {
+    throw new Error(`Tool result details were not an object: ${JSON.stringify(result)}`);
+  }
+  return details as Record<string, unknown>;
 }
 
 async function emitChildRunningSnapshot(

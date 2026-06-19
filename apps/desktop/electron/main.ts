@@ -12,11 +12,18 @@ import {
   type MessageBoxOptions,
 } from "electron";
 import { randomUUID } from "node:crypto";
+import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore, type DesktopAppViewState } from "./app-store";
 import { configureComputerUseRuntime, runComputerUseLockedUseSelfTest } from "./computer-use-runtime";
+import {
+  createOrchestrationRuntimeExtension,
+  createOrchestrationRuntimeTools,
+  type OrchestrationRuntimeBridge,
+} from "./orchestration-runtime";
+import * as orchestrationTools from "./app-store-orchestration";
 import {
   getComputerUseStatus,
   openComputerUsePrivacySettings,
@@ -43,7 +50,6 @@ import type {
   CreateWorktreeInput,
   RemoveWorktreeInput,
   SendChildThreadFollowUpInput,
-  SpawnChildThreadInput,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -69,6 +75,13 @@ interface WindowViewState {
   readonly sidebarCollapsed: boolean;
 }
 
+interface OrchestrationRuntimeToolTestInput {
+  readonly toolName: string;
+  readonly toolCallId?: string;
+  readonly sessionRef: SessionRef;
+  readonly params: unknown;
+}
+
 const appWindows = new Set<BrowserWindow>();
 const windowViews = new Map<number, WindowViewState>();
 const stopPublishingStateByWebContentsId = new Map<number, () => void>();
@@ -88,6 +101,89 @@ let deferredActivationWebContentsId: number | undefined;
 const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
 const NEW_WINDOW_MENU_ITEM_ID = "file.new-window";
+
+function createStoreBackedOrchestrationRuntimeBridge(): OrchestrationRuntimeBridge {
+  return {
+    createChildThread: async (ctx, input) => {
+      await store.initialize();
+      return orchestrationTools.createChildThreadToolResult(store, sessionRefFromExtensionContext(ctx), input);
+    },
+    listThreads: async (ctx) => {
+      await store.initialize();
+      return orchestrationTools.listThreadsToolResult(store, sessionRefFromExtensionContext(ctx));
+    },
+    readThread: async (ctx, threadId) => {
+      await store.initialize();
+      return orchestrationTools.readThreadToolResult(store, sessionRefFromExtensionContext(ctx), threadId);
+    },
+    sendMessageToThread: async (ctx, input) => {
+      await store.initialize();
+      return orchestrationTools.sendMessageToThreadToolResult(store, sessionRefFromExtensionContext(ctx), input);
+    },
+  };
+}
+
+function sessionRefFromExtensionContext(ctx: ExtensionContext): SessionRef {
+  const sessionId = ctx.sessionManager.getSessionId();
+  const cwd = path.resolve(ctx.sessionManager.getCwd?.() ?? ctx.cwd);
+  const workspace = store.state.workspaces.find(
+    (entry) => path.resolve(entry.path) === cwd && entry.sessions.some((session) => session.id === sessionId),
+  );
+  if (!workspace) {
+    throw new Error(`Unable to resolve orchestration session for ${cwd}:${sessionId}`);
+  }
+  return {
+    workspaceId: workspace.id,
+    sessionId,
+  };
+}
+
+async function runOrchestrationRuntimeToolForTest(
+  bridge: OrchestrationRuntimeBridge,
+  input: OrchestrationRuntimeToolTestInput,
+): Promise<AgentToolResult<unknown>> {
+  await store.initialize();
+  const tool = createOrchestrationRuntimeTools(bridge).find((entry) => entry.name === input.toolName);
+  if (!tool) {
+    throw new Error(`Unknown orchestration runtime tool: ${input.toolName}`);
+  }
+  return tool.execute(
+    input.toolCallId ?? `test-${input.toolName}`,
+    input.params,
+    undefined,
+    undefined,
+    createTestExtensionContext(input.sessionRef),
+  );
+}
+
+function createTestExtensionContext(sessionRef: SessionRef): ExtensionContext {
+  const workspace = store.state.workspaces.find(
+    (entry) => entry.id === sessionRef.workspaceId && entry.sessions.some((session) => session.id === sessionRef.sessionId),
+  );
+  if (!workspace) {
+    throw new Error(`Unknown test session: ${sessionRef.workspaceId}:${sessionRef.sessionId}`);
+  }
+
+  return {
+    hasUI: false,
+    cwd: workspace.path,
+    sessionManager: {
+      getSessionId: () => sessionRef.sessionId,
+      getCwd: () => workspace.path,
+    } as ExtensionContext["sessionManager"],
+    ui: {} as ExtensionContext["ui"],
+    modelRegistry: {} as ExtensionContext["modelRegistry"],
+    model: undefined,
+    signal: undefined,
+    isIdle: () => true,
+    abort: () => undefined,
+    hasPendingMessages: () => false,
+    shutdown: () => undefined,
+    getContextUsage: () => undefined,
+    compact: () => undefined,
+    getSystemPrompt: () => "",
+  };
+}
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -885,12 +981,26 @@ app.whenReady().then(async () => {
     resourcesPath: process.resourcesPath,
     execPath: process.execPath,
   });
+  const orchestrationRuntimeBridge = createStoreBackedOrchestrationRuntimeBridge();
+  const driverOptions = {
+    extensionFactories: [
+      createOrchestrationRuntimeExtension(orchestrationRuntimeBridge),
+      ...(computerUseRuntimeDriverOptions?.extensionFactories ?? []),
+    ],
+    inlineExtensionMetadata: [
+      {
+        displayName: "Thread orchestration",
+        description: "Start child pi-gui threads from transcript tool calls",
+      },
+      ...(computerUseRuntimeDriverOptions?.inlineExtensionMetadata ?? []),
+    ],
+  };
   store = new DesktopAppStore({
     userDataDir: configuredUserDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
     getWindow: () => mainWindow,
     shouldKeepSessionDialogs: (sessionRef) => isSessionVisibleInAnotherWindow(sessionRef),
-    ...(computerUseRuntimeDriverOptions ? { driverOptions: computerUseRuntimeDriverOptions } : {}),
+    driverOptions,
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
   await store.initialize();
@@ -909,6 +1019,8 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        runOrchestrationRuntimeTool: (input: OrchestrationRuntimeToolTestInput) =>
+          runOrchestrationRuntimeToolForTest(orchestrationRuntimeBridge, input),
         runComputerUseLockedUseSelfTest: () => runComputerUseLockedUseSelfTest(),
         setDeferredThreadTitleMode: () => {
           generateThreadTitleOverride = () =>
@@ -1146,9 +1258,6 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.startThread, (event, input: StartThreadInput) =>
     runWindowScopedForEvent(event, () => store.startThread(input)),
-  );
-  ipcMain.handle(desktopIpc.spawnChildThread, (event, input: SpawnChildThreadInput) =>
-    runWindowScopedForEvent(event, () => store.spawnChildThread(input)),
   );
   ipcMain.handle(desktopIpc.sendChildThreadFollowUp, (event, input: SendChildThreadFollowUpInput) =>
     runWindowScopedForEvent(event, () => store.sendChildThreadFollowUp(input)),

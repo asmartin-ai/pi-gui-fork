@@ -1,7 +1,7 @@
 import type { HostUiRequest, SessionConfig } from "@pi-gui/session-driver";
 import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
-export type { SessionRole, TranscriptMessage } from "./timeline-types";
+export type { SessionRole, TimelineToolCall, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
 
 export type AppView = "threads" | "new-thread" | "skills" | "extensions" | "settings";
@@ -79,6 +79,7 @@ export interface OrchestrationChildTranscriptMessage {
 
 export interface OrchestrationChildThread {
   readonly id: string;
+  readonly sourceToolCallId?: string;
   readonly parentWorkspaceId: string;
   readonly parentSessionId: string;
   readonly childWorkspaceId: string;
@@ -90,12 +91,6 @@ export interface OrchestrationChildThread {
   readonly transcript: readonly OrchestrationChildTranscriptMessage[];
   readonly createdAt: string;
   readonly updatedAt: string;
-}
-
-export interface SpawnChildThreadInput {
-  readonly parentWorkspaceId: string;
-  readonly parentSessionId: string;
-  readonly prompt: string;
 }
 
 export interface SendChildThreadFollowUpInput {

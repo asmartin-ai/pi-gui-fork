@@ -16,7 +16,6 @@ import type {
   RemoveWorktreeInput,
   SendChildThreadFollowUpInput,
   SelectedTranscriptRecord,
-  SpawnChildThreadInput,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
@@ -83,7 +82,6 @@ export const desktopIpc = {
   unarchiveSession: "pi-gui:unarchive-session",
   createSession: "pi-gui:create-session",
   startThread: "pi-gui:start-thread",
-  spawnChildThread: "pi-gui:spawn-child-thread",
   sendChildThreadFollowUp: "pi-gui:send-child-thread-follow-up",
   cancelCurrentRun: "pi-gui:cancel-current-run",
   setActiveView: "pi-gui:set-active-view",
@@ -288,7 +286,6 @@ export interface PiDesktopApi {
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
-  spawnChildThread(input: SpawnChildThreadInput): Promise<DesktopAppState>;
   sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;

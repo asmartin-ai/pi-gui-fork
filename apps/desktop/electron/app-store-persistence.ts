@@ -149,9 +149,11 @@ function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThr
       : [];
     const retainedTranscript = transcript.slice(-MAX_PERSISTED_ORCHESTRATION_TRANSCRIPT_MESSAGES);
 
+    const sourceToolCallId = stringValue(candidate.sourceToolCallId);
     return [
       {
         id,
+        ...(sourceToolCallId ? { sourceToolCallId } : {}),
         parentWorkspaceId,
         parentSessionId,
         childWorkspaceId,

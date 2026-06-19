@@ -1884,19 +1884,6 @@ export default function App() {
     });
   };
 
-  const handleSpawnChildThread = (prompt: string) => {
-    if (!selectedWorkspace || !selectedSession) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () =>
-      api.spawnChildThread({
-        parentWorkspaceId: selectedWorkspace.id,
-        parentSessionId: selectedSession.id,
-        prompt,
-      }),
-    );
-  };
-
   const handleSendChildThreadFollowUp = (childThreadId: string, text: string) => {
     void updateSnapshot(api, setSnapshot, () =>
       api.sendChildThreadFollowUp({
@@ -2426,7 +2413,6 @@ export default function App() {
             fileRequest={diffFileRequest}
             fileContexts={fileWorkbenchContexts}
             onSelectMode={setWorkbenchMode}
-            onSpawnChild={handleSpawnChildThread}
             onSendFollowUp={handleSendChildThreadFollowUp}
             onOpenChild={handleOpenChildThread}
             onAttachPreviewEvidence={handleAttachPreviewEvidence}

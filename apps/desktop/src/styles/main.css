@@ -808,13 +808,11 @@
   text-align: center;
 }
 
-.orchestration-spawn,
 .orchestration-follow-up {
   display: grid;
   gap: 8px;
 }
 
-.orchestration-spawn textarea,
 .orchestration-follow-up textarea {
   width: 100%;
   min-height: 74px;
@@ -828,7 +826,6 @@
   line-height: 1.4;
 }
 
-.orchestration-spawn__button,
 .orchestration-follow-up__button {
   width: 100%;
 }
