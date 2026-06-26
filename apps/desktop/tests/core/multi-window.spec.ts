@@ -27,8 +27,20 @@ async function waitForPiApp(window: Page): Promise<void> {
 async function waitForWindowCount(harness: DesktopHarness, count: number): Promise<void> {
   await expect
     .poll(
-      () =>
-        harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      async () => {
+        try {
+          return await harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+        } catch (error) {
+          const message = String(error);
+          if (
+            message.includes("context was destroyed") ||
+            message.includes("Target page, context or browser has been closed")
+          ) {
+            return -1;
+          }
+          throw error;
+        }
+      },
       { timeout: 15_000 },
     )
     .toBe(count);

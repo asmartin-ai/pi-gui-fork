@@ -23,6 +23,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   selectSession,
+  waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
 test("integrates real child threads, files, preview evidence, and relaunch persistence", async () => {
@@ -48,7 +49,11 @@ test("integrates real child threads, files, preview evidence, and relaunch persi
 
   try {
     const window = await firstRun.firstWindow();
-    await createNamedThread(window, "Parent orchestration session");
+    const parentWorkspace = await waitForWorkspaceByPath(window, workspacePath);
+    await waitForWorkspaceByPath(window, unrelatedWorkspacePath);
+    await createNamedThread(window, "Parent orchestration session", {
+      workspaceName: parentWorkspace.name,
+    });
 
     await expect(window.getByTestId("orchestrated-workbench")).toBeVisible();
     await expect(window.getByTestId("orchestration-workbench")).toBeVisible();

@@ -42,7 +42,7 @@ test("shows workspace file mentions from the composer and inserts the selected f
     await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Extensions", "Files"]);
     await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(3);
 
-    await composer.pressSequentially("READ");
+    await composer.pressSequentially("README");
     await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(1);
     await expect(mentionMenu.locator(".mention-menu__filename")).toContainText("README.md");
 
