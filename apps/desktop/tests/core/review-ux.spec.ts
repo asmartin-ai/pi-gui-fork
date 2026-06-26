@@ -167,6 +167,35 @@ test("reviewed checkboxes update counter, prune on changes, and survive relaunch
   }
 });
 
+test("Files mode shows a file browser and reader instead of the changes reviewer", async () => {
+  test.setTimeout(45_000);
+  const { harness, window } = await launchSeeded("Review UX files mode");
+  try {
+    await window.keyboard.press(desktopShortcut("D"));
+    const diffPanel = window.locator(".diff-panel");
+    await expect(diffPanel).toBeVisible();
+    await expect(diffPanel.locator(".diff-panel__title")).toHaveText("Changes");
+    await expect(diffPanel.getByTestId("diff-panel-counter")).toHaveText("Reviewed 0 of 3");
+
+    await diffPanel.locator('.diff-panel__file[data-file-path="src/foo.ts"] .diff-panel__file-name').click();
+    await expect(diffPanel.locator(".diff-inline")).toBeVisible();
+
+    await window.getByLabel("Toggle files").click();
+    await expect(diffPanel.locator(".diff-panel__title")).toHaveText("Files");
+    await expect(diffPanel.getByTestId("diff-panel-counter")).toHaveCount(0);
+    await expect(diffPanel.locator(".file-workbench__section--changes")).toHaveCount(0);
+    await expect(diffPanel.getByTestId("file-workbench-tree")).toBeVisible();
+    await expect(diffPanel.locator(".file-workbench__context-strip")).toHaveCount(0);
+
+    await diffPanel.locator('.file-workbench__tree-row--file[data-file-path="notes.md"]').click();
+    await expect(diffPanel.getByTestId("file-workbench-preview")).toContainText("# notes");
+    await expect(diffPanel.locator(".diff-inline")).toHaveCount(0);
+    await expect(diffPanel.getByRole("group", { name: "Viewer mode" })).toHaveCount(0);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("view-in-changes button on a write tool row opens the diff panel without toggling expand", async () => {
   test.setTimeout(45_000);
   const { harness, window } = await launchSeeded("Review UX tool link");

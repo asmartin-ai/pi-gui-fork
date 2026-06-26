@@ -79,6 +79,13 @@ test("toggles the diff panel from the keyboard shortcut and renders changed file
     const window = await harness.firstWindow();
     await createNamedThread(window, "Diff test");
 
+    const topbarActions = window.locator(".topbar__actions");
+    await expect(topbarActions.locator(".topbar__icon")).toHaveCount(3);
+    await expect(topbarActions.getByLabel("Toggle terminal")).toBeVisible();
+    await expect(topbarActions.getByLabel("Toggle changes")).toBeVisible();
+    await expect(topbarActions.getByLabel("Toggle files")).toBeVisible();
+    await expect(topbarActions.getByLabel(/Evidence|Workbench|Open folder/i)).toHaveCount(0);
+
     const diffPanel = window.locator(".diff-panel");
     await expect(diffPanel).toHaveCount(0);
 
