@@ -14,11 +14,11 @@ import {
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
+import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PinIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
-import type { ThreadGroup, ThreadListEntry } from "./thread-groups";
+import { comparePinnedThreads, type ThreadGroup, type ThreadListEntry } from "./thread-groups";
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopAppState } from "./desktop-state";
 
@@ -44,6 +44,7 @@ interface SidebarProps {
   readonly onOpenSettings: (workspaceId?: string) => void;
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSetSessionPinned: (target: { workspaceId: string; sessionId: string }, pinned: boolean) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
 }
 
@@ -66,6 +67,7 @@ export function Sidebar(props: SidebarProps) {
     onOpenSettings,
     onArchiveSession,
     onSelectSession,
+    onSetSessionPinned,
     onUnarchiveSession,
   } = props;
 
@@ -93,6 +95,7 @@ export function Sidebar(props: SidebarProps) {
 
   const rootGroups = threadGroups.filter((g) => g.rootWorkspace.kind === "primary");
   const orphanGroups = threadGroups.filter((g) => g.rootWorkspace.kind !== "primary");
+  const pinnedThreads = threadGroups.flatMap((group) => group.pinnedThreads).sort(comparePinnedThreads);
   const rootGroupIds = rootGroups.map((g) => g.rootWorkspace.id);
   const canDrag = rootGroups.length > 1;
 
@@ -199,8 +202,18 @@ export function Sidebar(props: SidebarProps) {
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={headerCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <SortableContext items={rootGroupIds} strategy={verticalListSortingStrategy}>
-              <div className="workspace-list" data-testid="workspace-list">
+            <div className="workspace-list" data-testid="workspace-list">
+              {pinnedThreads.length > 0 ? (
+                <PinnedThreadsSection
+                  pinnedThreads={pinnedThreads}
+                  selectedWorkspace={selectedWorkspace}
+                  selectedSession={selectedSession}
+                  onArchiveSession={onArchiveSession}
+                  onSelectSession={onSelectSession}
+                  onSetSessionPinned={onSetSessionPinned}
+                />
+              ) : null}
+              <SortableContext items={rootGroupIds} strategy={verticalListSortingStrategy}>
                 {rootGroups.map((group) => (
                   <SortableWorkspaceGroup
                     key={group.rootWorkspace.id}
@@ -213,26 +226,28 @@ export function Sidebar(props: SidebarProps) {
                     api={api}
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
+                    onSetSessionPinned={onSetSessionPinned}
                     onUnarchiveSession={onUnarchiveSession}
                   />
                 ))}
-                {orphanGroups.map((group) => (
-                  <WorkspaceGroupContent
-                    key={group.rootWorkspace.id}
-                    group={group}
-                    canDrag={false}
-                    selectedWorkspace={selectedWorkspace}
-                    selectedSession={selectedSession}
-                    linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
-                    wsMenu={wsMenu}
-                    api={api}
-                    onArchiveSession={onArchiveSession}
-                    onSelectSession={onSelectSession}
-                    onUnarchiveSession={onUnarchiveSession}
-                  />
-                ))}
-              </div>
-            </SortableContext>
+              </SortableContext>
+              {orphanGroups.map((group) => (
+                <WorkspaceGroupContent
+                  key={group.rootWorkspace.id}
+                  group={group}
+                  canDrag={false}
+                  selectedWorkspace={selectedWorkspace}
+                  selectedSession={selectedSession}
+                  linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
+                  wsMenu={wsMenu}
+                  api={api}
+                  onArchiveSession={onArchiveSession}
+                  onSelectSession={onSelectSession}
+                  onSetSessionPinned={onSetSessionPinned}
+                  onUnarchiveSession={onUnarchiveSession}
+                />
+              ))}
+            </div>
             <DragOverlay>
               {activeGroup ? (
                 <div className="workspace-group workspace-group--overlay">
@@ -246,6 +261,7 @@ export function Sidebar(props: SidebarProps) {
                     api={api}
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
+                    onSetSessionPinned={onSetSessionPinned}
                     onUnarchiveSession={onUnarchiveSession}
                   />
                 </div>
@@ -270,6 +286,7 @@ interface WorkspaceGroupProps {
   readonly api: PiDesktopApi;
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSetSessionPinned: (target: { workspaceId: string; sessionId: string }, pinned: boolean) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
 }
 
@@ -320,6 +337,7 @@ function WorkspaceGroupContent(
     api,
     onArchiveSession,
     onSelectSession,
+    onSetSessionPinned,
     onUnarchiveSession,
     dragHandleProps,
   } = props;
@@ -472,6 +490,12 @@ function WorkspaceGroupContent(
                     })
                   }
                   onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                  onTogglePinned={() =>
+                    onSetSessionPinned(
+                      { workspaceId: thread.workspaceId, sessionId: thread.session.id },
+                      !thread.session.pinnedAt,
+                    )
+                  }
                 />
               );
             })}
@@ -511,6 +535,12 @@ function WorkspaceGroupContent(
                           })
                         }
                         onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                        onTogglePinned={() =>
+                          onSetSessionPinned(
+                            { workspaceId: thread.workspaceId, sessionId: thread.session.id },
+                            !thread.session.pinnedAt,
+                          )
+                        }
                       />
                     );
                   })}
@@ -521,6 +551,57 @@ function WorkspaceGroupContent(
         </>
       ) : null}
     </>
+  );
+}
+
+function PinnedThreadsSection({
+  pinnedThreads,
+  selectedWorkspace,
+  selectedSession,
+  onArchiveSession,
+  onSelectSession,
+  onSetSessionPinned,
+}: {
+  readonly pinnedThreads: readonly ThreadListEntry[];
+  readonly selectedWorkspace: WorkspaceRecord | undefined;
+  readonly selectedSession: SessionRecord | undefined;
+  readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSetSessionPinned: (target: { workspaceId: string; sessionId: string }, pinned: boolean) => void;
+}) {
+  return (
+    <section className="pinned-thread-group" aria-label="Pinned threads">
+      <div className="pinned-thread-group__head">
+        <PinIcon filled />
+        <span>Pinned</span>
+      </div>
+      <div className="session-list session-list--pinned">
+        {pinnedThreads.map((thread) => {
+          const active = thread.workspaceId === selectedWorkspace?.id && thread.session.id === selectedSession?.id;
+          return (
+            <ThreadSessionRow
+              key={`${thread.workspaceId}:${thread.session.id}`}
+              active={active}
+              thread={thread}
+              showContext
+              onAction={() =>
+                onArchiveSession({
+                  workspaceId: thread.workspaceId,
+                  sessionId: thread.session.id,
+                })
+              }
+              onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+              onTogglePinned={() =>
+                onSetSessionPinned(
+                  { workspaceId: thread.workspaceId, sessionId: thread.session.id },
+                  !thread.session.pinnedAt,
+                )
+              }
+            />
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -539,21 +620,28 @@ function sessionIndicatorVariant(thread: ThreadListEntry): "running" | "unseen" 
 function ThreadSessionRow({
   active,
   archived = false,
+  showContext = false,
   thread,
   onAction,
   onSelect,
+  onTogglePinned,
 }: {
   readonly active: boolean;
   readonly archived?: boolean;
+  readonly showContext?: boolean;
   readonly thread: ThreadListEntry;
   readonly onAction: () => void;
   readonly onSelect: () => void;
+  readonly onTogglePinned: () => void;
 }) {
   const indicatorVariant = sessionIndicatorVariant(thread);
+  const pinned = Boolean(thread.session.pinnedAt);
+  const actionContext = showContext ? ` in ${thread.contextLabel}` : "";
   return (
     <div
-      className={`session-row ${active ? "session-row--active" : ""}`}
+      className={`session-row ${active ? "session-row--active" : ""} ${pinned ? "session-row--pinned" : ""}`}
       data-sidebar-indicator={indicatorVariant}
+      data-session-pinned={pinned ? "true" : "false"}
       data-session-id={thread.session.id}
     >
       <button className="session-row__select" onClick={onSelect} type="button">
@@ -565,6 +653,7 @@ function ThreadSessionRow({
           <span className="session-row__title-line">
             <span className="session-row__title">{thread.session.title}</span>
           </span>
+          {showContext ? <span className="session-row__context">{thread.contextLabel}</span> : null}
           {thread.session.preview ? <span className="session-row__preview">{thread.session.preview}</span> : null}
         </span>
       </button>
@@ -575,8 +664,19 @@ function ThreadSessionRow({
           </span>
         ) : null}
         <span className="session-row__time">{formatRelativeTime(thread.session.updatedAt)}</span>
+        {!archived ? (
+          <button
+            aria-label={`${pinned ? "Unpin" : "Pin"} ${thread.session.title}${actionContext}`}
+            aria-pressed={pinned}
+            className="icon-button session-row__action session-row__pin-action"
+            type="button"
+            onClick={onTogglePinned}
+          >
+            <PinIcon filled={pinned} />
+          </button>
+        ) : null}
         <button
-          aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}`}
+          aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}${actionContext}`}
           className="icon-button session-row__action"
           type="button"
           onClick={onAction}

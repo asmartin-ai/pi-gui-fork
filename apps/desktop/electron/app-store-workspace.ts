@@ -130,6 +130,7 @@ export async function archiveSession(
   return store.withErrorHandling(async () => {
     const sessionRef = toSessionRef(target);
     store.clearPendingAutoTitle(sessionRef);
+    store.sessionState.pinnedAtBySession.delete(sessionKey(sessionRef));
     await store.driver.archiveSession(sessionRef);
     return store.refreshState(selectionAfterArchiving(store.state, target));
   });

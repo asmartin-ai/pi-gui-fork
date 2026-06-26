@@ -1818,6 +1818,10 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.unarchiveSession(target));
   };
 
+  const handleSetSessionPinned = (target: { workspaceId: string; sessionId: string }, pinned: boolean) => {
+    void updateSnapshot(api, setSnapshot, () => api.setSessionPinned(target, pinned));
+  };
+
   const handleStartThread = () => {
     if (!newThreadRootWorkspaceId || (!newThreadPrompt.trim() && newThreadAttachments.length === 0)) {
       return;
@@ -2129,6 +2133,7 @@ export default function App() {
           onOpenSettings={openSettings}
           onArchiveSession={handleArchiveSession}
           onSelectSession={handleSelectSession}
+          onSetSessionPinned={handleSetSessionPinned}
           onUnarchiveSession={handleUnarchiveSession}
         />
       ) : null}

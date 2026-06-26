@@ -413,6 +413,55 @@ export class DesktopAppStore implements AppStoreInternals {
     return workspace.unarchiveSession(this, target);
   }
 
+  async setSessionPinned(target: WorkspaceSessionTarget, pinned: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    const session = this.sessionFromState(sessionRef);
+    if (!session) {
+      return this.withError(`Unknown session: ${target.workspaceId}:${target.sessionId}`);
+    }
+    if (pinned && session.archivedAt) {
+      return this.withError(`Cannot pin archived session: ${target.workspaceId}:${target.sessionId}`);
+    }
+
+    const key = sessionKey(sessionRef);
+    const currentPinnedAt = this.sessionState.pinnedAtBySession.get(key);
+    const nextPinnedAt = pinned ? (currentPinnedAt ?? new Date().toISOString()) : undefined;
+    if (currentPinnedAt === nextPinnedAt && session.pinnedAt === nextPinnedAt) {
+      return structuredClone(this.state);
+    }
+
+    if (nextPinnedAt) {
+      this.sessionState.pinnedAtBySession.set(key, nextPinnedAt);
+    } else {
+      this.sessionState.pinnedAtBySession.delete(key);
+    }
+
+    this.state = {
+      ...this.state,
+      workspaces: this.state.workspaces.map((workspaceEntry) =>
+        workspaceEntry.id === target.workspaceId
+          ? {
+              ...workspaceEntry,
+              sessions: workspaceEntry.sessions.map((entry) =>
+                entry.id === target.sessionId
+                  ? {
+                      ...entry,
+                      pinnedAt: nextPinnedAt,
+                    }
+                  : entry,
+              ),
+            }
+          : workspaceEntry,
+      ),
+      pinnedAtBySession: mapToRecord(this.sessionState.pinnedAtBySession),
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async syncCurrentWorkspace(): Promise<DesktopAppState> {
     return workspace.syncCurrentWorkspace(this);
   }
@@ -860,6 +909,7 @@ export class DesktopAppStore implements AppStoreInternals {
         },
         integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
+        pinnedAtBySession: persisted.pinnedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
@@ -870,6 +920,12 @@ export class DesktopAppStore implements AppStoreInternals {
       for (const [key, viewedAt] of Object.entries(persisted.lastViewedAtBySession ?? {})) {
         if (viewedAt) {
           this.sessionState.lastViewedAtBySession.set(key, viewedAt);
+        }
+      }
+      this.sessionState.pinnedAtBySession.clear();
+      for (const [key, pinnedAt] of Object.entries(persisted.pinnedAtBySession ?? {})) {
+        if (pinnedAt) {
+          this.sessionState.pinnedAtBySession.set(key, pinnedAt);
         }
       }
       this.sessionState.composerDraftsBySession.clear();
@@ -984,6 +1040,7 @@ export class DesktopAppStore implements AppStoreInternals {
         this.sessionState.runningSinceBySession,
         this.sessionState.sessionConfigBySession,
         this.sessionState.lastViewedAtBySession,
+        this.sessionState.pinnedAtBySession,
       );
       const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
       const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
@@ -1057,6 +1114,7 @@ export class DesktopAppStore implements AppStoreInternals {
         extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
         orchestrationChildren: this.state.orchestrationChildren,
         lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+        pinnedAtBySession: mapToRecord(this.sessionState.pinnedAtBySession),
         workspaceOrder: this.state.workspaceOrder,
         modelSettingsScopeMode: this.state.modelSettingsScopeMode,
         globalModelSettings,
@@ -1095,23 +1153,14 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async pruneStaleSessionSubscriptions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
     const activeKeys = new Set(sessions.map((session) => sessionKey(session.sessionRef)));
-    this.sessionState.prune(activeKeys);
-    this.pruneOrphanedUiState(activeKeys);
+    const persistedUiChanged = this.sessionState.prune(activeKeys);
+    this.pruneOrphanedUiState(activeKeys, persistedUiChanged);
     await this.pruneOrphanedAttachmentFiles(activeKeys);
   }
 
   /** Drop ui-state entries for sessions that no longer exist in the catalog. */
-  private pruneOrphanedUiState(activeKeys: Set<string>): void {
-    let changed = false;
-    for (const map of [this.sessionState.composerDraftsBySession, this.sessionState.lastViewedAtBySession]) {
-      for (const key of map.keys()) {
-        if (!activeKeys.has(key)) {
-          map.delete(key);
-          changed = true;
-        }
-      }
-    }
-    if (changed) {
+  private pruneOrphanedUiState(activeKeys: Set<string>, alreadyChanged = false): void {
+    if (this.sessionState.prunePersistedUiState(activeKeys) || alreadyChanged) {
       this.schedulePersistUiState();
     }
   }
@@ -1984,6 +2033,7 @@ export class DesktopAppStore implements AppStoreInternals {
       notificationPreferences: this.state.notificationPreferences,
       integratedTerminalShell: this.state.integratedTerminalShell || undefined,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
+      pinnedAtBySession: mapToRecord(this.sessionState.pinnedAtBySession),
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,

@@ -78,3 +78,66 @@ test("sidebar thread order is stable after creation and does not flicker", async
     await harness.close();
   }
 });
+
+test("pinned sidebar threads stay above history, persist across relaunch, and unpin into normal ordering", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("pinned-ordering-test");
+  let harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const workspace = await waitForWorkspaceByPath(window, workspacePath);
+
+    await createNamedThread(window, "Thread A", { workspaceName: basename(workspacePath) });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await createNamedThread(window, "Thread B", { workspaceName: basename(workspacePath) });
+
+    const threadARow = window.locator(".session-row", { hasText: "Thread A" });
+    await threadARow.hover();
+    await window.getByRole("button", { name: /Pin Thread A/ }).click();
+
+    const pinnedSection = window.getByRole("region", { name: "Pinned threads" });
+    await expect(pinnedSection).toBeVisible();
+    await expect(pinnedSection.locator(".session-row__title")).toHaveText(["Thread A"]);
+    await expect(pinnedSection.locator(".session-row__context")).toHaveText([basename(workspacePath)]);
+
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return Object.values(state.pinnedAtBySession).length;
+    }).toBe(1);
+
+    await harness.close();
+    harness = await launchDesktop(userDataDir, { testMode: "background" });
+
+    const reopenedWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(reopenedWindow, workspacePath);
+    const reopenedPinnedSection = reopenedWindow.getByRole("region", { name: "Pinned threads" });
+    await expect(reopenedPinnedSection).toBeVisible();
+    await expect(reopenedPinnedSection.locator(".session-row__title")).toHaveText(["Thread A"]);
+
+    await reopenedPinnedSection.getByRole("button", { name: /Unpin Thread A/ }).click();
+    await expect(reopenedWindow.getByRole("region", { name: "Pinned threads" })).toHaveCount(0);
+
+    await expect.poll(async () => {
+      const state = await getDesktopState(reopenedWindow);
+      return Object.values(state.pinnedAtBySession).length;
+    }).toBe(0);
+
+    const rows = reopenedWindow.locator(".session-row__select");
+    const titles = await rows.allTextContents();
+    const bIndex = titles.findIndex((title) => title.includes("Thread B"));
+    const aIndex = titles.findIndex((title) => title.includes("Thread A"));
+    expect(bIndex).toBeGreaterThanOrEqual(0);
+    expect(aIndex).toBeGreaterThanOrEqual(0);
+    expect(bIndex).toBeLessThan(aIndex);
+
+    const state = await getDesktopState(reopenedWindow);
+    const ws = state.workspaces.find((entry) => entry.id === workspace.id);
+    expect(ws?.sessions.find((session) => session.title === "Thread A")?.pinnedAt).toBeUndefined();
+  } finally {
+    await harness.close();
+  }
+});

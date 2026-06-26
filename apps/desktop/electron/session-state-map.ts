@@ -39,6 +39,7 @@ export class SessionStateMap {
   readonly queuedComposerEditsBySession = new Map<string, QueuedComposerEditState>();
   readonly sessionConfigBySession = new Map<string, SessionConfig>();
   readonly lastViewedAtBySession = new Map<string, string>();
+  readonly pinnedAtBySession = new Map<string, string>();
   readonly sessionErrorsBySession = new Map<string, string>();
   readonly sessionSubscriptions = new Map<string, () => void>();
   readonly activeAssistantMessageBySession = new Map<string, string>();
@@ -54,13 +55,29 @@ export class SessionStateMap {
    * Remove entries for session keys that are no longer active.
    * Calls the unsubscribe callback for any stale subscription before deleting it.
    */
-  prune(activeKeys: Set<string>): void {
+  prune(activeKeys: Set<string>): boolean {
+    const persistedUiChanged = this.prunePersistedUiState(activeKeys);
     for (const [key, unsubscribe] of this.sessionSubscriptions) {
       if (!activeKeys.has(key)) {
         unsubscribe();
         this.deleteSession(key);
       }
     }
+    return persistedUiChanged;
+  }
+
+  /** Remove persisted UI entries for sessions that are no longer in the catalog. */
+  prunePersistedUiState(activeKeys: Set<string>): boolean {
+    let changed = false;
+    for (const map of [this.composerDraftsBySession, this.lastViewedAtBySession, this.pinnedAtBySession]) {
+      for (const key of map.keys()) {
+        if (!activeKeys.has(key)) {
+          map.delete(key);
+          changed = true;
+        }
+      }
+    }
+    return changed;
   }
 
   /** Remove all state for a single session key. */
@@ -77,6 +94,7 @@ export class SessionStateMap {
     this.queuedComposerEditsBySession.delete(key);
     this.sessionConfigBySession.delete(key);
     this.lastViewedAtBySession.delete(key);
+    this.pinnedAtBySession.delete(key);
     this.sessionErrorsBySession.delete(key);
     this.sessionCommandsBySession.delete(key);
     this.extensionUiBySession.delete(key);

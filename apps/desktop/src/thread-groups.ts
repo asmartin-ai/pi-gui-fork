@@ -11,10 +11,12 @@ export interface ThreadListEntry {
   readonly workspaceId: string;
   readonly session: SessionRecord;
   readonly environment: ThreadEnvironmentMeta;
+  readonly contextLabel: string;
 }
 
 export interface ThreadGroup {
   readonly rootWorkspace: WorkspaceRecord;
+  readonly pinnedThreads: readonly ThreadListEntry[];
   readonly threads: readonly ThreadListEntry[];
   readonly archivedThreads: readonly ThreadListEntry[];
 }
@@ -65,6 +67,7 @@ function buildRootGroup(
         kind: "local" as const,
         label: "Local",
       },
+      contextLabel: rootWorkspace.name,
     })),
     ...linkedWorkspaces.flatMap(({ workspace, worktree }) =>
       workspace.sessions.map((session) => ({
@@ -76,6 +79,7 @@ function buildRootGroup(
           branchName: worktree.branchName,
           detached: !worktree.branchName,
         },
+        contextLabel: `${rootWorkspace.name} / ${worktree.name}`,
       })),
     ),
   ];
@@ -102,6 +106,7 @@ function buildOrphanGroup(workspace: WorkspaceRecord): ThreadGroup {
         branchName: workspace.branchName,
         detached: !workspace.branchName,
       },
+      contextLabel: workspace.name,
     })),
   );
 }
@@ -109,7 +114,20 @@ function buildOrphanGroup(workspace: WorkspaceRecord): ThreadGroup {
 function partitionThreads(rootWorkspace: WorkspaceRecord, entries: readonly ThreadListEntry[]): ThreadGroup {
   return {
     rootWorkspace,
-    threads: entries.filter((entry) => !entry.session.archivedAt),
+    pinnedThreads: entries.filter((entry) => !entry.session.archivedAt && Boolean(entry.session.pinnedAt)),
+    threads: entries.filter((entry) => !entry.session.archivedAt && !entry.session.pinnedAt),
     archivedThreads: entries.filter((entry) => Boolean(entry.session.archivedAt)),
   };
+}
+
+export function comparePinnedThreads(left: ThreadListEntry, right: ThreadListEntry): number {
+  const leftPinnedAt = left.session.pinnedAt ?? "";
+  const rightPinnedAt = right.session.pinnedAt ?? "";
+  if (leftPinnedAt !== rightPinnedAt) {
+    return rightPinnedAt.localeCompare(leftPinnedAt);
+  }
+  if (left.session.updatedAt !== right.session.updatedAt) {
+    return right.session.updatedAt.localeCompare(left.session.updatedAt);
+  }
+  return left.session.title.localeCompare(right.session.title);
 }

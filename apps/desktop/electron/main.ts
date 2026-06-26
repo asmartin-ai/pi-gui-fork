@@ -1134,6 +1134,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.unarchiveSession, (event, target: WorkspaceSessionTarget) =>
     runWindowScopedForEvent(event, () => store.unarchiveSession(target)),
   );
+  ipcMain.handle(desktopIpc.setSessionPinned, (event, target: WorkspaceSessionTarget, pinned: boolean) =>
+    runWindowScopedForEvent(event, () => store.setSessionPinned(target, pinned)),
+  );
   ipcMain.handle(desktopIpc.setActiveView, (event, activeView) =>
     runWindowScopedForEvent(event, () => store.setActiveView(activeView)),
   );

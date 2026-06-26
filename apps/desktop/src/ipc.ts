@@ -81,6 +81,7 @@ export const desktopIpc = {
   selectSession: "pi-gui:select-session",
   archiveSession: "pi-gui:archive-session",
   unarchiveSession: "pi-gui:unarchive-session",
+  setSessionPinned: "pi-gui:set-session-pinned",
   createSession: "pi-gui:create-session",
   startThread: "pi-gui:start-thread",
   sendChildThreadFollowUp: "pi-gui:send-child-thread-follow-up",
@@ -286,6 +287,7 @@ export interface PiDesktopApi {
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  setSessionPinned(target: WorkspaceSessionTarget, pinned: boolean): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState>;

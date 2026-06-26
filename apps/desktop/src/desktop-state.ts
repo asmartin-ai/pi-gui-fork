@@ -59,6 +59,7 @@ export interface SessionRecord {
   readonly id: string;
   readonly title: string;
   readonly updatedAt: string;
+  readonly pinnedAt?: string;
   readonly lastViewedAt?: string;
   readonly archivedAt?: string;
   readonly preview: string;
@@ -265,6 +266,7 @@ export interface DesktopAppState {
   readonly notificationPreferences: NotificationPreferences;
   readonly integratedTerminalShell: string;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
+  readonly pinnedAtBySession: Readonly<Record<string, string>>;
   readonly workspaceOrder: readonly string[];
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
@@ -308,6 +310,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     },
     integratedTerminalShell: "",
     lastViewedAtBySession: {},
+    pinnedAtBySession: {},
     workspaceOrder: [],
     modelSettingsScopeMode: "app-global",
     globalModelSettings: {

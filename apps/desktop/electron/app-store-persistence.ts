@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { writeFileAtomicQueued } from "./atomic-file-write";
 
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -23,6 +23,7 @@ export interface PersistedUiState {
   readonly notificationPreferences?: NotificationPreferences;
   readonly integratedTerminalShell?: string;
   readonly lastViewedAtBySession?: Record<string, string>;
+  readonly pinnedAtBySession?: Record<string, string>;
   readonly workspaceOrder?: readonly string[];
   readonly modelSettingsScopeMode?: ModelSettingsScopeMode;
   readonly appGlobalModelSettings?: ModelSettingsSnapshot;
@@ -43,7 +44,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 12
+        parsed.version === 13
+          ? 13
+          : parsed.version === 12
           ? 12
           : parsed.version === 11
           ? 11
@@ -76,6 +79,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       integratedTerminalShell:
         typeof parsed.integratedTerminalShell === "string" ? parsed.integratedTerminalShell : undefined,
       lastViewedAtBySession: parsed.lastViewedAtBySession,
+      pinnedAtBySession: toStringRecord(parsed.pinnedAtBySession),
       workspaceOrder: Array.isArray(parsed.workspaceOrder) ? parsed.workspaceOrder : undefined,
       modelSettingsScopeMode:
         parsed.modelSettingsScopeMode === "per-repo" || parsed.modelSettingsScopeMode === "app-global"
@@ -101,7 +105,7 @@ export async function writePersistedUiState(
   const serialized = `${JSON.stringify(
     {
       ...payload,
-      version: 12,
+      version: 13,
     } satisfies PersistedUiState,
     null,
     2,
@@ -323,6 +327,16 @@ function numberValue(value: unknown): number | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function toStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === "string" && Boolean(entry[1]));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function toOrchestrationStatus(value: unknown): OrchestrationChildThread["status"] {
