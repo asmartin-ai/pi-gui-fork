@@ -39,8 +39,8 @@ test("shows workspace file mentions from the composer and inserts the selected f
 
     const mentionMenu = window.getByTestId("mention-menu");
     await expect(mentionMenu).toBeVisible();
-    await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Files"]);
-    await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(2);
+    await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Extensions", "Files"]);
+    await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(3);
 
     await composer.pressSequentially("READ");
     await expect(mentionMenu.locator(".mention-menu__item")).toHaveCount(1);
