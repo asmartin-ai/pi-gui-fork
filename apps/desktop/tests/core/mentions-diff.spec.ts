@@ -50,8 +50,7 @@ test("shows workspace file mentions from the composer and inserts the selected f
     await expect(mentionMenu).toHaveCount(0);
     await expect(composer).toHaveValue("@README.md ");
 
-    await composer.selectText();
-    await composer.press("Backspace");
+    await composer.fill("");
     await expect(composer).toHaveValue("");
     await composer.pressSequentially("@src");
     await expect(mentionMenu).toBeVisible();
