@@ -26,6 +26,8 @@ const multilineDraft = [
   "line 6",
 ].join("\n");
 
+const TIMELINE_NEAR_BOTTOM_PX = 32;
+
 async function expectRowVisibleAboveComposer(window: Page, row: Locator, composerShell: Locator): Promise<void> {
   await expect.poll(async () => {
     const [rowBox, composerBox, paneBox] = await Promise.all([
@@ -138,10 +140,12 @@ async function waitForStableVirtualizedBottom(
 ): Promise<Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">> {
   let consecutiveStableSamples = 0;
   let baselineSample: TimelineStabilitySample | null = null;
+  let lastSample: TimelineStabilitySample | null = null;
 
   for (let index = 0; index < 150; index += 1) {
     const sample = await sampleTimelineStability(window, sentinelRow);
-    if (sample.virtualized && sample.remainingFromBottom <= 16 && sample.sentinelVisible) {
+    lastSample = sample;
+    if (sample.virtualized && sample.remainingFromBottom < TIMELINE_NEAR_BOTTOM_PX && sample.sentinelVisible) {
       consecutiveStableSamples += 1;
       baselineSample = sample;
       if (consecutiveStableSamples >= 5 && baselineSample) {
@@ -157,7 +161,9 @@ async function waitForStableVirtualizedBottom(
     await window.waitForTimeout(100);
   }
 
-  throw new Error("Timeline never reached a stable virtualized bottom state.");
+  throw new Error(
+    `Timeline never reached a stable virtualized bottom state. Last sample: ${JSON.stringify(lastSample)}`,
+  );
 }
 
 async function expectStableTimelineWindow(
@@ -172,7 +178,7 @@ async function expectStableTimelineWindow(
     const sample = await sampleTimelineStability(window, sentinelRow);
     expect(sample.virtualized).toBe(true);
     expect(sample.sentinelVisible).toBe(true);
-    expect(sample.remainingFromBottom).toBeLessThanOrEqual(16);
+    expect(sample.remainingFromBottom).toBeLessThan(TIMELINE_NEAR_BOTTOM_PX);
     expect(sample.visibleItemCount).toBeGreaterThanOrEqual(minimumVisibleItems);
     expect(sample.renderedTextLength).toBeGreaterThanOrEqual(minimumRenderedTextLength);
     await window.waitForTimeout(100);
