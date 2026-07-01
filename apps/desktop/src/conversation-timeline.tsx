@@ -26,6 +26,7 @@ interface ConversationTimelineProps {
   readonly disableVirtualization?: boolean;
   readonly onDisableVirtualizationReady?: () => void;
   readonly onTimelineScroll: () => void;
+  readonly onTimelineScrollIntent?: () => void;
   readonly threadSearch: ThreadSearchModel;
   readonly showJumpToLatest: boolean;
   readonly onJumpToLatest: () => void;
@@ -41,6 +42,7 @@ export function ConversationTimeline({
   disableVirtualization = false,
   onDisableVirtualizationReady,
   onTimelineScroll,
+  onTimelineScrollIntent,
   threadSearch,
   showJumpToLatest,
   onJumpToLatest,
@@ -140,7 +142,9 @@ export function ConversationTimeline({
       className="timeline-pane timeline-pane--thread"
       data-testid="timeline-pane"
       ref={assignTimelinePaneRef}
+      onPointerDown={onTimelineScrollIntent}
       onScroll={onTimelineScroll}
+      onWheel={onTimelineScrollIntent}
     >
       {threadSearch.isOpen ? (
         <ThreadSearchBar

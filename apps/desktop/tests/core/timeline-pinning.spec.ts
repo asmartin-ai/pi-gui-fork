@@ -449,6 +449,130 @@ test("keeps a virtualized thread off-bottom after switching sessions", async () 
   }
 });
 
+test("restores a thread's saved off-bottom scroll position after switching sessions", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-pinning-session-switch-scroll");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const targetTitle = "Saved scroll restore target";
+    const neighborTitle = "Saved scroll neighbor";
+    await createTimelineSession(window, targetTitle);
+    await createTimelineSession(window, neighborTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(neighborTitle);
+    await selectSession(window, targetTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
+
+    const finalMarker = "SESSION_SWITCH_SCROLL_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 78,
+      textFactory: (index) => {
+        if (index === 77) {
+          return `${finalMarker} ${"should stay below the restored viewport ".repeat(20)}`;
+        }
+        return `Saved scroll restore row ${index} `.repeat(20);
+      },
+    });
+
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => {
+      const metrics = await getTimelineScrollMetrics(window);
+      return metrics.scrollHeight - metrics.clientHeight;
+    }).toBeGreaterThan(700);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+    await window.waitForTimeout(800);
+
+    await window.getByTestId("timeline-pane").hover();
+    await expect.poll(async () => {
+      await window.mouse.wheel(0, -520);
+      return (await getTimelineScrollMetrics(window)).remainingFromBottom;
+    }).toBeGreaterThan(700);
+    const savedMetrics = await getTimelineScrollMetrics(window);
+    expect(savedMetrics.remainingFromBottom).toBeGreaterThan(700);
+    await window.waitForTimeout(250);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(700);
+
+    await selectSession(window, neighborTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(neighborTitle);
+
+    await selectSession(window, targetTitle);
+    await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(300);
+    await expect(window.getByTestId("timeline-jump")).toHaveCount(0);
+
+    const restoredRemaining = (await getTimelineScrollMetrics(window)).remainingFromBottom;
+    await window.getByTestId("timeline-pane").hover();
+    await expect.poll(async () => {
+      await window.mouse.wheel(0, 520);
+      return restoredRemaining - (await getTimelineScrollMetrics(window)).remainingFromBottom;
+    }).toBeGreaterThan(120);
+    const userAdjustedRemaining = (await getTimelineScrollMetrics(window)).remainingFromBottom;
+    await window.waitForTimeout(2_300);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom)
+      .toBeLessThanOrEqual(userAdjustedRemaining + 80);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("lands a reopened bottom-pinned thread without a smooth scroll from the top", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-pinning-open-no-smooth-scroll");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const targetTitle = "Open no smooth scroll target";
+    await createTimelineSession(window, targetTitle);
+
+    const finalMarker = "OPEN_NO_SMOOTH_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 24,
+      textFactory: (index) =>
+        index === 23
+          ? `${finalMarker} ${"should be at the bottom immediately ".repeat(6)}`
+          : `Open no smooth row ${index} `.repeat(8),
+    });
+
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    await createTimelineSession(window, "Open no smooth neighbor");
+    await expect(window.locator(".topbar__session")).toHaveText("Open no smooth neighbor");
+    await selectSession(window, targetTitle);
+    await expect(window.getByTestId("transcript")).toContainText(finalMarker);
+    await expect.poll(async () => {
+      const metrics = await getTimelineScrollMetrics(window);
+      return metrics.scrollHeight > metrics.clientHeight + 32;
+    }).toBe(true);
+
+    const samples: number[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      samples.push((await getTimelineScrollMetrics(window)).remainingFromBottom);
+      await window.waitForTimeout(16);
+    }
+    const maxSample = Math.max(...samples);
+    expect(
+      maxSample,
+      `remaining-from-bottom samples after reopen: ${samples.join(", ")}`,
+    ).toBeLessThan(60);
+
+    await expect(window.locator(".timeline-item--assistant", { hasText: finalMarker })).toBeVisible();
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("keeps a reopened virtualized long transcript stable", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
