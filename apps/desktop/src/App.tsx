@@ -1427,7 +1427,10 @@ export default function App() {
     setShowJumpToLatest(true);
   }, [activeTranscript, requestPinnedBottomAlignment, selectedSession, selectedSessionKey]);
 
-  const handleTimelineContentHeightChange = useCallback(() => {
+  const handleTimelineContentHeightChange = useCallback((state?: { readonly wasAtBottom: boolean }) => {
+    if (state?.wasAtBottom) {
+      pinnedToBottomRef.current = true;
+    }
     if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
       return;
     }

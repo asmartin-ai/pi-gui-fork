@@ -30,7 +30,7 @@ interface ConversationTimelineProps {
   readonly threadSearch: ThreadSearchModel;
   readonly showJumpToLatest: boolean;
   readonly onJumpToLatest: () => void;
-  readonly onContentHeightChange: () => void;
+  readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
   readonly onViewFileInDiff?: (path: string) => void;
 }
 
@@ -225,7 +225,7 @@ function VirtualizedTranscriptList({
 }: {
   readonly transcript: readonly TranscriptMessage[];
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
-  readonly onContentHeightChange: () => void;
+  readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
   readonly measuredHeightsRef: MutableRefObject<Map<string, number>>;
   readonly measurementVersion: number;
   readonly expandedToolCallIds: ReadonlySet<string>;
@@ -278,11 +278,16 @@ function VirtualizedTranscriptList({
   }
 
   useLayoutEffect(() => {
-    if (previousTotalHeightRef.current === totalHeight) {
+    const previousTotalHeight = previousTotalHeightRef.current;
+    if (previousTotalHeight === totalHeight) {
       return;
     }
     previousTotalHeightRef.current = totalHeight;
-    onContentHeightChange();
+    const pane = timelinePaneRef.current;
+    const wasAtBottom = previousTotalHeight > 0 && pane
+      ? previousTotalHeight - pane.scrollTop - pane.clientHeight < 32
+      : false;
+    onContentHeightChange({ wasAtBottom });
   }, [onContentHeightChange, totalHeight]);
 
   const startOffset = Math.max(0, viewport.scrollTop - OVERSCAN_PX);
