@@ -1972,7 +1972,7 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    if (preserveBottomOnNextPaneResizeRef.current && !pinned) {
+    if (!pinned) {
       preserveBottomOnNextPaneResizeRef.current = false;
       resetExactBottomRestoreState();
       bottomAlignmentGenerationRef.current += 1;

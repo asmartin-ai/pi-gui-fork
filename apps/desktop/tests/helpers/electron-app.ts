@@ -1004,14 +1004,32 @@ export async function jumpTimelineToBottom(window: Page): Promise<void> {
 }
 
 export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): Promise<void> {
-  await window.evaluate((distance) => {
-    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
-    if (!pane) {
-      throw new Error("Timeline pane was unavailable");
-    }
-    pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight - distance);
-    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
-  }, pixels);
+  const minimumRemainingFromBottom = Math.min(500, Math.max(1, pixels * 0.5));
+  await expect
+    .poll(async () =>
+      window.evaluate(async ({ distance, minimumRemaining }) => {
+        const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+        if (!pane) {
+          throw new Error("Timeline pane was unavailable");
+        }
+
+        const maxScrollTop = pane.scrollHeight - pane.clientHeight;
+        if (maxScrollTop <= minimumRemaining) {
+          return maxScrollTop;
+        }
+
+        pane.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -distance }));
+        pane.scrollTop = Math.max(0, maxScrollTop - distance);
+        pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(resolve);
+          });
+        });
+        return pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+      }, { distance: pixels, minimumRemaining: minimumRemainingFromBottom }),
+    )
+    .toBeGreaterThan(minimumRemainingFromBottom);
 }
 
 export async function emitTestSessionEvent(
