@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { HostUiResponse } from "@pi-gui/session-driver";
 import { ChevronDownIcon, ChevronRightIcon } from "./icons";
 import type { SessionExtensionDialogRecord, SessionExtensionUiStateRecord } from "./desktop-state";
@@ -90,6 +90,11 @@ export function ExtensionDialog({
   readonly onRespond: (response: HostUiResponse) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const titleId = useId();
+  const bodyId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const firstOptionButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (dialog.kind === "input") {
@@ -103,18 +108,72 @@ export function ExtensionDialog({
     setDraft("");
   }, [dialog]);
 
+  useEffect(() => {
+    if (dialog.kind === "confirm") {
+      cancelButtonRef.current?.focus();
+      return;
+    }
+    if (dialog.kind === "select") {
+      firstOptionButtonRef.current?.focus();
+    }
+  }, [dialog]);
+
+  const respondWithCancel = () => onRespond({ requestId: dialog.requestId, cancelled: true });
+  const respondWithSubmit = () => {
+    if (dialog.kind === "confirm") {
+      onRespond({ requestId: dialog.requestId, confirmed: true });
+      return;
+    }
+    if (dialog.kind === "input" || dialog.kind === "editor") {
+      onRespond({ requestId: dialog.requestId, value: draft });
+    }
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Tab") {
+      trapDialogFocus(event, dialogRef.current);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      respondWithCancel();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (dialog.kind === "confirm" || dialog.kind === "input" || dialog.kind === "editor") {
+        event.preventDefault();
+        respondWithSubmit();
+      }
+    }
+  };
+
   return (
     <div className="extension-dialog-backdrop">
-      <div className="extension-dialog" data-testid="extension-dialog">
-        <div className="extension-dialog__title">{dialog.title}</div>
-        {dialog.kind === "confirm" ? <p className="extension-dialog__body">{dialog.message}</p> : null}
+      <div
+        aria-describedby={dialog.kind === "confirm" ? bodyId : undefined}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="extension-dialog"
+        data-testid="extension-dialog"
+        ref={dialogRef}
+        role="dialog"
+        onKeyDown={handleKeyDown}
+      >
+        <div className="extension-dialog__title" id={titleId}>
+          {dialog.title}
+        </div>
+        {dialog.kind === "confirm" ? (
+          <p className="extension-dialog__body" id={bodyId}>
+            {dialog.message}
+          </p>
+        ) : null}
 
         {dialog.kind === "select" ? (
           <div className="extension-dialog__options">
-            {dialog.options.map((option) => (
+            {dialog.options.map((option, index) => (
               <button
                 className="extension-dialog__option"
                 key={option}
+                ref={index === 0 ? firstOptionButtonRef : undefined}
                 type="button"
                 onClick={() => onRespond({ requestId: dialog.requestId, value: option })}
               >
@@ -145,17 +204,20 @@ export function ExtensionDialog({
 
         <div className="extension-dialog__actions">
           <button
+            ref={cancelButtonRef}
             className="button button--secondary"
+            data-testid="extension-dialog-cancel"
             type="button"
-            onClick={() => onRespond({ requestId: dialog.requestId, cancelled: true })}
+            onClick={respondWithCancel}
           >
             Cancel
           </button>
           {dialog.kind === "confirm" ? (
             <button
               className="button button--primary"
+              data-testid="extension-dialog-confirm"
               type="button"
-              onClick={() => onRespond({ requestId: dialog.requestId, confirmed: true })}
+              onClick={respondWithSubmit}
             >
               Confirm
             </button>
@@ -163,8 +225,9 @@ export function ExtensionDialog({
           {dialog.kind === "input" || dialog.kind === "editor" ? (
             <button
               className="button button--primary"
+              data-testid="extension-dialog-submit"
               type="button"
-              onClick={() => onRespond({ requestId: dialog.requestId, value: draft })}
+              onClick={respondWithSubmit}
             >
               Submit
             </button>
@@ -173,6 +236,36 @@ export function ExtensionDialog({
       </div>
     </div>
   );
+}
+
+function trapDialogFocus(event: KeyboardEvent<HTMLDivElement>, dialog: HTMLDivElement | null): void {
+  if (!dialog) {
+    return;
+  }
+
+  const focusable = [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((element) => !element.hasAttribute("disabled") && !element.getAttribute("aria-hidden"));
+
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last?.focus();
+    return;
+  }
+  if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first?.focus();
+  }
 }
 
 function buildWidgetBlocks(

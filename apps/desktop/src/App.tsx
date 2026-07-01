@@ -11,18 +11,21 @@ import {
   type NewThreadEnvironment,
   type SelectedTranscriptRecord,
   type StartThreadInput,
-  type WorktreeRecord,
   type WorkspaceRecord,
+  type WorktreeRecord,
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
-import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
+import { DiffPanel, type DiffPanelFileRequest, type FileWorkbenchContext } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import {
   desktopCommands,
   getDesktopCommandFromShortcut,
   getDesktopShortcutLabel,
+  type CustomProviderConfig,
+  type DesktopComputerUsePrivacyPane,
+  type DesktopComputerUseStatus,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
 } from "./ipc";
@@ -46,6 +49,7 @@ import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } fro
 import { TreeModal } from "./tree-modal";
 import { getEffectiveModelRuntime } from "./model-settings";
 import { resolveRepoWorkspaceId } from "./workspace-roots";
+import { deriveWorkspaceContext } from "./workspace-context";
 import {
   extractImageFilesFromClipboardData,
   extractFilesFromDataTransfer,
@@ -177,6 +181,8 @@ export default function App() {
   const [notificationPermissionStatus, setNotificationPermissionStatus] =
     useState<DesktopNotificationPermissionStatus>("unknown");
   const [notificationPermissionPending, setNotificationPermissionPending] = useState(false);
+  const [computerUseStatus, setComputerUseStatus] = useState<DesktopComputerUseStatus | undefined>();
+  const [computerUseStatusPending, setComputerUseStatusPending] = useState(false);
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const [treeModalState, setTreeModalState] = useState<{
     readonly open: boolean;
@@ -212,7 +218,7 @@ export default function App() {
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [sidePanelMode, setSidePanelMode] = useState<SidePanelMode | null>(null);
   const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
   const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
@@ -292,54 +298,41 @@ export default function App() {
     return undefined;
   }, [refreshNotificationPermissionStatus, settingsSection, snapshot?.activeView]);
 
-  const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
-  const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const refreshComputerUseStatus = useCallback(() => {
+    if (!api?.getComputerUseStatus) {
+      return Promise.resolve(undefined);
+    }
+
+    setComputerUseStatusPending(true);
+    return api
+      .getComputerUseStatus()
+      .then((status) => {
+        setComputerUseStatus(status);
+        return status;
+      })
+      .finally(() => {
+        setComputerUseStatusPending(false);
+      });
+  }, [api]);
+
+  useEffect(() => {
+    if (snapshot?.activeView !== "settings" || settingsSection !== "computer-use") {
+      return undefined;
+    }
+
+    void refreshComputerUseStatus();
+    return undefined;
+  }, [refreshComputerUseStatus, settingsSection, snapshot?.activeView]);
+
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
     rootWorkspace,
     rootWorkspaceOptions,
+    selectedWorkspace,
     visibleWorkspaces,
-  } = useMemo(() => {
-    if (!snapshot) {
-      return {
-        activeWorktrees: [] as readonly WorktreeRecord[],
-        linkedWorktreeByWorkspaceId: new Map<string, WorktreeRecord>(),
-        rootWorkspace: undefined as WorkspaceRecord | undefined,
-        rootWorkspaceOptions: [] as readonly WorkspaceRecord[],
-        visibleWorkspaces: [] as readonly WorkspaceRecord[],
-      };
-    }
-
-    const workspacesById = new Map(snapshot.workspaces.map((workspace) => [workspace.id, workspace] as const));
-    const primaryWorkspaces = snapshot.workspaces.filter((workspace) => workspace.kind === "primary");
-    const orphanWorkspaces = snapshot.workspaces.filter(
-      (workspace) => workspace.kind === "worktree" && !workspacesById.has(workspace.rootWorkspaceId ?? ""),
-    );
-    const nextVisibleWorkspaces =
-      primaryWorkspaces.length > 0 ? [...primaryWorkspaces, ...orphanWorkspaces] : snapshot.workspaces;
-    const nextLinkedWorktreeByWorkspaceId = new Map(
-      Object.values(snapshot.worktreesByWorkspace)
-        .flat()
-        .filter((worktree) => Boolean(worktree.linkedWorkspaceId))
-        .map((worktree) => [worktree.linkedWorkspaceId as string, worktree] as const),
-    );
-    const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace?.id);
-    const nextRootWorkspace =
-      (nextRootWorkspaceId ? snapshot.workspaces.find((workspace) => workspace.id === nextRootWorkspaceId) : undefined)
-      ?? selectedWorkspace;
-    const nextRootWorkspaceOptions = [...new Set(snapshot.workspaces.map((workspace) => resolveRepoWorkspaceId(snapshot.workspaces, workspace.id) ?? workspace.id))]
-      .map((workspaceId) => snapshot.workspaces.find((workspace) => workspace.id === workspaceId))
-      .filter((workspace): workspace is WorkspaceRecord => Boolean(workspace));
-
-    return {
-      activeWorktrees: nextRootWorkspace ? snapshot.worktreesByWorkspace[nextRootWorkspace.id] ?? [] : [],
-      linkedWorktreeByWorkspaceId: nextLinkedWorktreeByWorkspaceId,
-      rootWorkspace: nextRootWorkspace,
-      rootWorkspaceOptions: nextRootWorkspaceOptions,
-      visibleWorkspaces: nextVisibleWorkspaces,
-    };
-  }, [selectedWorkspace, snapshot]);
+  } = useMemo(() => deriveWorkspaceContext(snapshot), [snapshot]);
+  const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
   const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
   const selectedModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, selectedWorkspace) : undefined;
   const selectedWorktree = selectedWorkspace ? linkedWorktreeByWorkspaceId.get(selectedWorkspace.id) : undefined;
@@ -411,6 +404,24 @@ export default function App() {
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
+  const fileWorkbenchContexts = useMemo(
+    () =>
+      buildFileWorkbenchContexts({
+        workspaces: snapshot?.workspaces ?? [],
+        selectedWorkspace,
+        selectedSessionTitle: selectedExtensionUi?.title || selectedSession?.title,
+        rootWorkspace,
+        activeWorktrees,
+      }),
+    [
+      activeWorktrees,
+      rootWorkspace,
+      selectedExtensionUi?.title,
+      selectedSession?.title,
+      selectedWorkspace,
+      snapshot?.workspaces,
+    ],
+  );
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {
       setOpenTerminalSessionKey("");
@@ -714,18 +725,18 @@ export default function App() {
   }, [requestPinnedBottomAlignment]);
 
   const handleViewFileInDiff = useCallback((path: string) => {
-    setShowDiffPanel(true);
+    setSidePanelMode("changes");
     setDiffFileRequest({ path, nonce: Date.now() });
   }, []);
 
-  const toggleDiffPanel = useCallback(() => {
+  const toggleSidePanelMode = useCallback((mode: SidePanelMode) => {
     const pane = timelinePaneRef.current;
     const shouldPreserveBottom = pane ? isNearBottom(pane) || pinnedToBottomRef.current : pinnedToBottomRef.current;
     if (shouldPreserveBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
     }
 
-    setShowDiffPanel((prev) => !prev);
+    setSidePanelMode((current) => (current === mode ? null : mode));
 
     if (!shouldPreserveBottom) {
       return;
@@ -733,6 +744,14 @@ export default function App() {
 
     schedulePinnedBottomRealignment(3);
   }, [schedulePinnedBottomRealignment]);
+
+  const toggleChangesPanel = useCallback(() => {
+    toggleSidePanelMode("changes");
+  }, [toggleSidePanelMode]);
+
+  const toggleFilesPanel = useCallback(() => {
+    toggleSidePanelMode("files");
+  }, [toggleSidePanelMode]);
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -858,12 +877,26 @@ export default function App() {
     onRunTreeCommand: openTreeModal,
   });
 
+  const enableSelectedMentionExtension = useCallback(
+    (filePath: string) => {
+      if (!api || !selectedWorkspace) {
+        return Promise.resolve();
+      }
+      return updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(selectedWorkspace.id, filePath, true)).then(
+        () => undefined,
+      );
+    },
+    [api, selectedWorkspace],
+  );
+
   const mentionMenu = useMentionMenu({
     composerDraft,
     setComposerDraft,
     composerRef,
     workspaceId: selectedWorkspace?.id,
+    runtime: selectedRuntime,
     api,
+    onEnableExtension: enableSelectedMentionExtension,
   });
 
   const newThreadSlashMenu = useSlashMenu({
@@ -903,12 +936,26 @@ export default function App() {
     },
   });
 
+  const enableNewThreadMentionExtension = useCallback(
+    (filePath: string) => {
+      if (!api || !newThreadWorkspace) {
+        return Promise.resolve();
+      }
+      return updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(newThreadWorkspace.id, filePath, true)).then(
+        () => undefined,
+      );
+    },
+    [api, newThreadWorkspace],
+  );
+
   const newThreadMentionMenu = useMentionMenu({
     composerDraft: newThreadPrompt,
     setComposerDraft: setNewThreadPrompt,
     composerRef: newThreadComposerRef,
     workspaceId: newThreadWorkspace?.id,
+    runtime: newThreadRuntime,
     api,
+    onEnableExtension: enableNewThreadMentionExtension,
   });
 
   const wsMenu = useWorkspaceMenu({
@@ -1091,7 +1138,7 @@ export default function App() {
       // Cmd+D toggles diff panel
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d" && !event.shiftKey) {
         event.preventDefault();
-        toggleDiffPanel();
+        toggleChangesPanel();
         return;
       }
       const command = getDesktopCommandFromShortcut({
@@ -1116,7 +1163,7 @@ export default function App() {
     selectedWorkspace?.rootWorkspaceId,
     threadSearch,
     api,
-    toggleDiffPanel,
+    toggleChangesPanel,
     toggleTerminal,
     handleTogglePrimarySidebar,
   ]);
@@ -1410,7 +1457,7 @@ export default function App() {
       resizeObserver.disconnect();
       previousTimelinePaneSizeRef.current = null;
     };
-  }, [requestPinnedBottomAlignment, selectedSessionKey, showDiffPanel, snapshot?.activeView, timelinePaneMountVersion]);
+  }, [requestPinnedBottomAlignment, selectedSessionKey, sidePanelMode, snapshot?.activeView, timelinePaneMountVersion]);
 
   useEffect(() => {
     const pane = timelinePaneRef.current;
@@ -1448,6 +1495,13 @@ export default function App() {
     });
   }, [requestPinnedBottomAlignment]);
 
+  const sidePanelAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession);
+  useEffect(() => {
+    if (!sidePanelAvailable) {
+      setSidePanelMode(null);
+    }
+  }, [sidePanelAvailable, selectedSessionKey]);
+
   if (!api || !snapshot) {
     return (
       <div className="shell shell--loading">
@@ -1463,7 +1517,8 @@ export default function App() {
   const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeoverForSelectedThread && Boolean(selectedWorkspace);
   const mainClassName = [
     "main",
-    showDiffPanel ? "main--with-diff" : "",
+    sidePanelMode ? "main--with-side-panel" : "",
+    sidePanelMode ? "main--with-diff" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
@@ -1794,6 +1849,26 @@ export default function App() {
     return state.lastError;
   };
 
+  const handleSaveCustomProvider = async (config: CustomProviderConfig): Promise<string | undefined> => {
+    if (!api || !settingsWorkspace) {
+      return "Select a workspace first.";
+    }
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.setCustomProvider(settingsWorkspace.id, config),
+    );
+    return state.lastError;
+  };
+
+  const handleDeleteCustomProvider = async (providerId: string): Promise<string | undefined> => {
+    if (!api || !settingsWorkspace) {
+      return "Select a workspace first.";
+    }
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.deleteCustomProvider(settingsWorkspace.id, providerId),
+    );
+    return state.lastError;
+  };
+
   const handleToggleSkill = (filePath: string, enabled: boolean) => {
     if (!skillsWorkspace) {
       return;
@@ -1868,6 +1943,47 @@ export default function App() {
       });
   };
 
+  const handleOpenComputerUsePrivacySettings = (pane: DesktopComputerUsePrivacyPane) => {
+    if (!api?.openComputerUsePrivacySettings) {
+      return;
+    }
+    void api.openComputerUsePrivacySettings(pane);
+  };
+
+  const handleSetLockedComputerUseEnabled = (enabled: boolean) => {
+    if (!api?.setLockedComputerUseEnabled) {
+      return;
+    }
+    setComputerUseStatusPending(true);
+    void api
+      .setLockedComputerUseEnabled(enabled)
+      .then((status) => {
+        setComputerUseStatus(status);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setComputerUseStatus((current) => ({
+          helperAvailable: current?.helperAvailable ?? false,
+          helperPath: current?.helperPath,
+          desktop: current?.desktop ?? "unknown",
+          frontmostApp: current?.frontmostApp,
+          cursor: current?.cursor ?? "unknown",
+          cursorActive: current?.cursorActive,
+          cursorDurationMs: current?.cursorDurationMs,
+          cursorGlideMs: current?.cursorGlideMs,
+          accessibility: current?.accessibility ?? "unknown",
+          screenRecording: current?.screenRecording ?? "unknown",
+          lockedUse: current?.lockedUse ?? "unknown",
+          lockedUseInstaller: current?.lockedUseInstaller,
+          lockedUseInstallerPath: current?.lockedUseInstallerPath,
+          message,
+        }));
+      })
+      .finally(() => {
+        setComputerUseStatusPending(false);
+      });
+  };
+
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
@@ -1930,6 +2046,10 @@ export default function App() {
 
   const handleUnarchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.unarchiveSession(target));
+  };
+
+  const handleSetSessionPinned = (target: { workspaceId: string; sessionId: string }, pinned: boolean) => {
+    void updateSnapshot(api, setSnapshot, () => api.setSessionPinned(target, pinned));
   };
 
   const handleStartThread = () => {
@@ -2102,6 +2222,7 @@ export default function App() {
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
     { id: "models", label: "Models" },
+    { id: "computer-use", label: "Computer Use" },
     { id: "notifications", label: "Notifications" },
   ] as const;
 
@@ -2139,6 +2260,8 @@ export default function App() {
           notificationPreferences={snapshot.notificationPreferences}
           notificationPermissionStatus={notificationPermissionStatus}
           notificationPermissionPending={notificationPermissionPending}
+          computerUseStatus={computerUseStatus}
+          computerUseStatusPending={computerUseStatusPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           integratedTerminalShell={snapshot.integratedTerminalShell}
           themeMode={themeMode}
@@ -2147,12 +2270,17 @@ export default function App() {
           onLogoutProvider={handleLogoutProvider}
           onSetProviderApiKey={handleSetProviderApiKey}
           onRemoveProviderApiKey={handleRemoveProviderApiKey}
+          onSaveCustomProvider={handleSaveCustomProvider}
+          onDeleteCustomProvider={handleDeleteCustomProvider}
           onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
           onSetIntegratedTerminalShell={handleSetIntegratedTerminalShell}
           onRequestNotificationPermission={handleRequestNotificationPermission}
           onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
+          onRefreshComputerUseStatus={refreshComputerUseStatus}
+          onSetLockedComputerUseEnabled={handleSetLockedComputerUseEnabled}
+          onOpenComputerUsePrivacySettings={handleOpenComputerUsePrivacySettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
           onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
@@ -2229,6 +2357,7 @@ export default function App() {
           runtime={extensionsRuntime}
           commandCompatibility={extensionsCommandCompatibility}
           onOpenExtensionFolder={handleOpenExtensionFolder}
+          onOpenComputerUseSettings={() => openSettings(extensionsWorkspace?.id, "computer-use")}
           onRefresh={() => {
             if (!extensionsWorkspace) {
               return;
@@ -2259,6 +2388,7 @@ export default function App() {
           selectedSession={selectedSession}
           visibleWorkspaces={visibleWorkspaces}
           threadGroups={threadGroups}
+          pinnedSessionOrder={snapshot.pinnedSessionOrder}
           linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
           wsMenu={wsMenu}
           api={api}
@@ -2271,6 +2401,7 @@ export default function App() {
           onOpenSettings={openSettings}
           onArchiveSession={handleArchiveSession}
           onSelectSession={handleSelectSession}
+          onSetSessionPinned={handleSetSessionPinned}
           onUnarchiveSession={handleUnarchiveSession}
         />
       ) : null}
@@ -2287,13 +2418,14 @@ export default function App() {
           workspaces={snapshot.workspaces}
           wsMenu={wsMenu}
           api={api}
-          setSnapshot={setSnapshot}
-          updateSnapshot={updateSnapshot}
           terminalAvailable={Boolean(selectedSessionKey)}
           terminalVisible={isTerminalVisibleForSelectedThread}
           onToggleTerminal={toggleTerminal}
-          showDiffPanel={showDiffPanel}
-          onToggleDiffPanel={toggleDiffPanel}
+          panelAvailable={sidePanelAvailable}
+          changesVisible={sidePanelMode === "changes"}
+          onToggleChanges={toggleChangesPanel}
+          filesVisible={sidePanelMode === "files"}
+          onToggleFiles={toggleFilesPanel}
         />
 
         {showTerminalTakeover ? (
@@ -2344,6 +2476,7 @@ export default function App() {
                 newThreadSlashMenu.applySlashOptionSelection(option);
               }}
               onSelectMention={newThreadMentionMenu.insertMention}
+              onEnableMentionExtension={newThreadMentionMenu.enableMentionExtension}
               onAddAttachments={handleNewThreadAddAttachments}
               onRemoveAttachment={handleNewThreadRemoveAttachment}
               onSubmit={handleStartThread}
@@ -2443,6 +2576,7 @@ export default function App() {
               mentionOptions={mentionMenu.mentionOptions}
               selectedMentionIndex={mentionMenu.selectedIndex}
               onSelectMention={mentionMenu.insertMention}
+              onEnableMentionExtension={mentionMenu.enableMentionExtension}
               extensionDock={selectedExtensionDock}
               extensionDockExpanded={isSelectedExtensionDockExpanded}
               onToggleExtensionDock={handleToggleExtensionDock}
@@ -2491,13 +2625,16 @@ export default function App() {
         {terminalPanel}
           </>
         )}
-        {showDiffPanel && selectedWorkspace && selectedSession ? (
+        {sidePanelMode && selectedWorkspace && selectedSession ? (
           <DiffPanel
+            key={sidePanelMode}
+            panelMode={sidePanelMode}
             workspaceId={selectedWorkspace.id}
             sessionId={selectedSession.id}
             api={api}
             sessionStatus={selectedSession.status}
             fileRequest={diffFileRequest}
+            contexts={fileWorkbenchContexts}
           />
         ) : null}
       </main>
@@ -2513,4 +2650,53 @@ function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTra
 function isNearBottom(element: HTMLDivElement): boolean {
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
   return remaining < 32;
+}
+
+function buildFileWorkbenchContexts({
+  workspaces,
+  selectedWorkspace,
+  selectedSessionTitle,
+  rootWorkspace,
+  activeWorktrees,
+}: {
+  readonly workspaces: readonly WorkspaceRecord[];
+  readonly selectedWorkspace: WorkspaceRecord | undefined;
+  readonly selectedSessionTitle: string | undefined;
+  readonly rootWorkspace: WorkspaceRecord | undefined;
+  readonly activeWorktrees: readonly WorktreeRecord[];
+}): readonly FileWorkbenchContext[] {
+  if (!selectedWorkspace) {
+    return [];
+  }
+
+  const workspacesById = new Map(workspaces.map((workspace) => [workspace.id, workspace] as const));
+  const contexts: FileWorkbenchContext[] = [{
+    workspace: selectedWorkspace,
+    role: "thread",
+    sessionTitle: selectedSessionTitle,
+  }];
+  const seenWorkspaceIds = new Set([selectedWorkspace.id]);
+
+  const addWorkspace = (
+    workspace: WorkspaceRecord | undefined,
+    role: FileWorkbenchContext["role"],
+    worktree?: WorktreeRecord,
+  ) => {
+    if (!workspace || seenWorkspaceIds.has(workspace.id)) {
+      return;
+    }
+    contexts.push({ workspace, role, worktree });
+    seenWorkspaceIds.add(workspace.id);
+  };
+
+  addWorkspace(rootWorkspace, "workspace");
+  for (const worktree of activeWorktrees) {
+    addWorkspace(
+      worktree.linkedWorkspaceId ? workspacesById.get(worktree.linkedWorkspaceId) : undefined,
+      "worktree",
+      worktree,
+    );
+  }
+
+  return contexts;
 }

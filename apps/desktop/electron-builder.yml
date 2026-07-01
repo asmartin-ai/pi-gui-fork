@@ -40,6 +40,10 @@ mac:
   extraFiles:
     - from: build/native/pi-gui-notification-status-helper
       to: MacOS/pi-gui-notification-status-helper
+    - from: build/native/pi-gui-computer-use-helper
+      to: MacOS/pi-gui-computer-use-helper
+    - from: build/native/pi-gui Computer Use.app
+      to: SharedSupport/pi-gui Computer Use.app
 
 linux:
   category: Development

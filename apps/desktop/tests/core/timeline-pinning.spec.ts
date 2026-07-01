@@ -16,6 +16,7 @@ import {
   seedTranscriptMessages,
   streamAssistantDeltas,
 } from "../helpers/electron-app";
+import { appendMessagesToSessionFile, sessionFilePathFromCatalog } from "../helpers/session-file";
 
 const multilineDraft = [
   "line 1",
@@ -382,7 +383,7 @@ test("restores the true bottom when reopening a virtualized thread with oversize
 
     const finalMarker = "VIRTUALIZED_RESTORE_FINAL_ROW";
     const oversizedLateRow = `VIRTUALIZED_RESTORE_OVERSIZED ${"wrapped restore content ".repeat(420)}`;
-    await seedTranscriptMessages(harness, window, {
+    const seeded = await seedTranscriptMessages(harness, window, {
       count: 110,
       textFactory: (index) => {
         if (index === 94 || index === 103) {
@@ -394,6 +395,12 @@ test("restores the true bottom when reopening a virtualized thread with oversize
         return `Virtualized restore row ${index} `.repeat(8);
       },
     });
+    // Transcripts are restored from pi's session file, so the seeded rows must
+    // exist there for them to survive the relaunch.
+    await appendMessagesToSessionFile(
+      await sessionFilePathFromCatalog(userDataDir, seeded.sessionRef),
+      seeded.messages.map((text) => ({ role: "assistant" as const, text })),
+    );
 
     await harness.close();
 
@@ -594,13 +601,19 @@ test("keeps a reopened virtualized long transcript stable", async () => {
     await createTimelineSession(window, targetTitle);
 
     const finalMarker = "VIRTUALIZED_STABLE_FINAL_ROW";
-    await seedTranscriptMessages(harness, window, {
+    const seeded = await seedTranscriptMessages(harness, window, {
       count: 110,
       textFactory: (index) =>
         index === 109
           ? `${finalMarker} ${"should remain visible after reopen ".repeat(6)}`
           : `Virtualized stable row ${index} `.repeat(8),
     });
+    // Transcripts are restored from pi's session file, so the seeded rows must
+    // exist there for them to survive the relaunch.
+    await appendMessagesToSessionFile(
+      await sessionFilePathFromCatalog(userDataDir, seeded.sessionRef),
+      seeded.messages.map((text) => ({ role: "assistant" as const, text })),
+    );
     const finalRow = window.locator(".timeline-item--assistant", { hasText: finalMarker });
     const preReopenBaseline = await waitForStableVirtualizedBottom(window, finalRow);
 
