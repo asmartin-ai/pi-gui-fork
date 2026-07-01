@@ -205,7 +205,6 @@ export default function App() {
   const offBottomRestoreGenerationRef = useRef(0);
   const restoredTimelineScrollSessionKeyRef = useRef("");
   const protectedTimelineScrollSessionKeysRef = useRef(new Set<string>());
-  const timelineUserScrollIntentDeadlineRef = useRef(0);
   const selectedSessionKeyRef = useRef("");
   const previousActiveViewRef = useRef<AppView | null>(null);
   const hydratedComposerSessionKeyRef = useRef("");
@@ -1974,7 +1973,9 @@ export default function App() {
 
     const pinned = isNearBottom(pane);
     if (preserveBottomOnNextPaneResizeRef.current && !pinned) {
-      return;
+      preserveBottomOnNextPaneResizeRef.current = false;
+      resetExactBottomRestoreState();
+      bottomAlignmentGenerationRef.current += 1;
     }
 
     pinnedToBottomRef.current = pinned;
@@ -1982,7 +1983,7 @@ export default function App() {
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
     if (pinned) {
       clearTimelineOffBottomState(selectedSessionKey);
-    } else if (performance.now() <= timelineUserScrollIntentDeadlineRef.current) {
+    } else if (selectedSessionKey) {
       saveTimelineOffBottomState(selectedSessionKey, pane);
     }
     if (pinned) {
@@ -1991,7 +1992,6 @@ export default function App() {
   };
 
   const handleTimelineScrollIntent = () => {
-    timelineUserScrollIntentDeadlineRef.current = performance.now() + 1_000;
     cancelPendingTimelineOffBottomRestore(selectedSessionKey);
   };
 
