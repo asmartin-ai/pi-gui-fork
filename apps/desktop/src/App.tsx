@@ -57,6 +57,12 @@ import {
 } from "./composer-attachments";
 
 type SidePanelMode = "changes" | "files";
+const TIMELINE_SCROLL_INTENT_WINDOW_MS = 750;
+
+interface TimelineOffBottomState {
+  readonly scrollTop: number;
+  readonly transcriptMarker: string;
+}
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -197,10 +203,17 @@ export default function App() {
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
+  const lastTimelineOffBottomStateBySessionRef = useRef(new Map<string, TimelineOffBottomState>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
   const exactBottomRestoreSessionKeyRef = useRef<string | null>(null);
   const deferredPinnedBottomAlignmentRef = useRef(false);
   const pendingPinnedBottomBehaviorRef = useRef<ScrollBehavior>("auto");
+  const bottomAlignmentGenerationRef = useRef(0);
+  const offBottomRestoreGenerationRef = useRef(0);
+  const restoredTimelineScrollSessionKeyRef = useRef("");
+  const protectedTimelineScrollSessionKeysRef = useRef(new Set<string>());
+  const timelineScrollIntentUntilRef = useRef(0);
+  const selectedSessionKeyRef = useRef("");
   const previousActiveViewRef = useRef<AppView | null>(null);
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
@@ -373,21 +386,19 @@ export default function App() {
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
+  selectedSessionKeyRef.current = selectedSessionKey;
   const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKey === selectedSessionKey;
   const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKey === selectedSessionKey;
-  const activeTranscript =
+  const selectedTranscriptForSession =
     selectedTranscript &&
     selectedWorkspace &&
     selectedSession &&
     selectedTranscript.workspaceId === selectedWorkspace.id &&
     selectedTranscript.sessionId === selectedSession.id
-      ? selectedTranscript.transcript
-      : [];
-  const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
-    !selectedTranscript ||
-    selectedTranscript.workspaceId !== selectedWorkspace?.id ||
-    selectedTranscript.sessionId !== selectedSession?.id
-  );
+      ? selectedTranscript
+      : null;
+  const activeTranscript = selectedTranscriptForSession?.transcript ?? [];
+  const isTranscriptLoading = Boolean(selectedSession) && !selectedTranscriptForSession;
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
@@ -456,6 +467,33 @@ export default function App() {
     deferredPinnedBottomAlignmentRef.current = false;
     pendingPinnedBottomBehaviorRef.current = "auto";
   };
+  const clearTimelineOffBottomState = (sessionKey: string) => {
+    lastTimelineOffBottomStateBySessionRef.current.delete(sessionKey);
+  };
+  const hasTimelineOffBottomState = (sessionKey: string) =>
+    lastTimelineOffBottomStateBySessionRef.current.has(sessionKey);
+  const saveTimelineOffBottomState = (sessionKey: string, pane: HTMLDivElement) => {
+    lastTimelineOffBottomStateBySessionRef.current.set(sessionKey, {
+      scrollTop: pane.scrollTop,
+      transcriptMarker: buildTranscriptChangeMarker(sessionKey, activeTranscript),
+    });
+  };
+  const restoreTimelineOffBottomState = (sessionKey: string, pane: HTMLDivElement) => {
+    const savedState = lastTimelineOffBottomStateBySessionRef.current.get(sessionKey);
+    if (!savedState) {
+      return false;
+    }
+
+    pane.scrollTop = savedState.scrollTop;
+    return true;
+  };
+  const cancelPendingTimelineOffBottomRestore = (sessionKey: string) => {
+    if (!sessionKey || !protectedTimelineScrollSessionKeysRef.current.has(sessionKey)) {
+      return;
+    }
+    offBottomRestoreGenerationRef.current += 1;
+    protectedTimelineScrollSessionKeysRef.current.delete(sessionKey);
+  };
   const updateNewThreadPrompt = useCallback((value: SetStateAction<string>) => {
     setNewThreadComposerError(undefined);
     setNewThreadPrompt(value);
@@ -466,7 +504,21 @@ export default function App() {
       return;
     }
 
+    if (
+      selectedSessionKey &&
+      hasTimelineOffBottomState(selectedSessionKey) &&
+      !pinnedToBottomRef.current
+    ) {
+      return;
+    }
+
+    const alignmentGeneration = bottomAlignmentGenerationRef.current + 1;
+    bottomAlignmentGenerationRef.current = alignmentGeneration;
+
     const align = (remainingChecks: number) => {
+      if (alignmentGeneration !== bottomAlignmentGenerationRef.current) {
+        return;
+      }
       if (behavior === "auto") {
         pane.scrollTop = pane.scrollHeight;
       } else {
@@ -475,6 +527,7 @@ export default function App() {
       pinnedToBottomRef.current = true;
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
       lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
+      clearTimelineOffBottomState(selectedSessionKey);
       setShowJumpToLatest(false);
 
       if (remainingChecks <= 0) {
@@ -482,6 +535,9 @@ export default function App() {
       }
 
       window.requestAnimationFrame(() => {
+        if (alignmentGeneration !== bottomAlignmentGenerationRef.current) {
+          return;
+        }
         const remaining = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
         if (remaining > 1 || remainingChecks > 1) {
           align(remainingChecks - 1);
@@ -496,6 +552,14 @@ export default function App() {
     behavior: ScrollBehavior = "auto",
     options?: { readonly preferExactRestore?: boolean },
   ) => {
+    if (
+      selectedSessionKey &&
+      hasTimelineOffBottomState(selectedSessionKey) &&
+      !pinnedToBottomRef.current
+    ) {
+      return;
+    }
+
     if (exactBottomRestoreSessionKeyRef.current === selectedSessionKey && selectedSessionKey) {
       pendingPinnedBottomBehaviorRef.current = behavior;
       deferredPinnedBottomAlignmentRef.current = true;
@@ -584,15 +648,22 @@ export default function App() {
 
     setTimelinePaneMountVersion((current) => current + 1);
 
+    const savedOffBottomState = lastTimelineOffBottomStateBySessionRef.current.get(selectedSessionKey);
     const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
-    const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
+    const savedScrollTop = savedOffBottomState?.scrollTop ?? lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
 
     if (!selectedSessionKey || snapshot?.activeView !== "threads") {
       setDisableTimelineVirtualization(false);
       return;
     }
+    if (savedOffBottomState && isTranscriptLoading) {
+      setDisableTimelineVirtualization(false);
+      return;
+    }
 
-    const shouldRestoreBottom = (savedPinned ?? pinnedToBottomRef.current) || preserveBottomOnNextPaneResizeRef.current;
+    const shouldRestoreBottom =
+      !savedOffBottomState &&
+      ((savedPinned ?? pinnedToBottomRef.current) || preserveBottomOnNextPaneResizeRef.current);
     if (shouldRestoreBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
       node.scrollTop = node.scrollHeight;
@@ -607,22 +678,31 @@ export default function App() {
       return;
     }
 
-    if (savedScrollTop == null) {
+    if (savedScrollTop == null && !savedOffBottomState) {
       setDisableTimelineVirtualization(false);
       return;
     }
 
-    node.scrollTop = savedScrollTop;
-    pinnedToBottomRef.current = false;
+    if (savedOffBottomState) {
+      restoreTimelineOffBottomState(selectedSessionKey, node);
+    } else {
+      node.scrollTop = savedScrollTop ?? node.scrollTop;
+    }
+    const restoredPinned = isNearBottom(node);
+    bottomAlignmentGenerationRef.current += 1;
+    pinnedToBottomRef.current = restoredPinned;
     resetExactBottomRestoreState();
-    lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
+    lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, restoredPinned);
+    if (restoredPinned) {
+      clearTimelineOffBottomState(selectedSessionKey);
+    }
     window.requestAnimationFrame(() => {
       if (timelinePaneRef.current !== node) {
         return;
       }
       setDisableTimelineVirtualization(false);
     });
-  }, [scrollTimelineToBottom, selectedSessionKey, snapshot?.activeView]);
+  }, [isTranscriptLoading, requestPinnedBottomAlignment, selectedSessionKey, snapshot?.activeView]);
 
   const schedulePinnedBottomRealignment = useCallback((delayFrames = 0) => {
     const waitForFrames = (remainingFrames: number) => {
@@ -1089,17 +1169,43 @@ export default function App() {
   ]);
 
   useLayoutEffect(() => {
+    const savedOffBottomState = selectedSessionKey
+      ? lastTimelineOffBottomStateBySessionRef.current.get(selectedSessionKey)
+      : undefined;
+    const savedPinned = selectedSessionKey ? lastTimelinePinnedBySessionRef.current.get(selectedSessionKey) : undefined;
+    const shouldRestorePinned = !savedOffBottomState
+      ? savedPinned ?? true
+      : false;
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
-    pinnedToBottomRef.current = true;
+    pinnedToBottomRef.current = shouldRestorePinned;
+    timelineScrollIntentUntilRef.current = 0;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
-    resetExactBottomRestoreState(selectedSessionKey || null);
-    setDisableTimelineVirtualization(Boolean(selectedSessionKey));
+    restoredTimelineScrollSessionKeyRef.current = "";
+    resetExactBottomRestoreState(shouldRestorePinned ? selectedSessionKey || null : null);
+    setDisableTimelineVirtualization(Boolean(selectedSessionKey && shouldRestorePinned));
+
+    return () => {
+      const pane = timelinePaneRef.current;
+      if (!pane || !selectedSessionKey) {
+        return;
+      }
+      if (protectedTimelineScrollSessionKeysRef.current.has(selectedSessionKey)) {
+        protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
+        return;
+      }
+      const pinned = isNearBottom(pane);
+      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
+      if (pinned) {
+        clearTimelineOffBottomState(selectedSessionKey);
+      }
+    };
   }, [selectedSessionKey]);
 
   useLayoutEffect(() => {
-    if (snapshot?.activeView !== "threads" || !selectedSession || activeTranscript.length === 0) {
+    if (snapshot?.activeView !== "threads" || !selectedSession || !selectedTranscriptForSession) {
       return;
     }
     if (exactBottomRestoreSessionKeyRef.current !== selectedSessionKey) {
@@ -1116,8 +1222,80 @@ export default function App() {
     scrollTimelineToBottom,
     selectedSession,
     selectedSessionKey,
+    selectedTranscriptForSession,
     snapshot?.activeView,
   ]);
+
+  useLayoutEffect(() => {
+    const pane = timelinePaneRef.current;
+    if (
+      !pane ||
+      !selectedSessionKey ||
+      snapshot?.activeView !== "threads" ||
+      isTranscriptLoading ||
+      restoredTimelineScrollSessionKeyRef.current === selectedSessionKey
+    ) {
+      return;
+    }
+
+    const savedOffBottomState = lastTimelineOffBottomStateBySessionRef.current.get(selectedSessionKey);
+    if (!savedOffBottomState) {
+      protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
+      restoredTimelineScrollSessionKeyRef.current = selectedSessionKey;
+      return;
+    }
+
+    const restoreGeneration = offBottomRestoreGenerationRef.current + 1;
+    offBottomRestoreGenerationRef.current = restoreGeneration;
+    let shouldSuppressJumpForRestore = true;
+    const applyRestore = () => {
+      const currentPane = timelinePaneRef.current;
+      if (
+        offBottomRestoreGenerationRef.current !== restoreGeneration ||
+        !currentPane ||
+        selectedSessionKeyRef.current !== selectedSessionKey
+      ) {
+        return;
+      }
+      if (!restoreTimelineOffBottomState(selectedSessionKey, currentPane)) {
+        return;
+      }
+      const restoredPinned = isNearBottom(currentPane);
+      bottomAlignmentGenerationRef.current += 1;
+      pinnedToBottomRef.current = restoredPinned;
+      preserveBottomOnNextPaneResizeRef.current = false;
+      resetExactBottomRestoreState();
+      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, currentPane.scrollTop);
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, restoredPinned);
+      if (restoredPinned) {
+        clearTimelineOffBottomState(selectedSessionKey);
+      }
+      if (shouldSuppressJumpForRestore) {
+        setShowJumpToLatest(false);
+        shouldSuppressJumpForRestore = false;
+      }
+    };
+
+    applyRestore();
+    window.requestAnimationFrame(applyRestore);
+    window.setTimeout(applyRestore, 50);
+    window.setTimeout(applyRestore, 150);
+    window.setTimeout(applyRestore, 300);
+    window.setTimeout(applyRestore, 600);
+    window.setTimeout(applyRestore, 1_000);
+    window.setTimeout(applyRestore, 2_000);
+    lastTranscriptMarkerRef.current = savedOffBottomState.transcriptMarker;
+    setDisableTimelineVirtualization(false);
+    window.setTimeout(() => {
+      if (
+        offBottomRestoreGenerationRef.current === restoreGeneration &&
+        selectedSessionKeyRef.current === selectedSessionKey
+      ) {
+        protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
+      }
+    }, 2_200);
+    restoredTimelineScrollSessionKeyRef.current = selectedSessionKey;
+  }, [activeTranscript, isTranscriptLoading, selectedSessionKey, snapshot?.activeView]);
 
   useEffect(() => {
     setTreeModalState((current) =>
@@ -1217,8 +1395,16 @@ export default function App() {
       if (!pane) {
         return;
       }
+      if (protectedTimelineScrollSessionKeysRef.current.has(selectedSessionKey)) {
+        protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
+        return;
+      }
+      const pinned = isNearBottom(pane);
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
-      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, isNearBottom(pane));
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
+      if (pinned) {
+        clearTimelineOffBottomState(selectedSessionKey);
+      }
     };
   }, [selectedSession, selectedSessionKey, snapshot?.activeView]);
 
@@ -1293,7 +1479,10 @@ export default function App() {
     setShowJumpToLatest(true);
   }, [activeTranscript, requestPinnedBottomAlignment, selectedSession, selectedSessionKey]);
 
-  const handleTimelineContentHeightChange = useCallback(() => {
+  const handleTimelineContentHeightChange = useCallback((state?: { readonly wasAtBottom: boolean }) => {
+    if (state?.wasAtBottom) {
+      pinnedToBottomRef.current = true;
+    }
     if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
       return;
     }
@@ -1799,7 +1988,27 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
 
+  const saveCurrentTimelineScrollState = () => {
+    const pane = timelinePaneRef.current;
+    if (!pane || !selectedSessionKey) {
+      return;
+    }
+    const pinned = isNearBottom(pane);
+    lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
+    lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
+    if (pinned) {
+      clearTimelineOffBottomState(selectedSessionKey);
+    } else {
+      preserveBottomOnNextPaneResizeRef.current = false;
+      resetExactBottomRestoreState();
+      bottomAlignmentGenerationRef.current += 1;
+      saveTimelineOffBottomState(selectedSessionKey, pane);
+      protectedTimelineScrollSessionKeysRef.current.add(selectedSessionKey);
+    }
+  };
+
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
+    saveCurrentTimelineScrollState();
     setOpenTerminalSessionKey("");
     setTakeoverTerminalSessionKey("");
     void updateSnapshot(api, setSnapshot, () => api.selectSession(target)).then(() => {
@@ -1891,19 +2100,54 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    if (preserveBottomOnNextPaneResizeRef.current && !pinned) {
+    const hasRecentScrollIntent = window.performance.now() <= timelineScrollIntentUntilRef.current;
+    if (
+      !pinned &&
+      !hasRecentScrollIntent &&
+      (pinnedToBottomRef.current ||
+        preserveBottomOnNextPaneResizeRef.current ||
+        exactBottomRestoreSessionKeyRef.current === selectedSessionKey ||
+        deferredPinnedBottomAlignmentRef.current)
+    ) {
+      pinnedToBottomRef.current = true;
+      preserveBottomOnNextPaneResizeRef.current = true;
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
+      clearTimelineOffBottomState(selectedSessionKey);
+      setShowJumpToLatest(false);
+      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
       return;
+    }
+
+    if (!pinned) {
+      preserveBottomOnNextPaneResizeRef.current = false;
+      resetExactBottomRestoreState();
+      bottomAlignmentGenerationRef.current += 1;
     }
 
     pinnedToBottomRef.current = pinned;
     lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
     if (pinned) {
+      clearTimelineOffBottomState(selectedSessionKey);
+    } else if (selectedSessionKey) {
+      saveTimelineOffBottomState(selectedSessionKey, pane);
+    }
+    if (pinned) {
       setShowJumpToLatest(false);
     }
   };
 
+  const handleTimelineScrollIntent = () => {
+    timelineScrollIntentUntilRef.current = window.performance.now() + TIMELINE_SCROLL_INTENT_WINDOW_MS;
+    cancelPendingTimelineOffBottomRestore(selectedSessionKey);
+  };
+
   const jumpToLatest = () => {
+    cancelPendingTimelineOffBottomRestore(selectedSessionKey);
+    if (selectedSessionKey) {
+      clearTimelineOffBottomState(selectedSessionKey);
+    }
+    pinnedToBottomRef.current = true;
     requestPinnedBottomAlignment("smooth", { preferExactRestore: true });
   };
 
@@ -2272,6 +2516,7 @@ export default function App() {
                   disableVirtualization={disableTimelineVirtualization}
                   onDisableVirtualizationReady={finalizeTimelineVirtualizationDisable}
                   onTimelineScroll={handleTimelineScroll}
+                  onTimelineScrollIntent={handleTimelineScrollIntent}
                   threadSearch={threadSearch}
                   showJumpToLatest={showJumpToLatest}
                   onJumpToLatest={jumpToLatest}
