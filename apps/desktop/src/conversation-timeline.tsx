@@ -137,13 +137,24 @@ export function ConversationTimeline({
     timelinePaneElementRef?.(node);
   }, [timelinePaneElementRef, timelinePaneRef]);
 
+  useLayoutEffect(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      return undefined;
+    }
+
+    pane.addEventListener("scroll", onTimelineScroll, { passive: true });
+    return () => {
+      pane.removeEventListener("scroll", onTimelineScroll);
+    };
+  }, [onTimelineScroll, timelinePaneRef]);
+
   return (
     <div
       className="timeline-pane timeline-pane--thread"
       data-testid="timeline-pane"
       ref={assignTimelinePaneRef}
       onPointerDown={onTimelineScrollIntent}
-      onScroll={onTimelineScroll}
       onWheel={onTimelineScrollIntent}
     >
       {threadSearch.isOpen ? (

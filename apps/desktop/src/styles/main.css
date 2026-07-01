@@ -317,6 +317,7 @@
   position: relative;
   max-height: calc(100vh - 320px);
   overflow: auto;
+  overflow-anchor: none;
   /* Programmatic timeline scrolls (opening a thread, jump-to-latest,
    * transcript-update alignment) drive scrollTop directly. Leaving
    * `scroll-behavior: smooth` here turned every assignment into a
