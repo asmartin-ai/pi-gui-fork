@@ -176,6 +176,7 @@ function createTestExtensionContext(sessionRef: SessionRef): ExtensionContext {
 
   return {
     hasUI: false,
+    mode: "json",
     cwd: workspace.path,
     sessionManager: {
       getSessionId: () => sessionRef.sessionId,
@@ -186,6 +187,7 @@ function createTestExtensionContext(sessionRef: SessionRef): ExtensionContext {
     model: undefined,
     signal: undefined,
     isIdle: () => true,
+    isProjectTrusted: () => true,
     abort: () => undefined,
     hasPendingMessages: () => false,
     shutdown: () => undefined,
@@ -1581,15 +1583,28 @@ function validateComposerAttachmentPayload(attachment: ComposerAttachment): Comp
 
 function createRuntimeLoginCallbacks(window?: BrowserWindow | null) {
   return {
-    onAuth: async ({ url, instructions: _instructions }: { readonly url: string; readonly instructions?: string }) => {
+    onAuth: async ({ url, instructions }: { readonly url: string; readonly instructions?: string }) => {
       await shell.openExternal(url);
+      if (instructions?.trim()) {
+        await showLoginInstructions(window, instructions.trim());
+      }
     },
-    onPrompt: async ({ message, placeholder }: { readonly message: string; readonly placeholder?: string }) =>
-      promptForText(window, message, placeholder),
+    onPrompt: async ({ message, placeholder, allowEmpty }: { readonly message: string; readonly placeholder?: string; readonly allowEmpty?: boolean }) =>
+      promptForText(window, message, placeholder, allowEmpty ?? false),
   };
 }
 
-async function promptForText(parentWindow: BrowserWindow | null | undefined, message: string, placeholder = ""): Promise<string> {
+async function showLoginInstructions(parentWindow: BrowserWindow | null | undefined, message: string): Promise<void> {
+  const window = resolveDialogWindow(parentWindow);
+  if (!window) {
+    throw new Error("Main window is not available for login instructions.");
+  }
+  window.show();
+  window.focus();
+  await window.webContents.executeJavaScript(`window.alert(${JSON.stringify(message)})`, true);
+}
+
+async function promptForText(parentWindow: BrowserWindow | null | undefined, message: string, placeholder = "", allowEmpty = false): Promise<string> {
   const window = resolveDialogWindow(parentWindow);
   if (!window) {
     throw new Error("Main window is not available for login.");
@@ -1600,10 +1615,14 @@ async function promptForText(parentWindow: BrowserWindow | null | undefined, mes
     `window.prompt(${JSON.stringify(message)}, ${JSON.stringify(placeholder)})`,
     true,
   );
-  if (typeof result !== "string" || result.trim().length === 0) {
+  if (typeof result !== "string") {
     throw new Error("Login cancelled.");
   }
-  return result.trim();
+  const trimmedResult = result.trim();
+  if (!allowEmpty && trimmedResult.length === 0) {
+    throw new Error("Login cancelled.");
+  }
+  return trimmedResult;
 }
 
 async function probeCustomProviderModels(input: CustomProviderProbeInput): Promise<CustomProviderProbeResult> {

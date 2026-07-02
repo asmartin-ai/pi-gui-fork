@@ -121,7 +121,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async login(workspace: WorkspaceRef, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    await this.authStorage.login(providerId, callbacks);
+    await this.authStorage.login(providerId, toPiOAuthLoginCallbacks(callbacks));
     this.modelRegistry.refresh();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
@@ -904,6 +904,43 @@ const DESKTOP_API_KEY_PROVIDER_IDS = new Set([
 
 function providerSupportsDesktopApiKeySetup(providerId: string): boolean {
   return DESKTOP_API_KEY_PROVIDER_IDS.has(providerId);
+}
+
+type PiOAuthLoginCallbacks = Parameters<AuthStorage["login"]>[1];
+
+function toPiOAuthLoginCallbacks(callbacks: RuntimeLoginCallbacks): PiOAuthLoginCallbacks {
+  return {
+    onAuth: callbacks.onAuth,
+    onDeviceCode: (info) =>
+      callbacks.onAuth({
+        url: info.verificationUri,
+        instructions: [
+          `Enter code: ${info.userCode}`,
+          info.expiresInSeconds ? `Expires in ${info.expiresInSeconds} seconds.` : undefined,
+        ].filter((line): line is string => Boolean(line)).join("\n"),
+      }),
+    onPrompt: callbacks.onPrompt,
+    onSelect: async (prompt) => {
+      const defaultOption = prompt.options[0];
+      const choice = await callbacks.onPrompt({
+        message: `${prompt.message}\n${prompt.options.map((option, index) => `${index + 1}. ${option.label}`).join("\n")}`,
+        allowEmpty: true,
+        ...(defaultOption ? { placeholder: defaultOption.label } : {}),
+      });
+      const normalizedChoice = choice.trim();
+      if (!normalizedChoice) {
+        return defaultOption?.id;
+      }
+      const selectedIndex = Number.parseInt(normalizedChoice, 10);
+      if (Number.isInteger(selectedIndex) && selectedIndex >= 1 && selectedIndex <= prompt.options.length) {
+        return prompt.options[selectedIndex - 1]?.id;
+      }
+      return prompt.options.find((option) => option.id === normalizedChoice || option.label === normalizedChoice)?.id;
+    },
+    ...(callbacks.onProgress ? { onProgress: callbacks.onProgress } : {}),
+    ...(callbacks.onManualCodeInput ? { onManualCodeInput: callbacks.onManualCodeInput } : {}),
+    ...(callbacks.signal ? { signal: callbacks.signal } : {}),
+  };
 }
 
 function inferProviderAuthSource(

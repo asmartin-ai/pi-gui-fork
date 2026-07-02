@@ -9,8 +9,34 @@ import { fileURLToPath } from "node:url";
 const requiredPackages = [
   // Keep packaging-sensitive runtime transitive deps explicit; electron-builder
   // can omit hoisted pnpm dependencies even when local development resolves them.
+  "@anthropic-ai/sdk",
+  "@aws-crypto/sha256-browser",
+  "@aws-crypto/sha256-js",
+  "@aws-sdk/client-bedrock-runtime",
+  "@aws-sdk/core",
+  "@aws-sdk/credential-provider-node",
+  "@aws-sdk/eventstream-handler-node",
+  "@aws-sdk/middleware-eventstream",
+  "@aws-sdk/middleware-websocket",
+  "@aws-sdk/nested-clients",
+  "@aws-sdk/signature-v4-multi-region",
   "@aws-sdk/token-providers",
+  "@aws-sdk/types",
+  "@aws-sdk/xml-builder",
+  "@aws/lambda-invoke-store",
+  "@google/genai",
+  "@mistralai/mistralai",
+  "@opentelemetry/api",
+  "@silvia-odwyer/photon-node",
+  "@smithy/core",
+  "@smithy/credential-provider-imds",
+  "@smithy/fetch-http-handler",
   "@smithy/is-array-buffer",
+  "@smithy/node-http-handler",
+  "@smithy/property-provider",
+  "@smithy/shared-ini-file-loader",
+  "@smithy/signature-v4",
+  "@smithy/types",
   "@smithy/util-buffer-from",
   "@smithy/util-utf8",
   "@xterm/addon-clipboard",
@@ -19,20 +45,39 @@ const requiredPackages = [
   "@xterm/xterm",
   "ansi-regex",
   "balanced-match",
+  "bowser",
   "brace-expansion",
   "chalk",
+  "cross-spawn",
   "data-uri-to-buffer",
+  "diff",
   "glob",
+  "highlight.js",
   "hosted-git-info",
+  "http-proxy-agent",
+  "https-proxy-agent",
+  "ignore",
+  "jiti",
   "lru-cache",
   "mime-types",
   "minimatch",
   "node-pty",
+  "openai",
   "parse5",
   "parse5-htmlparser2-tree-adapter",
+  "path-key",
+  "partial-json",
+  "proper-lockfile",
   "proxy-agent",
   "retry",
+  "semver",
+  "shebang-command",
   "strip-ansi",
+  "tslib",
+  "typebox",
+  "undici",
+  "which",
+  "yaml",
   "yargs",
 ];
 
@@ -46,11 +91,26 @@ const notificationHelperPath =
     : undefined;
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const piCodingAgentPackageName = "@earendil-works/pi-coding-agent";
-const requiredPiCodingAgentVersion = "0.74.0";
+const requiredPiCodingAgentVersion = "0.80.3";
+const issueModelChecks = [
+  {
+    provider: "anthropic",
+    id: "claude-opus-4-7",
+    reason: "issue #12 Opus 4.7 visibility",
+    requireReasoning: true,
+    requireImageInput: true,
+  },
+  {
+    provider: "zai",
+    id: "glm-5.1",
+    reason: "issue #12 GLM 5.1 visibility",
+    requireReasoning: true,
+    requireImageInput: false,
+  },
+];
 const packagedRuntimeImportChecks = [
   ["@earendil-works", "pi-ai", "dist", "providers", "google.js"],
   ["@earendil-works", "pi-ai", "dist", "bedrock-provider.js"],
-  ["cli-highlight", "dist", "index.js"],
   ["proxy-agent", "dist", "index.js"],
 ];
 
@@ -154,6 +214,19 @@ async function verifyPackagedPiRuntime(extractedDir) {
   const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
   if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
     throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
+  }
+  for (const check of issueModelChecks) {
+    const model = registry.getAll().find((entry) => entry.provider === check.provider && entry.id === check.id);
+    const modelKey = `${check.provider}/${check.id}`;
+    if (!model) {
+      throw new Error(`Packaged Pi runtime does not expose ${modelKey} for ${check.reason}.`);
+    }
+    if (check.requireReasoning && !model.reasoning) {
+      throw new Error(`Packaged ${modelKey} is missing reasoning support for ${check.reason}.`);
+    }
+    if (check.requireImageInput && !model.input.includes("image")) {
+      throw new Error(`Packaged ${modelKey} is missing image input support for ${check.reason}.`);
+    }
   }
 }
 
