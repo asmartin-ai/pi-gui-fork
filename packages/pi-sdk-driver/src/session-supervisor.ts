@@ -455,7 +455,7 @@ export class SessionSupervisor {
       if (!forkedPath) {
         throw new Error(`Failed to create forked session from ${sessionKey(sourceRef)}.`);
       }
-      branchedManager = SessionManager.open(forkedPath);
+      branchedManager = opened;
     } else {
       const forked = SessionManager.forkFrom(sourceFile, targetWorkspace.path);
       const fullForkPath = forked.getSessionFile();
@@ -470,7 +470,7 @@ export class SessionSupervisor {
         throw error;
       }
       await removeIntermediateForkSession(fullForkPath, forkedPath);
-      branchedManager = SessionManager.open(forkedPath);
+      branchedManager = forked;
     }
 
     const createOptions: CreateAgentSessionOptions = {
