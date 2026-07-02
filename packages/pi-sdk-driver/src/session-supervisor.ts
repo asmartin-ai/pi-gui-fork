@@ -408,19 +408,26 @@ export class SessionSupervisor {
     let targetLeafId: string | undefined;
     let selectedText: string | undefined;
     if (position === "after") {
-      // Codex-style fork: branch at the END of the selected turn. Assistant
-      // messages can be followed by tool-result entries that are part of the
-      // same visible response, so keep entries until just before the next user
-      // message rather than stopping at the assistant entry itself.
       const selectedIndex = branch.findIndex((entry) => entry.id === selectedEntry.id);
-      const nextUserIndex = branch.findIndex(
-        (entry, index) =>
-          index > selectedIndex && entry.type === "message" && entry.message.role === "user",
-      );
-      if (nextUserIndex > selectedIndex) {
-        targetLeafId = branch[nextUserIndex - 1]?.id ?? selectedEntry.id;
+      if (selectedEntry.message.role === "assistant") {
+        // Assistant entries can be followed by tool-result entries that belong
+        // to the same visible response. Include those, but stop before the next
+        // assistant/user message so forking an earlier response does not keep a
+        // later response from the same user turn.
+        const nextMessageIndex = branch.findIndex(
+          (entry, index) => index > selectedIndex && entry.type === "message",
+        );
+        targetLeafId = nextMessageIndex > selectedIndex
+          ? branch[nextMessageIndex - 1]?.id ?? selectedEntry.id
+          : branch[branch.length - 1]?.id ?? selectedEntry.id;
       } else {
-        targetLeafId = branch[branch.length - 1]?.id ?? selectedEntry.id;
+        const nextUserIndex = branch.findIndex(
+          (entry, index) =>
+            index > selectedIndex && entry.type === "message" && entry.message.role === "user",
+        );
+        targetLeafId = nextUserIndex > selectedIndex
+          ? branch[nextUserIndex - 1]?.id ?? selectedEntry.id
+          : branch[branch.length - 1]?.id ?? selectedEntry.id;
       }
     } else if (position === "at") {
       targetLeafId = selectedEntry.id;
