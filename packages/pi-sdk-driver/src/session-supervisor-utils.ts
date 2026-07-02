@@ -69,8 +69,17 @@ export function deriveSessionConfig(sessionManager: {
 }
 
 export function forcePersistSession(sessionManager: object): void {
-  const maybeRewrite = (sessionManager as { _rewriteFile?: () => void })._rewriteFile;
+  const writableSessionManager = sessionManager as {
+    _rewriteFile?: () => void;
+    flushed?: boolean;
+  };
+  const maybeRewrite = writableSessionManager._rewriteFile;
   maybeRewrite?.call(sessionManager);
+  if (maybeRewrite) {
+    // Pi 0.80 defers first writes until the assistant response; keep its
+    // internal append/create mode aligned when the desktop forces an early file.
+    writableSessionManager.flushed = true;
+  }
 }
 
 export function sessionKey(sessionRef: SessionRef): string {
