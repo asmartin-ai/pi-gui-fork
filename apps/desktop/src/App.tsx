@@ -200,13 +200,13 @@ export default function App() {
   const [forkModalState, setForkModalState] = useState<{
     readonly open: boolean;
     readonly submitting: boolean;
-    readonly sourceMessageId: string;
+    readonly sourceMessageIndex: number;
     readonly messagePreview?: string;
     readonly error?: string;
   }>({
     open: false,
     submitting: false,
-    sourceMessageId: "",
+    sourceMessageIndex: -1,
   });
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -877,13 +877,13 @@ export default function App() {
         : {
             open: false,
             submitting: false,
-            sourceMessageId: "",
+            sourceMessageIndex: -1,
           },
     );
   }, []);
 
   const openForkModal = useCallback(
-    (sourceMessageId: string, preview?: string) => {
+    (sourceMessageIndex: number, preview?: string) => {
       if (!api || !selectedWorkspace || !selectedSession) {
         return;
       }
@@ -891,7 +891,7 @@ export default function App() {
       setForkModalState({
         open: true,
         submitting: false,
-        sourceMessageId,
+        sourceMessageIndex,
         messagePreview: trimmed ? trimmed.slice(0, 280) : undefined,
       });
     },
@@ -911,7 +911,7 @@ export default function App() {
         sourceSessionId: selectedSession.id,
         rootWorkspaceId,
         environment,
-        sourceMessageId: forkModalState.sourceMessageId,
+        sourceMessageIndex: forkModalState.sourceMessageIndex,
         position: "after",
       };
       setForkModalState((current) => ({ ...current, submitting: true, error: undefined }));
@@ -922,7 +922,7 @@ export default function App() {
           setForkModalState({
             open: false,
             submitting: false,
-            sourceMessageId: "",
+            sourceMessageIndex: -1,
           });
           focusComposer();
         })
@@ -934,7 +934,7 @@ export default function App() {
           }));
         });
     },
-    [api, forkModalState.sourceMessageId, selectedSession, selectedWorkspace, snapshot],
+    [api, forkModalState.sourceMessageIndex, selectedSession, selectedWorkspace, snapshot],
   );
 
   const slashMenu = useSlashMenu({

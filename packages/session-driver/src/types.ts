@@ -126,8 +126,10 @@ export type ForkPosition = "before" | "at" | "after";
 export interface ForkSessionOptions {
   /** Target workspace for the forked session (the source workspace, or a new worktree). */
   readonly targetWorkspace: WorkspaceRef;
-  /** ID of the rendered source message selected as the fork point. */
+  /** ID of the rendered source message selected as the fork point, when it maps to a session entry. */
   readonly sourceMessageId?: string;
+  /** 0-based index of the rendered source message selected as the fork point. */
+  readonly sourceMessageIndex?: number;
   /** 0-based rendered user-message index kept as a fallback for older callers. */
   readonly userMessageIndex?: number;
   /**

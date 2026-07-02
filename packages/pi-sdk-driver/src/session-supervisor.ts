@@ -72,7 +72,7 @@ import {
   truncate,
   workspaceToRef,
 } from "./session-supervisor-utils.js";
-import type { SessionTranscriptItem } from "./transcript.js";
+import type { SessionTranscriptItem, SessionTranscriptMessage } from "./transcript.js";
 import {
   createAgentSessionRuntimeWithNpmFallback,
   type PiCreateAgentSessionOptions,
@@ -412,7 +412,9 @@ export class SessionSupervisor {
       const selector =
         options.sourceMessageId !== undefined
           ? `message ${options.sourceMessageId}`
-          : `user message index ${options.userMessageIndex}`;
+          : options.sourceMessageIndex !== undefined
+            ? `rendered message index ${options.sourceMessageIndex}`
+            : `user message index ${options.userMessageIndex}`;
       throw new Error(`Cannot fork session ${sessionKey(sourceRef)}: no ${selector}.`);
     }
 
@@ -1769,17 +1771,47 @@ function resolveForkSourceEntry(
     return messageEntries.find((entry) => entry.id === options.sourceMessageId);
   }
 
+  const renderedMessageItems = transcriptFromMessages(renderedMessages).filter(
+    (item): item is SessionTranscriptMessage => item.kind === "message",
+  );
+  if (options.sourceMessageIndex !== undefined) {
+    const renderedMessage = renderedMessageItems.at(options.sourceMessageIndex);
+    return renderedMessage ? findBranchEntryForRenderedMessage(branch, renderedMessage) : undefined;
+  }
+
   if (options.userMessageIndex === undefined) {
     return undefined;
   }
 
-  const renderedUserMessageId = transcriptFromMessages(renderedMessages)
-    .filter((item) => item.kind === "message" && item.role === "user")
-    .at(options.userMessageIndex)?.id;
-  if (!renderedUserMessageId) {
-    return undefined;
+  const renderedUserMessage = renderedMessageItems
+    .filter((item) => item.role === "user")
+    .at(options.userMessageIndex);
+  return renderedUserMessage ? findBranchEntryForRenderedMessage(branch, renderedUserMessage) : undefined;
+}
+
+function findBranchEntryForRenderedMessage(
+  branch: readonly SessionBranchEntry[],
+  renderedMessage: SessionTranscriptMessage,
+): SessionMessageBranchEntry | undefined {
+  const candidates = branch.filter(
+    (entry): entry is SessionMessageBranchEntry =>
+      entry.type === "message" &&
+      entry.message.role === renderedMessage.role &&
+      messageText(entry.message as unknown as Record<string, unknown>) === renderedMessage.text &&
+      branchEntryCreatedAt(entry) === renderedMessage.createdAt,
+  );
+  return candidates[0];
+}
+
+function branchEntryCreatedAt(entry: SessionMessageBranchEntry): string {
+  const message = entry.message as unknown as Record<string, unknown>;
+  if (typeof message.createdAt === "string") {
+    return message.createdAt;
   }
-  return messageEntries.find((entry) => entry.id === renderedUserMessageId);
+  if (typeof message.timestamp === "number" && Number.isFinite(message.timestamp)) {
+    return new Date(message.timestamp).toISOString();
+  }
+  return entry.timestamp;
 }
 
 async function removeIntermediateForkSession(

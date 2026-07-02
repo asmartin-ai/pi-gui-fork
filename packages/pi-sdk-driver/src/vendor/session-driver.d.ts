@@ -96,6 +96,7 @@ declare module "@pi-gui/session-driver" {
   export interface ForkSessionOptions {
     readonly targetWorkspace: WorkspaceRef;
     readonly sourceMessageId?: string;
+    readonly sourceMessageIndex?: number;
     readonly userMessageIndex?: number;
     readonly position?: ForkPosition;
     readonly title?: string;
