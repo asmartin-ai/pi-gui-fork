@@ -1,5 +1,5 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
+import type { ModelSettingsScopeMode, NotificationPreferences, ThemePresetId, WorkspaceRecord } from "./desktop-state";
 import type {
   CustomProviderConfig,
   DesktopComputerUsePrivacyPane,
@@ -28,6 +28,7 @@ interface SettingsViewProps {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
+  readonly themePresetId: ThemePresetId;
   readonly enableTransparency: boolean;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
@@ -48,6 +49,7 @@ interface SettingsViewProps {
   readonly onSetLockedComputerUseEnabled: (enabled: boolean) => void;
   readonly onOpenComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
+  readonly onSetThemePresetId: (presetId: ThemePresetId) => void;
   readonly onSetEnableTransparency: (enabled: boolean) => void;
 }
 
@@ -63,6 +65,7 @@ export function SettingsView({
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
+  themePresetId,
   enableTransparency,
   onSetModelSettingsScopeMode,
   onSetDefaultModel,
@@ -83,6 +86,7 @@ export function SettingsView({
   onSetLockedComputerUseEnabled,
   onOpenComputerUsePrivacySettings,
   onSetThemeMode,
+  onSetThemePresetId,
   onSetEnableTransparency,
 }: SettingsViewProps) {
   if (
@@ -120,7 +124,9 @@ export function SettingsView({
           {section === "appearance" ? (
             <SettingsAppearanceSection
               themeMode={themeMode}
+              themePresetId={themePresetId}
               onSetThemeMode={onSetThemeMode}
+              onSetThemePresetId={onSetThemePresetId}
               enableTransparency={enableTransparency}
               onSetEnableTransparency={onSetEnableTransparency}
             />

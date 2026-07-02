@@ -41,7 +41,7 @@ import {
 import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
-import type { AppView, DesktopAppState, ThemeMode } from "../src/desktop-state";
+import type { AppView, DesktopAppState, ThemeMode, ThemePresetId } from "../src/desktop-state";
 import {
   desktopIpc,
   getDesktopCommandFromShortcut,
@@ -1027,6 +1027,7 @@ app.whenReady().then(async () => {
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
   await store.initialize();
+  themeManager.setMode(store.state.themeMode);
   integratedTerminalShell = (await store.getState()).integratedTerminalShell;
   stopPruningTerminals = store.subscribe((state) => {
     integratedTerminalShell = state.integratedTerminalShell;
@@ -1098,10 +1099,13 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.getThemeMode, () => themeManager.getMode());
   ipcMain.handle(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
-  ipcMain.handle(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
+  ipcMain.handle(desktopIpc.setThemeMode, (event, mode: ThemeMode) => {
     themeManager.setMode(mode);
-    return mode;
+    return runWindowScopedForEvent(event, () => store.setThemeMode(mode));
   });
+  ipcMain.handle(desktopIpc.setThemePresetId, (event, presetId: ThemePresetId) =>
+    runWindowScopedForEvent(event, () => store.setThemePresetId(presetId)),
+  );
   ipcMain.handle(desktopIpc.openExternal, (_event, url: string) => {
     const parsed = parseExternalWebUrl(url);
     if (!parsed) {

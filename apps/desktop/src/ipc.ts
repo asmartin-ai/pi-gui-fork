@@ -19,6 +19,7 @@ import type {
   SetChildSupervisionLoopInput,
   SelectedTranscriptRecord,
   StartThreadInput,
+  ThemePresetId,
   WorkspaceSessionTarget,
 } from "./desktop-state";
 
@@ -174,6 +175,7 @@ export const desktopIpc = {
   getThemeMode: "pi-gui:get-theme-mode",
   getResolvedTheme: "pi-gui:get-resolved-theme",
   setThemeMode: "pi-gui:set-theme-mode",
+  setThemePresetId: "pi-gui:set-theme-preset-id",
   themeChanged: "pi-gui:theme-changed",
   ping: "app:ping",
   openExternal: "app:open-external",
@@ -365,6 +367,7 @@ export interface PiDesktopApi {
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
   setIntegratedTerminalShell(shell: string): Promise<DesktopAppState>;
   setEnableTransparency(enabled: boolean): Promise<DesktopAppState>;
+  setThemePresetId(presetId: ThemePresetId): Promise<DesktopAppState>;
   ensureTerminalPanel(
     workspaceId: string,
     terminalScopeId: string,
@@ -423,6 +426,6 @@ export interface PiDesktopApi {
   openExternal(url: string): Promise<void>;
   getThemeMode(): Promise<"system" | "light" | "dark">;
   getResolvedTheme(): Promise<"light" | "dark">;
-  setThemeMode(mode: "system" | "light" | "dark"): Promise<string>;
+  setThemeMode(mode: "system" | "light" | "dark"): Promise<DesktopAppState>;
   onThemeChanged(callback: (theme: "light" | "dark") => void): () => void;
 }

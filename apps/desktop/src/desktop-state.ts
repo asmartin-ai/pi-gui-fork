@@ -9,7 +9,26 @@ export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
 export type NewThreadEnvironment = "local" | "worktree";
 export type ThemeMode = "system" | "light" | "dark";
+export const themePresetIds = [
+  "default",
+  "catppuccin",
+  "tokyo-night",
+  "nord",
+  "dracula",
+  "gruvbox",
+  "github",
+  "vscode",
+] as const;
+export type ThemePresetId = (typeof themePresetIds)[number];
 export type ModelSettingsScopeMode = "app-global" | "per-repo";
+
+export function isThemeMode(value: unknown): value is ThemeMode {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+export function isThemePresetId(value: unknown): value is ThemePresetId {
+  return typeof value === "string" && themePresetIds.includes(value as ThemePresetId);
+}
 export type ComposerDraftSyncSource =
   | "state"
   | "selection"
@@ -289,6 +308,8 @@ export interface DesktopAppState {
   readonly workspaceOrder: readonly string[];
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
+  readonly themeMode: ThemeMode;
+  readonly themePresetId: ThemePresetId;
   readonly sidebarCollapsed: boolean;
   readonly enableTransparency: boolean;
   readonly revision: number;
@@ -336,6 +357,8 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     globalModelSettings: {
       enabledModelPatterns: [],
     },
+    themeMode: "system",
+    themePresetId: "default",
     sidebarCollapsed: false,
     enableTransparency: false,
     revision: 0,

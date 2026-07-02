@@ -50,6 +50,7 @@ import { buildExtensionDockModel, ExtensionDialog, hasExtensionDockContent } fro
 import { TreeModal } from "./tree-modal";
 import { ForkModal } from "./fork-modal";
 import { getEffectiveModelRuntime } from "./model-settings";
+import { applyThemePresetToRoot } from "./theme-presets";
 import { resolveRepoWorkspaceId } from "./workspace-roots";
 import { deriveWorkspaceContext } from "./workspace-context";
 import {
@@ -179,7 +180,7 @@ export default function App() {
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
-  const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
   const [notificationPermissionStatus, setNotificationPermissionStatus] =
     useState<DesktopNotificationPermissionStatus>("unknown");
   const [notificationPermissionPending, setNotificationPermissionPending] = useState(false);
@@ -260,19 +261,21 @@ export default function App() {
     if (!piApi) return;
 
     void piApi.getResolvedTheme().then((theme) => {
+      setResolvedTheme(theme);
       document.documentElement.classList.toggle("dark", theme === "dark");
     });
 
-    void piApi.getThemeMode().then((mode) => {
-      setThemeMode(mode);
-    });
-
     const unsub = piApi.onThemeChanged((theme) => {
+      setResolvedTheme(theme);
       document.documentElement.classList.toggle("dark", theme === "dark");
     });
 
     return unsub;
   }, []);
+
+  useEffect(() => {
+    applyThemePresetToRoot(document.documentElement, snapshot?.themePresetId ?? "default", resolvedTheme);
+  }, [resolvedTheme, snapshot?.themePresetId]);
 
   useEffect(() => {
     if (snapshot) {
@@ -1984,8 +1987,12 @@ export default function App() {
 
   const handleSetThemeMode = (mode: "system" | "light" | "dark") => {
     if (!api) return;
-    setThemeMode(mode);
-    void api.setThemeMode(mode);
+    void updateSnapshot(api, setSnapshot, () => api.setThemeMode(mode));
+  };
+
+  const handleSetThemePresetId = (presetId: DesktopAppState["themePresetId"]) => {
+    if (!api) return;
+    void updateSnapshot(api, setSnapshot, () => api.setThemePresetId(presetId));
   };
 
   const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
@@ -2344,7 +2351,8 @@ export default function App() {
           computerUseStatusPending={computerUseStatusPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           integratedTerminalShell={snapshot.integratedTerminalShell}
-          themeMode={themeMode}
+          themeMode={snapshot.themeMode}
+          themePresetId={snapshot.themePresetId}
           enableTransparency={snapshot.enableTransparency}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
@@ -2363,6 +2371,7 @@ export default function App() {
           onOpenComputerUsePrivacySettings={handleOpenComputerUsePrivacySettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
           onSetThemeMode={handleSetThemeMode}
+          onSetThemePresetId={handleSetThemePresetId}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
           onSetEnableTransparency={(enabled) => {

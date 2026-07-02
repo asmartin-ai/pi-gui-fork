@@ -41,7 +41,7 @@ export function sectionTitle(section: SettingsSection): string {
 export function sectionDescription(section: SettingsSection, workspaceName: string): string {
   switch (section) {
     case "appearance":
-      return "Choose between light, dark, or automatic system theme.";
+      return "Choose a preset palette and light, dark, or automatic system mode.";
     case "providers":
       return `Connect providers and manage auth for ${workspaceName}.`;
     case "models":

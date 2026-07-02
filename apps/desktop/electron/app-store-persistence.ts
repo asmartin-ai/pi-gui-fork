@@ -7,13 +7,16 @@ import type {
   OrchestrationChildThread,
   OrchestrationChildTranscriptMessage,
   OrchestrationSupervisionLoop,
+  ThemeMode,
+  ThemePresetId,
 } from "../src/desktop-state";
+import { isThemeMode, isThemePresetId } from "../src/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { readFile } from "node:fs/promises";
 import { writeFileAtomicQueued } from "./atomic-file-write";
 
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -31,6 +34,8 @@ export interface PersistedUiState {
   readonly sidebarCollapsed?: boolean;
   readonly allowMultiple?: boolean;
   readonly enableTransparency?: boolean;
+  readonly themeMode?: ThemeMode;
+  readonly themePresetId?: ThemePresetId;
   readonly orchestrationChildren?: readonly OrchestrationChildThread[];
 }
 
@@ -45,7 +50,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 14
+        parsed.version === 15
+          ? 15
+          : parsed.version === 14
           ? 14
           : parsed.version === 13
           ? 13
@@ -93,6 +100,8 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       sidebarCollapsed: typeof parsed.sidebarCollapsed === "boolean" ? parsed.sidebarCollapsed : undefined,
       allowMultiple: typeof parsed.allowMultiple === "boolean" ? parsed.allowMultiple : undefined,
       enableTransparency: typeof parsed.enableTransparency === "boolean" ? parsed.enableTransparency : undefined,
+      themeMode: toThemeMode(parsed.themeMode),
+      themePresetId: toThemePresetId(parsed.themePresetId),
       orchestrationChildren: toPersistedOrchestrationChildren(parsed.orchestrationChildren),
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
@@ -109,12 +118,20 @@ export async function writePersistedUiState(
   const serialized = `${JSON.stringify(
     {
       ...payload,
-      version: 14,
+      version: 15,
     } satisfies PersistedUiState,
     null,
     2,
   )}\n`;
   await writeFileAtomicQueued(uiStateFilePath, serialized);
+}
+
+function toThemeMode(value: unknown): ThemeMode | undefined {
+  return isThemeMode(value) ? value : undefined;
+}
+
+function toThemePresetId(value: unknown): ThemePresetId | undefined {
+  return isThemePresetId(value) ? value : undefined;
 }
 
 function toStringArray(value: unknown): string[] | undefined {

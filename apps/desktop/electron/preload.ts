@@ -39,6 +39,7 @@ import type {
   SetChildSupervisionLoopInput,
   SelectedTranscriptRecord,
   StartThreadInput,
+  ThemePresetId,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 
@@ -211,6 +212,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<DesktopAppState>,
   setEnableTransparency: (enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setEnableTransparency, enabled) as Promise<DesktopAppState>,
+  setThemePresetId: (presetId: ThemePresetId) =>
+    ipcRenderer.invoke(desktopIpc.setThemePresetId, presetId) as Promise<DesktopAppState>,
   ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
     ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
   createTerminalSession: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
@@ -296,7 +299,7 @@ contextBridge.exposeInMainWorld("piApp", {
   getThemeMode: () => ipcRenderer.invoke(desktopIpc.getThemeMode) as Promise<"system" | "light" | "dark">,
   getResolvedTheme: () => ipcRenderer.invoke(desktopIpc.getResolvedTheme) as Promise<"light" | "dark">,
   setThemeMode: (mode: "system" | "light" | "dark") =>
-    ipcRenderer.invoke(desktopIpc.setThemeMode, mode) as Promise<string>,
+    ipcRenderer.invoke(desktopIpc.setThemeMode, mode) as Promise<DesktopAppState>,
   onThemeChanged: (callback: (theme: "light" | "dark") => void) => {
     const handler = (_event: Electron.IpcRendererEvent, theme: "light" | "dark") => callback(theme);
     ipcRenderer.on(desktopIpc.themeChanged, handler);

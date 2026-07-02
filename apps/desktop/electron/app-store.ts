@@ -51,8 +51,12 @@ import {
   type SetChildSupervisionLoopInput,
   type SelectedTranscriptRecord,
   type StartThreadInput,
+  type ThemeMode,
+  type ThemePresetId,
   type TranscriptMessage,
   type WorkspaceSessionTarget,
+  isThemeMode,
+  isThemePresetId,
 } from "../src/desktop-state";
 import {
   applyTimelineEvent,
@@ -689,6 +693,42 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setThemeMode(themeMode: ThemeMode): Promise<DesktopAppState> {
+    await this.initialize();
+    if (!isThemeMode(themeMode)) {
+      throw new Error(`Unsupported theme mode: ${String(themeMode)}`);
+    }
+    if (this.state.themeMode === themeMode) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      themeMode,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async setThemePresetId(themePresetId: ThemePresetId): Promise<DesktopAppState> {
+    await this.initialize();
+    if (!isThemePresetId(themePresetId)) {
+      throw new Error(`Unsupported theme preset: ${String(themePresetId)}`);
+    }
+    if (this.state.themePresetId === themePresetId) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      themePresetId,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setModelSettingsScopeMode(modelSettingsScopeMode: ModelSettingsScopeMode): Promise<DesktopAppState> {
     await this.initialize();
     if (this.state.modelSettingsScopeMode === modelSettingsScopeMode) {
@@ -1035,6 +1075,8 @@ export class DesktopAppStore implements AppStoreInternals {
         pinnedAtBySession: persisted.pinnedAtBySession ?? {},
         pinnedSessionOrder: persisted.pinnedSessionOrder ?? [],
         workspaceOrder: persisted.workspaceOrder ?? [],
+        themeMode: persisted.themeMode ?? this.state.themeMode,
+        themePresetId: persisted.themePresetId ?? this.state.themePresetId,
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
         orchestrationChildren: persisted.orchestrationChildren ?? [],
@@ -1104,6 +1146,8 @@ export class DesktopAppStore implements AppStoreInternals {
     } catch (error) {
       this.state = {
         ...createEmptyDesktopAppState(),
+        themeMode: persisted.themeMode ?? "system",
+        themePresetId: persisted.themePresetId ?? "default",
         enableTransparency: persisted.enableTransparency ?? false,
         lastError: error instanceof Error ? error.message : String(error),
         revision: 1,
@@ -2172,6 +2216,8 @@ export class DesktopAppStore implements AppStoreInternals {
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
+      themeMode: this.state.themeMode,
+      themePresetId: this.state.themePresetId,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       enableTransparency: this.state.enableTransparency,
       orchestrationChildren: orchestration.toPersistedOrchestrationChildren(this.state.orchestrationChildren),

@@ -51,7 +51,7 @@
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--line);
-  background: rgba(251, 251, 253, 0.94);
+  background: var(--surface);
 }
 
 .topbar__title {
@@ -147,7 +147,7 @@
   padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface);
   box-shadow: 0 10px 28px rgba(20, 27, 45, 0.12);
   color: var(--muted-strong);
   font-size: 12px;
@@ -164,8 +164,8 @@
   padding: 1px 5px 2px;
   border: 1px solid var(--line);
   border-radius: 5px;
-  background: #f7f9fc;
-  color: #526078;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 650;
@@ -192,7 +192,7 @@
   height: var(--titlebar-toggle-size);
   border-radius: 10px;
   color: var(--muted-soft);
-  background: rgba(255, 255, 255, 0.42);
+  background: var(--surface-overlay-muted);
 }
 
 .shell--sidebar-collapsed .topbar {
@@ -349,7 +349,7 @@
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface);
   box-shadow: 0 14px 32px rgba(20, 27, 45, 0.12);
   color: var(--text-strong);
   font-size: 13px;
@@ -458,8 +458,8 @@
   min-width: 0;
   padding: 13px 17px;
   border-radius: 16px;
-  border: 1px solid var(--line);
-  background: var(--main);
+  border: 1px solid var(--theme-bubble-border, var(--line));
+  background: var(--theme-bubble-bg, var(--main));
 }
 
 .timeline-item__attachments {
@@ -1316,7 +1316,7 @@
   content: "";
   flex: 1 1 auto;
   height: 1px;
-  background: #e2e6ef;
+  background: var(--line);
 }
 
 .timeline-summary__meta {
@@ -1371,8 +1371,8 @@
 .message__content :not(pre) > code {
   padding: 0.1em 0.38em;
   border-radius: 6px;
-  background: #eef2f8;
-  color: #2c3550;
+  background: var(--theme-code-bg, #eef2f8);
+  color: var(--theme-code-ink, #2c3550);
 }
 
 .message__content pre {
@@ -1382,9 +1382,9 @@
   overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  background: #f2f4f8;
-  color: #25304a;
-  border: 1px solid #dfe3eb;
+  background: var(--theme-code-bg, #f2f4f8);
+  color: var(--theme-code-ink, #25304a);
+  border: 1px solid var(--theme-code-border, #dfe3eb);
 }
 
 .message__content pre code {
@@ -1397,12 +1397,12 @@
 
 .message__content blockquote {
   padding-left: 12px;
-  border-left: 3px solid #d8deea;
+  border-left: 3px solid var(--theme-control-border, #d8deea);
   color: var(--muted-strong);
 }
 
 .message__content a {
-  color: #3358d4;
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -1412,18 +1412,17 @@
 
 .composer {
   padding: 18px 28px 24px;
-  background:
-    linear-gradient(180deg, rgba(251, 251, 253, 0) 0%, rgba(251, 251, 253, 0.9) 24%, rgba(251, 251, 253, 1) 54%);
+  background: linear-gradient(180deg, transparent 0%, var(--main) 54%);
 }
 
 .composer__surface {
   position: relative;
   border-radius: 18px;
   padding: 12px 14px 11px;
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: 1px solid var(--theme-control-border, var(--line));
+  background: var(--theme-control-bg, var(--surface));
   width: 100%;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 0 0 1px var(--theme-focus-ring, transparent), var(--shadow-md);
   overflow: visible;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
@@ -2628,6 +2627,78 @@
   border-top: 1px solid var(--line);
 }
 
+.theme-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.theme-preset-card {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--theme-control-border, var(--line));
+  border-radius: 8px;
+  background: var(--theme-control-bg, var(--surface-muted));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.theme-preset-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-preset-card:hover,
+.theme-preset-card--active {
+  border-color: var(--theme-selection-border, var(--accent));
+  background: var(--theme-selection-bg, var(--surface-overlay-hover));
+}
+
+.theme-preset-card:focus-within {
+  outline: 2px solid var(--theme-selection-border, var(--accent));
+  outline-offset: 2px;
+}
+
+.theme-preset-card__preview {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  width: 72px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.theme-preset-card__swatch {
+  min-width: 0;
+  min-height: 0;
+}
+
+.theme-preset-card__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.theme-preset-card__title {
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 590;
+}
+
+.theme-preset-card__description {
+  color: var(--muted-soft);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .settings-row {
   display: flex;
   align-items: center;
@@ -2790,17 +2861,17 @@
 .settings-pill {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid #dfe4ee;
-  background: #f8f9fc;
+  border: 1px solid var(--theme-control-border, #dfe4ee);
+  background: var(--theme-control-bg, #f8f9fc);
   color: var(--muted-strong);
   font-size: 13px;
   font-weight: 560;
 }
 
 .settings-pill--active {
-  border-color: #c6d0e8;
-  background: #edf2fb;
-  color: var(--text-strong);
+  border-color: var(--theme-selection-border, #c6d0e8);
+  background: var(--theme-selection-bg, #edf2fb);
+  color: var(--theme-selection-ink, var(--text-strong));
 }
 
 .settings-toggle-list {
@@ -3496,7 +3567,7 @@ mark.thread-find-active {
 
 :root.dark .topbar {
   border-bottom-color: var(--line);
-  background: rgba(30, 31, 34, 0.94);
+  background: var(--surface);
 }
 
 :root.dark .environment-picker__button {
@@ -3511,8 +3582,8 @@ mark.thread-find-active {
 }
 
 :root.dark .timeline-item__bubble {
-  border-color: var(--line);
-  background: var(--surface);
+  border-color: var(--theme-bubble-border, var(--line));
+  background: var(--theme-bubble-bg, var(--surface));
 }
 
 :root.dark .timeline-item--summary-card {
@@ -3539,33 +3610,32 @@ mark.thread-find-active {
 }
 
 :root.dark .message__content :not(pre) > code {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e4e4e7;
+  background: var(--theme-code-bg, rgba(255, 255, 255, 0.08));
+  color: var(--theme-code-ink, #e4e4e7);
 }
 
 :root.dark .message__content pre {
-  background: rgba(0, 0, 0, 0.25);
-  color: #e4e4e7;
-  border-color: var(--line);
+  background: var(--theme-code-bg, rgba(0, 0, 0, 0.25));
+  color: var(--theme-code-ink, #e4e4e7);
+  border-color: var(--theme-code-border, var(--line));
 }
 
 :root.dark .message__content blockquote {
-  border-left-color: var(--line);
+  border-left-color: var(--theme-control-border, var(--line));
 }
 
 :root.dark .message__content a {
-  color: #7c9dfa;
+  color: var(--accent);
 }
 
 :root.dark .composer {
-  background:
-    linear-gradient(180deg, rgba(30, 31, 34, 0) 0%, rgba(30, 31, 34, 0.9) 24%, rgba(30, 31, 34, 1) 54%);
+  background: linear-gradient(180deg, transparent 0%, var(--main) 54%);
 }
 
 :root.dark .composer__surface {
-  border-color: var(--line);
-  background: var(--surface);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  border-color: var(--theme-control-border, var(--line));
+  background: var(--theme-control-bg, var(--surface));
+  box-shadow: 0 0 0 1px var(--theme-focus-ring, transparent), 0 10px 24px rgba(0, 0, 0, 0.3);
 }
 
 :root.dark .composer__surface--drag-active {
@@ -3692,13 +3762,14 @@ mark.thread-find-active {
 }
 
 :root.dark .settings-pill {
-  border-color: var(--line);
-  background: var(--surface-muted);
+  border-color: var(--theme-control-border, var(--line));
+  background: var(--theme-control-bg, var(--surface-muted));
 }
 
 :root.dark .settings-pill--active {
-  border-color: rgba(124, 107, 245, 0.3);
-  background: rgba(124, 107, 245, 0.12);
+  border-color: var(--theme-selection-border, rgba(124, 107, 245, 0.3));
+  background: var(--theme-selection-bg, rgba(124, 107, 245, 0.12));
+  color: var(--theme-selection-ink, var(--text-strong));
 }
 
 :root.dark .settings-toggle--row {
