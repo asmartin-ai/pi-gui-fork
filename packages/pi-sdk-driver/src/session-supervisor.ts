@@ -478,16 +478,16 @@ export class SessionSupervisor {
       sessionManager: branchedManager,
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
     };
-    const sourceConfig = sourceRecord.config;
-    if (sourceConfig?.provider && sourceConfig?.modelId) {
+    const forkConfig = deriveSessionConfig(branchedManager);
+    if (forkConfig?.provider && forkConfig?.modelId) {
       try {
-        createOptions.model = this.resolveModel(sourceConfig.provider, sourceConfig.modelId);
+        createOptions.model = this.resolveModel(forkConfig.provider, forkConfig.modelId);
       } catch {
-        // Source model is no longer available; fall back to the runtime default.
+        // Forked model is no longer available; fall back to the runtime default.
       }
     }
-    if (sourceConfig?.thinkingLevel) {
-      createOptions.thinkingLevel = sourceConfig.thinkingLevel as NonNullable<
+    if (forkConfig?.thinkingLevel) {
+      createOptions.thinkingLevel = forkConfig.thinkingLevel as NonNullable<
         CreateAgentSessionOptions["thinkingLevel"]
       >;
     }
