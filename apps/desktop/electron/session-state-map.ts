@@ -53,18 +53,58 @@ export class SessionStateMap {
   readonly loadedTranscriptKeys = new Set<string>();
 
   /**
-   * Remove entries for session keys that are no longer active.
+   * Remove all per-session state for keys that are no longer active. Pruning is
+   * authoritative against `activeKeys`: it sweeps every map/set, not just the
+   * ones with a live subscription. A session closed before its workspace is
+   * removed drops its subscription first, so keying off subscriptions alone
+   * leaked its transcript cache (and other caches) forever.
    * Calls the unsubscribe callback for any stale subscription before deleting it.
    */
   prune(activeKeys: Set<string>): boolean {
     const persistedUiChanged = this.prunePersistedUiState(activeKeys);
-    for (const [key, unsubscribe] of this.sessionSubscriptions) {
+    for (const key of this.allSessionKeys()) {
       if (!activeKeys.has(key)) {
-        unsubscribe();
+        this.sessionSubscriptions.get(key)?.();
         this.deleteSession(key);
       }
     }
     return persistedUiChanged;
+  }
+
+  /** Union of keys across every per-session map and set. */
+  private allSessionKeys(): Set<string> {
+    const keys = new Set<string>();
+    const maps: ReadonlyArray<ReadonlyMap<string, unknown>> = [
+      this.transcriptCache,
+      this.composerDraftsBySession,
+      this.composerAttachmentsBySession,
+      this.queuedComposerMessagesBySession,
+      this.queuedComposerEditsBySession,
+      this.sessionConfigBySession,
+      this.lastViewedAtBySession,
+      this.pinnedAtBySession,
+      this.sessionErrorsBySession,
+      this.sessionSubscriptions,
+      this.activeAssistantMessageBySession,
+      this.runningSinceBySession,
+      this.runMetricsBySession,
+      this.activeWorkingActivityBySession,
+      this.sessionCommandsBySession,
+      this.extensionUiBySession,
+      this.pendingAutoTitleBySession,
+    ];
+    for (const map of maps) {
+      for (const key of map.keys()) {
+        keys.add(key);
+      }
+    }
+    for (const key of this.loadedTranscriptKeys) {
+      keys.add(key);
+    }
+    for (const key of this.pinnedSessionOrder) {
+      keys.add(key);
+    }
+    return keys;
   }
 
   /** Remove persisted UI entries for sessions that are no longer in the catalog. */
