@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 import {
+  clickSession,
   createNamedThread,
   emitTestSessionEvent,
   getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  selectSession,
 } from "../helpers/electron-app";
 
 test("ignores stale persisted draft acknowledgements while typing", async () => {
@@ -53,6 +55,39 @@ test("ignores stale persisted draft acknowledgements while typing", async () => 
     expect(sampledValues).not.toContain(staleDraft);
     await expect(composer).toHaveValue(expectedDraft);
     await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(expectedDraft);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("preserves a composer draft across a fast session switch", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-draft-fast-switch");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Draft Thread A");
+    await createNamedThread(window, "Draft Thread B");
+
+    await selectSession(window, "Draft Thread A");
+    const composer = window.getByTestId("composer");
+    const draft = "fast-switch-draft-xyz";
+    await composer.fill(draft);
+    await expect(composer).toHaveValue(draft);
+
+    // Switch away immediately, before the 350ms persist debounce fires: the pending write must be
+    // flushed onto Thread A rather than cancelled.
+    await clickSession(window, "Draft Thread B");
+    await expect(window.locator(".topbar__session")).toHaveText("Draft Thread B");
+
+    await selectSession(window, "Draft Thread A");
+    await expect(composer).toHaveValue(draft);
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(draft);
   } finally {
     await harness.close();
   }

@@ -71,26 +71,38 @@ function useDesktopAppState() {
 
   useEffect(() => {
     let active = true;
+    let receivedPushedTranscript = false;
     const api = window.piApp;
     if (!api) {
       return undefined;
     }
 
+    // The initial getState() can resolve after an early pushed state-changed event; never let a
+    // snapshot with a lower revision overwrite a newer one already applied to state.
+    const applyState = (incoming: DesktopAppState) => {
+      setSnapshot((current) => (current && incoming.revision < current.revision ? current : incoming));
+    };
+
     void Promise.all([api.getState(), api.getSelectedTranscript()]).then(([state, transcript]) => {
       if (!active) {
         return;
       }
-      setSnapshot(state);
-      setSelectedTranscript(transcript);
+      applyState(state);
+      // SelectedTranscriptRecord carries no revision marker, so the stale initial transcript is
+      // only applied when no pushed transcript has arrived yet.
+      if (!receivedPushedTranscript) {
+        setSelectedTranscript(transcript);
+      }
     });
 
     const unsubscribeState = api.onStateChanged((state) => {
       if (active) {
-        setSnapshot(state);
+        applyState(state);
       }
     });
     const unsubscribeTranscript = api.onSelectedTranscriptChanged((payload) => {
       if (active) {
+        receivedPushedTranscript = true;
         setSelectedTranscript(payload);
       }
     });
@@ -222,11 +234,16 @@ export default function App() {
   const offBottomRestoreGenerationRef = useRef(0);
   const restoredTimelineScrollSessionKeyRef = useRef("");
   const protectedTimelineScrollSessionKeysRef = useRef(new Set<string>());
+  const timelineScrollSaveGuardRef = useRef<string | null>(null);
   const timelineScrollIntentUntilRef = useRef(0);
   const selectedSessionKeyRef = useRef("");
   const previousActiveViewRef = useRef<AppView | null>(null);
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
+  const pendingComposerDraftRef = useRef<string | null>(null);
+  const composerDraftWriteTimerRef = useRef<number | null>(null);
+  const flushComposerDraftRef = useRef<() => void>(() => {});
+  const composerDraftRef = useRef("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [sidePanelMode, setSidePanelMode] = useState<SidePanelMode | null>(null);
   const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
@@ -373,6 +390,7 @@ export default function App() {
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
   selectedSessionKeyRef.current = selectedSessionKey;
+  composerDraftRef.current = composerDraft;
   const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKey === selectedSessionKey;
   const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKey === selectedSessionKey;
   const selectedTranscriptForSession =
@@ -479,6 +497,35 @@ export default function App() {
     }
     offBottomRestoreGenerationRef.current += 1;
     protectedTimelineScrollSessionKeysRef.current.delete(sessionKey);
+  };
+  // Two useLayoutEffect cleanups both save timeline scroll on a session switch; they fire in the
+  // same commit, so dedupe by session key to run the save (and consume the single-use protection
+  // guard) exactly once. Otherwise the second, unguarded save clobbers the saved off-bottom read
+  // position.
+  const saveTimelineScrollStateOnLeave = (sessionKey: string) => {
+    const pane = timelinePaneRef.current;
+    if (!pane || !sessionKey) {
+      return;
+    }
+    if (timelineScrollSaveGuardRef.current === sessionKey) {
+      return;
+    }
+    timelineScrollSaveGuardRef.current = sessionKey;
+    queueMicrotask(() => {
+      if (timelineScrollSaveGuardRef.current === sessionKey) {
+        timelineScrollSaveGuardRef.current = null;
+      }
+    });
+    if (protectedTimelineScrollSessionKeysRef.current.has(sessionKey)) {
+      protectedTimelineScrollSessionKeysRef.current.delete(sessionKey);
+      return;
+    }
+    const pinned = isNearBottom(pane);
+    lastTimelineScrollTopBySessionRef.current.set(sessionKey, pane.scrollTop);
+    lastTimelinePinnedBySessionRef.current.set(sessionKey, pinned);
+    if (pinned) {
+      clearTimelineOffBottomState(sessionKey);
+    }
   };
   const updateNewThreadPrompt = useCallback((value: SetStateAction<string>) => {
     setNewThreadComposerError(undefined);
@@ -1240,20 +1287,7 @@ export default function App() {
     setDisableTimelineVirtualization(Boolean(selectedSessionKey && shouldRestorePinned));
 
     return () => {
-      const pane = timelinePaneRef.current;
-      if (!pane || !selectedSessionKey) {
-        return;
-      }
-      if (protectedTimelineScrollSessionKeysRef.current.has(selectedSessionKey)) {
-        protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
-        return;
-      }
-      const pinned = isNearBottom(pane);
-      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
-      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
-      if (pinned) {
-        clearTimelineOffBottomState(selectedSessionKey);
-      }
+      saveTimelineScrollStateOnLeave(selectedSessionKey);
     };
   }, [selectedSessionKey]);
 
@@ -1396,17 +1430,27 @@ export default function App() {
 
   useEffect(() => {
     if (!api || composerDraft === persistedComposerDraft) {
+      pendingComposerDraftRef.current = null;
       return undefined;
     }
 
+    pendingComposerDraftRef.current = composerDraft;
     const timeout = window.setTimeout(() => {
+      composerDraftWriteTimerRef.current = null;
+      pendingComposerDraftRef.current = null;
       void api.updateComposerDraft(composerDraft);
     }, 350);
+    composerDraftWriteTimerRef.current = timeout;
 
+    // Only the timer is cancelled here (each keystroke reschedules it); the pending value stays in
+    // pendingComposerDraftRef so a session switch can flush it before the active session changes.
     return () => {
       window.clearTimeout(timeout);
+      composerDraftWriteTimerRef.current = null;
     };
-  }, [api, composerDraft, persistedComposerDraft, setSnapshot]);
+  }, [api, composerDraft, persistedComposerDraft]);
+
+  useEffect(() => () => flushComposerDraftRef.current(), []);
 
   useLayoutEffect(() => {
     const composer = composerRef.current;
@@ -1444,20 +1488,7 @@ export default function App() {
     }
 
     return () => {
-      const pane = timelinePaneRef.current;
-      if (!pane) {
-        return;
-      }
-      if (protectedTimelineScrollSessionKeysRef.current.has(selectedSessionKey)) {
-        protectedTimelineScrollSessionKeysRef.current.delete(selectedSessionKey);
-        return;
-      }
-      const pinned = isNearBottom(pane);
-      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
-      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
-      if (pinned) {
-        clearTimelineOffBottomState(selectedSessionKey);
-      }
+      saveTimelineScrollStateOnLeave(selectedSessionKey);
     };
   }, [selectedSession, selectedSessionKey, snapshot?.activeView]);
 
@@ -1680,10 +1711,16 @@ export default function App() {
       const nextState = await updateSnapshot(api, setSnapshot, () =>
         api.submitComposer(previousDraft, selectedSession.status === "running" ? { deliverAs: options.deliverAs ?? "followUp" } : undefined),
       );
-      setComposerDraft(nextState.composerDraft);
+      // Only apply the resolved draft if the user hasn't typed into the composer during the
+      // in-flight submit; otherwise their new input would be clobbered.
+      if (composerDraftRef.current === "") {
+        setComposerDraft(nextState.composerDraft);
+      }
       setAttachmentsClearedOnSubmit(false);
     })().catch(() => {
-      setComposerDraft(previousDraft);
+      if (composerDraftRef.current === "") {
+        setComposerDraft(previousDraft);
+      }
       setAttachmentsClearedOnSubmit(false);
     });
   };
@@ -2004,6 +2041,19 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
 
+  const flushComposerDraft = () => {
+    if (composerDraftWriteTimerRef.current !== null) {
+      window.clearTimeout(composerDraftWriteTimerRef.current);
+      composerDraftWriteTimerRef.current = null;
+    }
+    const pending = pendingComposerDraftRef.current;
+    pendingComposerDraftRef.current = null;
+    if (pending !== null && api) {
+      void api.updateComposerDraft(pending);
+    }
+  };
+  flushComposerDraftRef.current = flushComposerDraft;
+
   const saveCurrentTimelineScrollState = () => {
     const pane = timelinePaneRef.current;
     if (!pane || !selectedSessionKey) {
@@ -2024,6 +2074,9 @@ export default function App() {
   };
 
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
+    // Flush any debounced draft write before the active session changes, otherwise the pending
+    // write for the current session is lost (and would land on the wrong session if deferred).
+    flushComposerDraft();
     saveCurrentTimelineScrollState();
     setOpenTerminalSessionKey("");
     setTakeoverTerminalSessionKey("");
