@@ -71,6 +71,7 @@ export function DiffPanel({
   );
   const contextsRef = useRef(contexts);
   const viewerRequestNonceRef = useRef(0);
+  const refreshRequestNonceRef = useRef(0);
 
   const contextIdsKey = useMemo(() => contexts.map((context) => context.workspace.id).join("\n"), [contexts]);
   const knownContextIds = useMemo(() => new Set(contextIdsKey ? contextIdsKey.split("\n") : []), [contextIdsKey]);
@@ -88,6 +89,10 @@ export function DiffPanel({
     [changedByWorkspace, contexts],
   );
   const changedRows = useMemo(() => changedGroups.flatMap((group) => group.files), [changedGroups]);
+  const changedRowsRef = useRef(changedRows);
+  changedRowsRef.current = changedRows;
+  const filesByWorkspaceRef = useRef(filesByWorkspace);
+  filesByWorkspaceRef.current = filesByWorkspace;
 
   useEffect(() => {
     setReviewed(loadReviewed(workspaceId, sessionId));
@@ -106,6 +111,10 @@ export function DiffPanel({
 
   const refresh = useCallback((options: { readonly force?: boolean } = {}) => {
     const refreshContexts = contextsRef.current;
+    // Latest-request-wins: overlapping refreshes (e.g. running→idle firing alongside a
+    // context/mount refresh) must not let a slower earlier request overwrite newer state.
+    refreshRequestNonceRef.current += 1;
+    const requestNonce = refreshRequestNonceRef.current;
     if (refreshContexts.length === 0) {
       setFilesByWorkspace({});
       setChangedByWorkspace({});
@@ -123,6 +132,9 @@ export function DiffPanel({
       }),
     )
       .then((results) => {
+        if (refreshRequestNonceRef.current !== requestNonce) {
+          return;
+        }
         const nextFilesByWorkspace: Record<string, readonly string[]> = {};
         const nextChangedByWorkspace: Record<string, readonly ChangedFileEntry[]> = {};
         for (const result of results) {
@@ -155,7 +167,9 @@ export function DiffPanel({
         });
       })
       .finally(() => {
-        setLoading(false);
+        if (refreshRequestNonceRef.current === requestNonce) {
+          setLoading(false);
+        }
       });
   }, [api, contextIdsKey, sessionId, workspaceId]);
 
@@ -172,13 +186,32 @@ export function DiffPanel({
     refresh();
   }, [refresh]);
 
+  // Resolve the workspace/worktree a requested path actually belongs to, mirroring the in-list
+  // click path (which uses file.workspaceId). Falling back to the top-level workspaceId prop would
+  // query the wrong tree in multi-context (worktree) views.
+  const resolveWorkspaceIdForPath = useCallback(
+    (path: string): string => {
+      const changedMatch = changedRowsRef.current.find((file) => file.path === path);
+      if (changedMatch) {
+        return changedMatch.workspaceId;
+      }
+      for (const context of contextsRef.current) {
+        if ((filesByWorkspaceRef.current[context.workspace.id] ?? []).includes(path)) {
+          return context.workspace.id;
+        }
+      }
+      return workspaceId;
+    },
+    [workspaceId],
+  );
+
   useEffect(() => {
     if (!fileRequest) {
       return;
     }
     setViewerMode("diff");
-    setSelectedFile({ workspaceId, path: fileRequest.path });
-  }, [fileRequest, workspaceId]);
+    setSelectedFile({ workspaceId: resolveWorkspaceIdForPath(fileRequest.path), path: fileRequest.path });
+  }, [fileRequest, resolveWorkspaceIdForPath]);
 
   useEffect(() => {
     viewerRequestNonceRef.current += 1;
