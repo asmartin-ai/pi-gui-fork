@@ -8,6 +8,7 @@ import {
   JsonCatalogStore,
   PiSdkDriver,
   type PiSdkDriverConfig,
+  SessionLeasedError,
   sessionKey,
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
@@ -2340,7 +2341,7 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async withError(error: unknown): Promise<DesktopAppState> {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeStoreError(error);
     const sessionRef = this.selectedSessionRef();
     if (sessionRef) {
       this.sessionState.sessionErrorsBySession.set(sessionKey(sessionRef), message);
@@ -2355,7 +2356,7 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async withSessionError(sessionRef: SessionRef, error: unknown): Promise<DesktopAppState> {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeStoreError(error);
     this.sessionState.sessionErrorsBySession.set(sessionKey(sessionRef), message);
     this.state = {
       ...this.state,
@@ -2818,6 +2819,28 @@ function applyModelSettingsSnapshot(
       enabledModelPatterns: [...settings.enabledModelPatterns],
     },
   };
+}
+
+/**
+ * Convert an error into the message shown in `lastError`. A SessionLeasedError
+ * means another live pi surface holds the session file, so binding a runtime is
+ * refused to avoid forking the conversation — turn its raw internal string into
+ * a user-readable explanation of who holds it and what to do.
+ */
+function describeStoreError(error: unknown): string {
+  if (isSessionLeasedError(error)) {
+    const { holder } = error;
+    const where = holder.surface === "pi-cli" ? "the pi CLI" : "another pi instance";
+    return `This session is currently open in ${where} (pid ${holder.pid} on host ${holder.hostname}). Close it there or wait a few minutes before continuing here.`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isSessionLeasedError(error: unknown): error is SessionLeasedError {
+  return (
+    error instanceof SessionLeasedError ||
+    (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "SESSION_LEASED")
+  );
 }
 
 async function readProjectModelSettingsFile(workspacePath: string): Promise<Record<string, unknown>> {
