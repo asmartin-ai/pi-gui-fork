@@ -1254,6 +1254,23 @@ export async function emitTestSessionEvent(
   }, event);
 }
 
+/**
+ * Deterministically drive the main-process window-activation path (the same one
+ * the real `focus` event fires), so a test can assert the focus reconcile without
+ * depending on flaky native focus stealing.
+ */
+export async function triggerWindowActivation(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(async () => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { handleWindowActivation?: () => void };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.handleWindowActivation) {
+      throw new Error("Window-activation hook is unavailable");
+    }
+    hooks.handleWindowActivation();
+  });
+}
+
 export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promise<void> {
   await harness.electronApp.evaluate(async () => {
     const hooks = (globalThis as {

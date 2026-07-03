@@ -1,5 +1,5 @@
 import { access, realpath, stat, unlink } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
   ModelRegistry,
   SessionManager,
@@ -310,20 +310,12 @@ export class SessionSupervisor {
   }
 
   /**
-   * Best-effort path of a workspace's pi session directory (where the `.jsonl`
-   * files live), for pointing an ExternalChangeWatcher at it. Derived from a
-   * tracked session file's parent, so it is undefined for a workspace with no
-   * sessions yet — rely on reconcileWorkspace to pick up the first one.
+   * Best-effort absolute path of a session's pi `.jsonl` file. Used by the app
+   * layer to stat the selected session on window focus and only reload the
+   * transcript when the on-disk file actually changed.
    */
-  async resolveWorkspaceSessionDir(workspaceId: WorkspaceId): Promise<string | undefined> {
-    const { sessions } = await this.catalogs.sessions.listSessions(workspaceId);
-    for (const session of sessions) {
-      const file = session.sessionFilePath ?? (await this.catalogs.getSessionFile(session.sessionRef));
-      if (file) {
-        return dirname(file);
-      }
-    }
-    return undefined;
+  getSessionFilePath(sessionRef: SessionRef): Promise<string | undefined> {
+    return this.resolveSessionFilePath(sessionRef);
   }
 
   async renameWorkspace(workspaceId: WorkspaceId, displayName: string): Promise<void> {

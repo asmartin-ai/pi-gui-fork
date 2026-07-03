@@ -152,8 +152,8 @@ export class PiSdkDriver implements SessionDriver {
     return this.supervisor.reconcileWorkspace(workspaceId);
   }
 
-  resolveWorkspaceSessionDir(workspaceId: WorkspaceId): Promise<string | undefined> {
-    return this.supervisor.resolveWorkspaceSessionDir(workspaceId);
+  getSessionFilePath(sessionRef: SessionRef): Promise<string | undefined> {
+    return this.supervisor.getSessionFilePath(sessionRef);
   }
 
   renameWorkspace(workspaceId: WorkspaceId, displayName: string) {

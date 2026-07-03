@@ -1066,6 +1066,11 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        handleWindowActivation: () => {
+          if (mainWindow) {
+            applyWindowActivation(mainWindow);
+          }
+        },
         promptForText: (message: string, placeholder?: string, allowEmpty?: boolean) =>
           promptForText(mainWindow, message, placeholder ?? "", allowEmpty ?? false),
         runOrchestrationRuntimeTool: (input: OrchestrationRuntimeToolTestInput) =>

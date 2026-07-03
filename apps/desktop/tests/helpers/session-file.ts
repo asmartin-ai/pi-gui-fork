@@ -1,5 +1,5 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 interface SessionRefLike {
   readonly workspaceId: string;
@@ -82,6 +82,30 @@ export async function appendMessagesToSessionFile(
   });
 
   await appendFile(sessionFilePath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+}
+
+/**
+ * Fabricate a brand-new pi session JSONL beside an existing one, the way the pi
+ * CLI does when starting a fresh session in the same workspace: a session header
+ * cloned from the sibling (same cwd/version, new id + timestamp) followed by the
+ * given messages. pi derives session identity from the header id, not the
+ * filename. Returns the new file's path.
+ */
+export async function createSessionFileBeside(
+  siblingSessionFilePath: string,
+  fileName: string,
+  messages: readonly SeededSessionFileMessage[],
+): Promise<string> {
+  const firstLine = (await readFile(siblingSessionFilePath, "utf8")).split("\n").find((line) => line.trim());
+  const header = JSON.parse(firstLine ?? "{}") as { type?: string };
+  if (header.type !== "session") {
+    throw new Error(`First line of ${siblingSessionFilePath} is not a session header`);
+  }
+  const sessionFilePath = join(dirname(siblingSessionFilePath), fileName);
+  const newHeader = { ...header, id: `cli-seeded-${Date.now()}`, timestamp: new Date().toISOString() };
+  await writeFile(sessionFilePath, `${JSON.stringify(newHeader)}\n`, "utf8");
+  await appendMessagesToSessionFile(sessionFilePath, messages);
+  return sessionFilePath;
 }
 
 /**
