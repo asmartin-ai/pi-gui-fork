@@ -17,6 +17,8 @@ export type { PiSdkDriverOptions, SyncWorkspaceResult } from "./session-supervis
 export { SessionSupervisor } from "./session-supervisor.js";
 export { SessionLeasedError } from "./session-lease.js";
 export type { LeaseInfo } from "./session-lease.js";
+export { ExternalChangeWatcher } from "./external-change-watcher.js";
+export type { ExternalChangeEvent, ExternalChangeWatcherOptions } from "./external-change-watcher.js";
 export { sessionKey } from "./session-supervisor-utils.js";
 export type { GenerateThreadTitleOptions } from "./thread-title-generator.js";
 export type {

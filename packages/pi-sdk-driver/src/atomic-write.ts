@@ -2,6 +2,9 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
+/** Suffix of the transient files writeFileAtomic creates before renaming into place. */
+export const TMP_SUFFIX = ".tmp";
+
 let tmpCounter = 0;
 
 /**
@@ -24,7 +27,7 @@ export async function writeFileAtomic(filePath: string, data: string | Uint8Arra
   // writers, or two writes within the same millisecond, never share a path
   // (Date.now() alone is not unique under concurrent writes).
   tmpCounter = (tmpCounter + 1) >>> 0;
-  const tmpPath = `${filePath}.${process.pid}.${tmpCounter}.${randomBytes(6).toString("hex")}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${tmpCounter}.${randomBytes(6).toString("hex")}${TMP_SUFFIX}`;
 
   const handle = await open(tmpPath, "w");
   try {
