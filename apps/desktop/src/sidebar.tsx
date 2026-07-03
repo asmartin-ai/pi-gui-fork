@@ -143,8 +143,10 @@ export function Sidebar(props: SidebarProps) {
       if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
       const newOrder = arrayMove(pinnedSortableIds, oldIndex, newIndex).map(pinnedSessionKeyFromSortableId);
-      setSnapshot((prev) => prev ? { ...prev, pinnedSessionOrder: newOrder } : prev);
-      void api.reorderPinnedSessions(newOrder);
+      applyOptimisticReorder(
+        (prev) => ({ ...prev, pinnedSessionOrder: newOrder }),
+        () => api.reorderPinnedSessions(newOrder),
+      );
       return;
     }
 
@@ -153,9 +155,27 @@ export function Sidebar(props: SidebarProps) {
     if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
     const newOrder = arrayMove(rootGroupIds, oldIndex, newIndex);
-    // Optimistically update local state to avoid snap-back animation
-    setSnapshot((prev) => prev ? { ...prev, workspaceOrder: newOrder } : prev);
-    void api.reorderWorkspaces(newOrder);
+    applyOptimisticReorder(
+      (prev) => ({ ...prev, workspaceOrder: newOrder }),
+      () => api.reorderWorkspaces(newOrder),
+    );
+  }
+
+  // Optimistically update local state to avoid snap-back animation, then reconcile with the
+  // authoritative state the IPC call returns; roll back to the pre-reorder snapshot on rejection.
+  function applyOptimisticReorder(
+    optimistic: (prev: DesktopAppState) => DesktopAppState,
+    commit: () => Promise<DesktopAppState>,
+  ) {
+    let previousSnapshot: DesktopAppState | null = null;
+    setSnapshot((prev) => {
+      previousSnapshot = prev;
+      return prev ? optimistic(prev) : prev;
+    });
+    void commit().then(
+      (state) => setSnapshot(state),
+      () => setSnapshot(previousSnapshot),
+    );
   }
 
   const activeGroup = activeId ? rootGroups.find((g) => g.rootWorkspace.id === activeId) : undefined;
