@@ -54,7 +54,7 @@ export default function dialogExtension(pi) {
 }
 `;
 
-const computerUseLikeExtensionSource = String.raw`
+const dialogPromptingExtensionSource = String.raw`
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 
@@ -73,33 +73,33 @@ const dragTool = defineTool({
   },
 });
 
-export default function computerUseLikeExtension(pi) {
+export default function dialogPromptingExtension(pi) {
   pi.registerTool(dragTool);
 
   pi.on("session_start", async (_event, ctx) => {
-    await ctx.ui.select("Computer use permissions", ["Open System Settings"]);
+    await ctx.ui.select("Grant permissions", ["Open System Settings"]);
   });
 
-  pi.registerCommand("computer-use-smoke", {
-    description: "Confirm the computer-use extension loaded",
+  pi.registerCommand("package-extension-smoke", {
+    description: "Confirm the packaged extension loaded",
     handler: async (_args, ctx) => {
-      ctx.ui.notify("Computer use command ready", "info");
+      ctx.ui.notify("Package command ready", "info");
     },
   });
 }
 `;
 
-async function installComputerUseLikePackage(agentDir: string, packagePath: string): Promise<void> {
+async function installDialogPromptingPackage(agentDir: string, packagePath: string): Promise<void> {
   const extensionDir = join(packagePath, "extensions");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(
     join(packagePath, "package.json"),
     `${JSON.stringify(
       {
-        name: "pi-computer-use",
+        name: "pi-sample-extension",
         type: "module",
         pi: {
-          extensions: ["./extensions/computer-use.ts"],
+          extensions: ["./extensions/sample.ts"],
         },
       },
       null,
@@ -107,7 +107,7 @@ async function installComputerUseLikePackage(agentDir: string, packagePath: stri
     )}\n`,
     "utf8",
   );
-  await writeFile(join(extensionDir, "computer-use.ts"), `${computerUseLikeExtensionSource}\n`, "utf8");
+  await writeFile(join(extensionDir, "sample.ts"), `${dialogPromptingExtensionSource}\n`, "utf8");
 
   const settingsPath = join(agentDir, "settings.json");
   const settings = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
@@ -197,14 +197,14 @@ test("renders extension dialogs in the Electron surface and routes responses bac
   }
 });
 
-test("loads a pi-computer-use-like package without blocking session startup", async () => {
+test("loads a dialog-prompting third-party package without blocking session startup", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
-  const workspacePath = await makeWorkspace("computer-use-extension-workspace");
-  const packagePath = await makeWorkspace("pi-computer-use-package");
+  const workspacePath = await makeWorkspace("package-extension-workspace");
+  const packagePath = await makeWorkspace("pi-sample-extension-package");
   const agentDir = join(userDataDir, "agent");
   await seedAgentDir(agentDir);
-  await installComputerUseLikePackage(agentDir, packagePath);
+  await installDialogPromptingPackage(agentDir, packagePath);
 
   const harness = await launchDesktop(userDataDir, {
     agentDir,
@@ -214,13 +214,13 @@ test("loads a pi-computer-use-like package without blocking session startup", as
 
   try {
     const window = await harness.firstWindow();
-    await createNamedThread(window, "Computer use extension session");
+    await createNamedThread(window, "Package extension session");
     await expect(window.getByTestId("extension-dialog")).toHaveCount(0);
 
     const composer = window.getByTestId("composer");
-    await composer.fill("/computer-use-smoke ");
+    await composer.fill("/package-extension-smoke ");
     await composer.press("Enter");
-    await expect(window.locator(".timeline")).toContainText("Computer use command ready");
+    await expect(window.locator(".timeline")).toContainText("Package command ready");
   } finally {
     await harness.close();
   }

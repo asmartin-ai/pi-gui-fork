@@ -259,7 +259,6 @@ test("shows extensions above files in @ mentions and enables disabled extensions
     const mentionMenu = window.getByTestId("mention-menu");
     await expect(mentionMenu).toBeVisible();
     await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Extensions", "Files"]);
-    await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("Computer Use");
     await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("demo-extension");
     await expect(mentionMenu.locator(".mention-menu__section").first()).toContainText("Disabled");
     await expect(mentionMenu.locator(".mention-menu__section").first().getByRole("button", { name: /Enable demo-extension/ })).toBeVisible();
@@ -451,15 +450,6 @@ test("manages extensions and prefers runtime commands over colliding host action
     await window.getByRole("button", { name: "Extensions", exact: true }).click();
     await expect(window.getByTestId("extensions-surface")).toBeVisible();
     const extensionsList = window.getByTestId("extensions-list");
-    const builtInComputerUseCard = extensionsList.getByRole("button", { name: /Computer Use.*Built-in.*top-level/i });
-    await expect(builtInComputerUseCard).toBeVisible();
-    await builtInComputerUseCard.click();
-    await expect(window.locator(".skill-detail")).toContainText("Built-in");
-    await expect(window.locator(".skill-detail")).toContainText("top-level");
-    await expect(window.locator(".skill-detail")).not.toContainText("temporary");
-    await expect(window.getByRole("button", { name: "Open folder", exact: true })).toHaveCount(0);
-    await expect(window.getByRole("button", { name: "Disable", exact: true })).toHaveCount(0);
-
     const extensionCard = extensionsList.getByRole("button", { name: /demo-extension/i });
     await expect(extensionCard).toBeVisible();
     await extensionCard.click();
