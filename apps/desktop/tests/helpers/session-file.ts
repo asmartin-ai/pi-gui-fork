@@ -1,4 +1,4 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 interface SessionRefLike {
@@ -82,4 +82,26 @@ export async function appendMessagesToSessionFile(
   });
 
   await appendFile(sessionFilePath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+}
+
+/**
+ * Bump a session file's header schema version above what it was written with, simulating a file
+ * authored by a newer pi than the bundled runtime. Only the header's version number is changed;
+ * the message entries stay valid, so the runtime still parses them while reporting the skew.
+ * Returns the new version.
+ */
+export async function bumpSessionFileSchemaVersion(sessionFilePath: string): Promise<number> {
+  const lines = (await readFile(sessionFilePath, "utf8")).split("\n");
+  const headerIndex = lines.findIndex((line) => line.trim().length > 0);
+  if (headerIndex === -1) {
+    throw new Error(`Session file ${sessionFilePath} is empty`);
+  }
+  const header = JSON.parse(lines[headerIndex]) as { type?: string; version?: number };
+  if (header.type !== "session") {
+    throw new Error(`First line of ${sessionFilePath} is not a session header`);
+  }
+  const bumped = (header.version ?? 1) + 1;
+  lines[headerIndex] = JSON.stringify({ ...header, version: bumped });
+  await writeFile(sessionFilePath, lines.join("\n"), "utf8");
+  return bumped;
 }

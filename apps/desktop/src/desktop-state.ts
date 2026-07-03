@@ -1,5 +1,7 @@
 import type { HostUiRequest, SessionConfig } from "@pi-gui/session-driver";
 import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { SessionSchemaInfo } from "@pi-gui/pi-sdk-driver";
+export type { SessionSchemaInfo } from "@pi-gui/pi-sdk-driver";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TimelineToolCall, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
@@ -185,6 +187,9 @@ export interface SelectedTranscriptRecord {
   readonly workspaceId: string;
   readonly sessionId: string;
   readonly transcript: readonly TranscriptMessage[];
+  // Session-file schema-version skew, when known. `writtenByNewerRuntime` drives the version-skew
+  // notice; undefined until the (async, static-per-session) header read resolves.
+  readonly schemaInfo?: SessionSchemaInfo;
 }
 
 export interface WorktreeRecord {

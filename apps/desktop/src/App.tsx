@@ -245,6 +245,9 @@ export default function App() {
   const flushComposerDraftRef = useRef<() => void>(() => {});
   const composerDraftRef = useRef("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [dismissedSchemaSkewSessionKeys, setDismissedSchemaSkewSessionKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [sidePanelMode, setSidePanelMode] = useState<SidePanelMode | null>(null);
   const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
   const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
@@ -403,6 +406,10 @@ export default function App() {
       : null;
   const activeTranscript = selectedTranscriptForSession?.transcript ?? [];
   const isTranscriptLoading = Boolean(selectedSession) && !selectedTranscriptForSession;
+  const showSchemaSkewNotice =
+    selectedTranscriptForSession?.schemaInfo?.writtenByNewerRuntime === true &&
+    Boolean(selectedSessionKey) &&
+    !dismissedSchemaSkewSessionKeys.has(selectedSessionKey);
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
@@ -760,6 +767,17 @@ export default function App() {
   const handleViewFileInDiff = useCallback((path: string) => {
     setSidePanelMode("changes");
     setDiffFileRequest({ path, nonce: Date.now() });
+  }, []);
+
+  const dismissSchemaSkewNotice = useCallback((sessionKey: string) => {
+    setDismissedSchemaSkewSessionKeys((current) => {
+      if (current.has(sessionKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(sessionKey);
+      return next;
+    });
   }, []);
 
   const toggleSidePanelMode = useCallback((mode: SidePanelMode) => {
@@ -2571,6 +2589,23 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {showSchemaSkewNotice ? (
+                  <div className="schema-skew-notice" role="status" data-testid="schema-skew-notice">
+                    <span className="schema-skew-notice__text">
+                      This session was written by a newer version of pi — some content may not display. Update pi-gui
+                      (or open it with the pi CLI) to see everything.
+                    </span>
+                    <button
+                      type="button"
+                      className="schema-skew-notice__dismiss"
+                      aria-label="Dismiss notice"
+                      onClick={() => dismissSchemaSkewNotice(selectedSessionKey)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
 
                 <ConversationTimeline
                   transcript={activeTranscript}
