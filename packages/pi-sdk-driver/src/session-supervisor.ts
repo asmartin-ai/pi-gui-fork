@@ -1,5 +1,5 @@
 import { access, realpath, stat, unlink } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   ModelRegistry,
   SessionManager,
@@ -288,6 +288,37 @@ export class SessionSupervisor {
       workspace,
       sessions: (await this.catalogs.sessions.listSessions(workspace.workspaceId)).sessions,
     };
+  }
+
+  /**
+   * Re-scan a workspace's pi session directory from disk and reconcile the
+   * catalog. Thin wrapper over syncWorkspace keyed by workspaceId, for
+   * window-focus / external-change reconcile. Returns undefined if the
+   * workspace is no longer tracked.
+   */
+  async reconcileWorkspace(workspaceId: WorkspaceId): Promise<SyncWorkspaceResult | undefined> {
+    const workspace = await this.catalogs.workspaces.getWorkspace(workspaceId);
+    if (!workspace) {
+      return undefined;
+    }
+    return this.syncWorkspace(workspace.path);
+  }
+
+  /**
+   * Best-effort path of a workspace's pi session directory (where the `.jsonl`
+   * files live), for pointing an ExternalChangeWatcher at it. Derived from a
+   * tracked session file's parent, so it is undefined for a workspace with no
+   * sessions yet — rely on reconcileWorkspace to pick up the first one.
+   */
+  async resolveWorkspaceSessionDir(workspaceId: WorkspaceId): Promise<string | undefined> {
+    const { sessions } = await this.catalogs.sessions.listSessions(workspaceId);
+    for (const session of sessions) {
+      const file = session.sessionFilePath ?? (await this.catalogs.getSessionFile(session.sessionRef));
+      if (file) {
+        return dirname(file);
+      }
+    }
+    return undefined;
   }
 
   async renameWorkspace(workspaceId: WorkspaceId, displayName: string): Promise<void> {
