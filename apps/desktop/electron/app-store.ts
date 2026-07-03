@@ -1,8 +1,11 @@
 import type { BrowserWindow } from "electron";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   applyHostUiRequestToExtensionUiState,
+  ExternalChangeWatcher,
+  type ExternalChangeEvent,
   type GenerateThreadTitleOptions,
   isExtensionUiDialogRequest,
   JsonCatalogStore,
@@ -138,6 +141,14 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   private readonly sessionEventQueues = new Map<string, Promise<void>>();
+  /** Live filesystem watcher per open workspace, for CLI ↔ GUI external-change sync. */
+  private readonly externalWatchersByWorkspace = new Map<string, ExternalChangeWatcher>();
+  /** Workspaces whose watcher is settings-only because no session dir existed yet. */
+  private readonly workspacesAwaitingSessionDir = new Set<string>();
+  /** Guards against creating two watchers for the same workspace concurrently. */
+  private readonly watcherAttachInFlight = new Set<string>();
+  /** Per-workspace serial queue so external reconciles never overlap or race. */
+  private readonly externalChangeQueues = new Map<string, Promise<void>>();
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
@@ -276,6 +287,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.persistUiStateTimer = undefined;
     }
 
+    this.disposeExternalChangeWatchers();
     await this.persistUiState();
   }
 
@@ -342,7 +354,9 @@ export class DesktopAppStore implements AppStoreInternals {
   /* ── Workspace methods (delegated) ─────────────────────── */
 
   async addWorkspace(path: string): Promise<DesktopAppState> {
-    return workspace.addWorkspace(this, path);
+    const state = await workspace.addWorkspace(this, path);
+    void this.syncExternalChangeWatchers();
+    return state;
   }
 
   getWorkspacePath(workspaceId: string): string | undefined {
@@ -362,7 +376,9 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async removeWorkspace(workspaceId: string): Promise<DesktopAppState> {
-    return workspace.removeWorkspace(this, workspaceId);
+    const state = await workspace.removeWorkspace(this, workspaceId);
+    void this.syncExternalChangeWatchers();
+    return state;
   }
 
   async reorderWorkspaces(order: readonly string[]): Promise<DesktopAppState> {
@@ -1137,6 +1153,8 @@ export class DesktopAppStore implements AppStoreInternals {
       // Startup GC of leaked pi/* worktrees and branches; self-contained and
       // error-swallowing, so fire-and-forget without blocking initialization.
       void worktree.reconcileWorktrees(this);
+      // Attach external-change watchers for the workspaces restored above.
+      void this.syncExternalChangeWatchers();
       const restoredSessionRef = this.selectedSessionRef();
       if (restoredSessionRef && persisted.selectedWorkspaceId && persisted.selectedSessionId) {
         this.restoredSelectedSessionKeysAwaitingSelection.add(sessionKey(restoredSessionRef));
@@ -1323,6 +1341,10 @@ export class DesktopAppStore implements AppStoreInternals {
       if ((options.publishSelectedTranscript ?? true) && this.currentSelectedSessionKey() !== previousSelectedKey) {
         this.publishSelectedTranscript();
       }
+      // Keep external-change watchers aligned with the (possibly changed) workspace
+      // set, and upgrade any settings-only watcher whose workspace just gained its
+      // first session. Idempotent and fire-and-forget; attached watchers no-op.
+      void this.syncExternalChangeWatchers();
       return snapshot;
     } finally {
       this.refreshStateDepth = Math.max(0, this.refreshStateDepth - 1);
@@ -1395,6 +1417,161 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
     this.publishSelectedTranscriptFor(sessionRef);
+  }
+
+  /* ── CLI ↔ GUI external-change sync ─────────────────────── */
+
+  /**
+   * Reconcile the set of live filesystem watchers against the currently open
+   * workspaces. Idempotent: a workspace with a fully-attached watcher is left
+   * alone, removed workspaces have their watcher disposed, and empty workspaces
+   * get a settings-only watcher that is upgraded to a session-dir watcher once
+   * their first session appears. Safe to call fire-and-forget after any change
+   * to the workspace/session set.
+   */
+  private async syncExternalChangeWatchers(): Promise<void> {
+    const activeIds = new Set(this.state.workspaces.map((entry) => entry.id));
+    for (const [workspaceId, watcher] of this.externalWatchersByWorkspace) {
+      if (!activeIds.has(workspaceId)) {
+        watcher.dispose();
+        this.externalWatchersByWorkspace.delete(workspaceId);
+        this.workspacesAwaitingSessionDir.delete(workspaceId);
+      }
+    }
+    await Promise.all(
+      this.state.workspaces.map((entry) => this.ensureExternalChangeWatcher(entry.id, entry.path)),
+    );
+  }
+
+  private async ensureExternalChangeWatcher(workspaceId: string, workspacePath: string): Promise<void> {
+    if (this.watcherAttachInFlight.has(workspaceId)) {
+      return;
+    }
+    const hasWatcher = this.externalWatchersByWorkspace.has(workspaceId);
+    // A watcher already bound to a session dir needs nothing further.
+    if (hasWatcher && !this.workspacesAwaitingSessionDir.has(workspaceId)) {
+      return;
+    }
+
+    this.watcherAttachInFlight.add(workspaceId);
+    try {
+      let sessionDir: string | undefined;
+      try {
+        sessionDir = await this.driver.resolveWorkspaceSessionDir(workspaceId);
+      } catch {
+        sessionDir = undefined;
+      }
+      // Still no session dir: keep the existing settings-only watcher (or the
+      // one just created below) and stay in the awaiting set for a later upgrade.
+      if (hasWatcher && !sessionDir) {
+        return;
+      }
+      // Replace any settings-only predecessor now that a session dir exists.
+      this.externalWatchersByWorkspace.get(workspaceId)?.dispose();
+
+      const settingsFiles = [resolveGlobalSettingsPath(), join(workspacePath, ".pi", "settings.json")];
+      const watcher = new ExternalChangeWatcher({
+        ...(sessionDir ? { sessionDirs: [sessionDir] } : {}),
+        settingsFiles,
+        onChange: (events) => this.enqueueExternalChanges(workspaceId, events),
+      });
+      this.externalWatchersByWorkspace.set(workspaceId, watcher);
+      if (sessionDir) {
+        this.workspacesAwaitingSessionDir.delete(workspaceId);
+      } else {
+        this.workspacesAwaitingSessionDir.add(workspaceId);
+      }
+    } finally {
+      this.watcherAttachInFlight.delete(workspaceId);
+    }
+  }
+
+  /**
+   * Route external changes for a workspace through a per-workspace serial queue
+   * (the same shape as the session-event queue) so reconciles keep FIFO order and
+   * never overlap. A rejection is logged and swallowed so it can't wedge the queue.
+   */
+  private enqueueExternalChanges(workspaceId: string, events: readonly ExternalChangeEvent[]): void {
+    const hasSessionChange = events.some((event) => event.type !== "settingsChanged");
+    const reloadSettings = events.some((event) => event.type === "settingsChanged");
+    this.enqueueWorkspaceReconcile(workspaceId, () =>
+      this.applyWorkspaceReconcile(workspaceId, { rescanSessions: hasSessionChange, reloadSettings }),
+    );
+  }
+
+  private enqueueWorkspaceReconcile(workspaceId: string, work: () => Promise<void>): void {
+    const previous = this.externalChangeQueues.get(workspaceId) ?? Promise.resolve();
+    const next = previous
+      .then(work)
+      .catch((error) => {
+        console.error(`[app-store] external change reconcile failed for ${workspaceId}`, error);
+      });
+    this.externalChangeQueues.set(workspaceId, next);
+    void next.finally(() => {
+      if (this.externalChangeQueues.get(workspaceId) === next) {
+        this.externalChangeQueues.delete(workspaceId);
+      }
+    });
+  }
+
+  private async applyWorkspaceReconcile(
+    workspaceId: string,
+    options: { readonly rescanSessions: boolean; readonly reloadSettings: boolean },
+  ): Promise<void> {
+    if (options.rescanSessions) {
+      // Re-scan the pi session dir into the catalog. We deliberately do NOT call
+      // reloadSessionsForWorkspace here: reloadSession resets a session's live
+      // extension UI (dropping pending dialogs, including ones shared across
+      // windows), which would be wrong for a routine external reconcile. The
+      // catalog resync updates the session list, and the selected session's
+      // transcript is refreshed non-destructively below.
+      await this.driver.reconcileWorkspace(workspaceId);
+    }
+    if (options.reloadSettings) {
+      const ws = this.workspaceRefFromState(workspaceId);
+      if (ws) {
+        this.runtimeByWorkspace.set(workspaceId, await this.driver.runtimeSupervisor.refreshRuntime(ws));
+      }
+    }
+
+    // refreshState re-syncs the watcher set, so a workspace that just gained its
+    // first session (previously settings-only) is upgraded to a session-dir watch.
+    await this.refreshState({ persistState: false });
+
+    if (options.rescanSessions) {
+      // The disk-tail path in the driver re-reads an idle session's JSONL when its
+      // mtime grows, so re-pull the selected session's transcript if it belongs to
+      // this workspace and is not mid-run (a live run stays authoritative in memory).
+      const selected = this.selectedSessionRef();
+      if (
+        selected &&
+        selected.workspaceId === workspaceId &&
+        !this.sessionState.runningSinceBySession.has(sessionKey(selected))
+      ) {
+        await this.reloadTranscriptFromDriver(selected);
+      }
+    }
+  }
+
+  /**
+   * Reconcile a workspace on demand (window focus): the backstop for the
+   * watcher's known gaps — empty workspaces that never got a session-dir watch,
+   * and coalesced or missed FS events. Only the session rescan runs here; a full
+   * runtime/settings reload on every focus would be too heavy, and settings
+   * changes are already covered by the watcher.
+   */
+  private reconcileWorkspaceOnFocus(workspaceId: string): void {
+    this.enqueueWorkspaceReconcile(workspaceId, () =>
+      this.applyWorkspaceReconcile(workspaceId, { rescanSessions: true, reloadSettings: false }),
+    );
+  }
+
+  private disposeExternalChangeWatchers(): void {
+    for (const watcher of this.externalWatchersByWorkspace.values()) {
+      watcher.dispose();
+    }
+    this.externalWatchersByWorkspace.clear();
+    this.workspacesAwaitingSessionDir.clear();
   }
 
   private async ensureComposerAttachmentsLoaded(sessionRef: SessionRef): Promise<void> {
@@ -2328,6 +2505,16 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   handleWindowActivation(): void {
+    // Reconcile the active workspace on focus: the backstop for watcher gaps
+    // (empty workspaces, coalesced or missed FS events) so returning to the
+    // window always reflects external CLI changes.
+    const activeWorkspaceId = this.state.selectedWorkspaceId;
+    if (activeWorkspaceId) {
+      this.reconcileWorkspaceOnFocus(activeWorkspaceId);
+    } else {
+      void this.syncExternalChangeWatchers();
+    }
+
     if (!this.markSelectedSessionViewedIfVisible()) {
       return;
     }
@@ -2848,6 +3035,23 @@ function isSessionLeasedError(error: unknown): error is SessionLeasedError {
     error instanceof SessionLeasedError ||
     (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "SESSION_LEASED")
   );
+}
+
+/**
+ * Path to pi's global settings file, mirroring the runtime's own resolution
+ * (`getAgentDir()/settings.json`). We resolve it locally rather than importing
+ * the runtime's helper because `@earendil-works/pi-coding-agent` is ESM-only and
+ * cannot be `require`d from the CJS Electron main bundle; the app store passes no
+ * custom `agentDir`, so the default resolution here matches the driver's.
+ */
+function resolveGlobalSettingsPath(): string {
+  const override = process.env.PI_CODING_AGENT_DIR;
+  const agentDir = override
+    ? override.startsWith("~")
+      ? join(homedir(), override.slice(1))
+      : override
+    : join(homedir(), ".pi", "agent");
+  return join(agentDir, "settings.json");
 }
 
 async function readProjectModelSettingsFile(workspacePath: string): Promise<Record<string, unknown>> {
