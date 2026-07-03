@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { realpath } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { WorktreeCatalogEntry } from "@pi-gui/catalogs";
@@ -33,12 +34,17 @@ export async function createWorktree(store: AppStoreInternals, input: CreateWork
       input.fromSessionId,
     );
     const created = await store.worktreeManager.createWorktree(rootWorkspace, createOptions);
-    const synced = await store.driver.syncWorkspace(created.path, created.displayName);
-    if (input.fromSessionId) {
-      await store.driver.createSession(
-        synced.workspace,
-        { title: sessionTitleForWorktree(store, input.fromSessionWorkspaceId ?? input.workspaceId, input.fromSessionId) },
-      );
+    try {
+      const synced = await store.driver.syncWorkspace(created.path, created.displayName);
+      if (input.fromSessionId) {
+        await store.driver.createSession(
+          synced.workspace,
+          { title: sessionTitleForWorktree(store, input.fromSessionWorkspaceId ?? input.workspaceId, input.fromSessionId) },
+        );
+      }
+    } catch (error) {
+      await rollbackCreatedWorktree(store, rootWorkspace, createOptions);
+      throw error;
     }
 
     return store.refreshState({
@@ -88,27 +94,44 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
 
   return store.withErrorHandling(async () => {
     let targetWorkspace = rootWorkspace;
+    let rollbackWorktree: (() => Promise<void>) | undefined;
     if (input.environment === "worktree") {
       const worktreeOptions = buildWorktreeOptions(store, rootWorkspace, undefined, undefined, input.prompt);
       const created = await store.worktreeManager.createWorktree(rootWorkspace, worktreeOptions);
-      const synced = await store.driver.syncWorkspace(created.path, created.displayName);
-      targetWorkspace = synced.workspace;
+      rollbackWorktree = () => rollbackCreatedWorktree(store, rootWorkspace, worktreeOptions);
+      try {
+        const synced = await store.driver.syncWorkspace(created.path, created.displayName);
+        targetWorkspace = synced.workspace;
+      } catch (error) {
+        await rollbackWorktree();
+        throw error;
+      }
     }
 
     const prompt = input.prompt?.trim() ?? "";
     const attachments = input.attachments ?? [];
-    const createOptions = (await store.buildCreateSessionOptions(targetWorkspace.workspaceId)) ?? {};
-    const initialModel =
-      input.provider && input.modelId
-        ? { provider: input.provider, modelId: input.modelId }
-        : createOptions.initialModel;
-    const initialThinkingLevel = input.thinkingLevel ?? createOptions.initialThinkingLevel;
-    const session = await store.driver.createSession(targetWorkspace, {
-      ...createOptions,
-      title: NEW_THREAD_PLACEHOLDER_TITLE,
-      ...(initialModel ? { initialModel } : {}),
-      ...(initialThinkingLevel ? { initialThinkingLevel } : {}),
-    });
+    let session: Awaited<ReturnType<typeof store.driver.createSession>>;
+    let initialModel: { provider: string; modelId: string } | undefined;
+    let initialThinkingLevel: string | undefined;
+    try {
+      const createOptions = (await store.buildCreateSessionOptions(targetWorkspace.workspaceId)) ?? {};
+      initialModel =
+        input.provider && input.modelId
+          ? { provider: input.provider, modelId: input.modelId }
+          : createOptions.initialModel;
+      initialThinkingLevel = input.thinkingLevel ?? createOptions.initialThinkingLevel;
+      session = await store.driver.createSession(targetWorkspace, {
+        ...createOptions,
+        title: NEW_THREAD_PLACEHOLDER_TITLE,
+        ...(initialModel ? { initialModel } : {}),
+        ...(initialThinkingLevel ? { initialThinkingLevel } : {}),
+      });
+    } catch (error) {
+      if (rollbackWorktree) {
+        await rollbackWorktree();
+      }
+      throw error;
+    }
     const key = sessionKey(session.ref);
     store.sessionState.transcriptCache.set(key, []);
     store.sessionState.loadedTranscriptKeys.add(key);
@@ -184,6 +207,7 @@ export async function forkThread(store: AppStoreInternals, input: ForkThreadInpu
     });
 
     let targetWorkspace = sourceWorkspace;
+    let rollbackWorktree: (() => Promise<void>) | undefined;
     if (input.environment === "worktree") {
       const rootWorkspace = store.workspaceRefFromState(input.rootWorkspaceId);
       if (!rootWorkspace) {
@@ -196,14 +220,29 @@ export async function forkThread(store: AppStoreInternals, input: ForkThreadInpu
         input.sourceSessionId,
       );
       const created = await store.worktreeManager.createWorktree(rootWorkspace, worktreeOptions);
-      const synced = await store.driver.syncWorkspace(created.path, created.displayName);
-      targetWorkspace = synced.workspace;
+      rollbackWorktree = () => rollbackCreatedWorktree(store, rootWorkspace, worktreeOptions);
+      try {
+        const synced = await store.driver.syncWorkspace(created.path, created.displayName);
+        targetWorkspace = synced.workspace;
+      } catch (error) {
+        await rollbackWorktree();
+        throw error;
+      }
     }
 
-    const { snapshot: session, selectedText } = await store.driver.forkSession(sourceRef, {
-      targetWorkspace,
-      ...forkOptions,
-    });
+    let session: Awaited<ReturnType<typeof store.driver.forkSession>>["snapshot"];
+    let selectedText: Awaited<ReturnType<typeof store.driver.forkSession>>["selectedText"];
+    try {
+      ({ snapshot: session, selectedText } = await store.driver.forkSession(sourceRef, {
+        targetWorkspace,
+        ...forkOptions,
+      }));
+    } catch (error) {
+      if (rollbackWorktree) {
+        await rollbackWorktree();
+      }
+      throw error;
+    }
     store.updateSessionConfig(session.ref, session.config);
 
     // Set selection eagerly so subscription replay events read the new session ID.
@@ -345,6 +384,52 @@ export function buildWorktreeOptions(
     branchName: `pi/${folderName}`,
     startPoint: "HEAD",
   };
+}
+
+/**
+ * Startup reconcile pass (fix: worktree/branch GC). Removes git worktrees under
+ * the app's worktree root that no longer have a catalog or session reference,
+ * skipping any that are dirty. Safe to call fire-and-forget on store init.
+ */
+export async function reconcileWorktrees(store: AppStoreInternals): Promise<void> {
+  try {
+    const worktreeRoot = join(homedir(), ".pi", "worktrees");
+    const referencedPaths = new Set<string>();
+    const catalog = await store.catalogStore.worktrees.listWorktrees();
+    for (const worktree of catalog.worktrees) {
+      if (worktree.path) {
+        referencedPaths.add(await canonicalWorktreePath(worktree.path));
+      }
+    }
+    for (const workspace of store.state.workspaces) {
+      referencedPaths.add(await canonicalWorktreePath(workspace.path));
+    }
+    await store.worktreeManager.pruneOrphanedWorktrees({ worktreeRoot, referencedPaths });
+  } catch (error) {
+    console.warn(`pi-gui: worktree reconcile skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function canonicalWorktreePath(pathValue: string): Promise<string> {
+  const resolved = resolve(pathValue);
+  try {
+    return await realpath(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+async function rollbackCreatedWorktree(
+  store: AppStoreInternals,
+  workspace: WorkspaceRef,
+  options: CreateWorktreeOptions,
+): Promise<void> {
+  await store.worktreeManager
+    .destroyWorktree(workspace, {
+      path: options.path,
+      ...(options.branchName ? { branchName: options.branchName } : {}),
+    })
+    .catch(() => undefined);
 }
 
 /* ── Private helpers ─────────────────────────────────────── */

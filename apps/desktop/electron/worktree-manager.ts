@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, realpath } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { mkdir, readdir, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type {
   CatalogStorage,
@@ -24,6 +24,23 @@ export interface CreateWorktreeOptions {
 
 interface RemoveWorktreeOptions {
   readonly force?: boolean;
+}
+
+export interface DestroyCreatedWorktreeInput {
+  readonly path: string;
+  readonly branchName?: string;
+}
+
+export interface PruneOrphanedWorktreesInput {
+  /** Absolute root under which the app creates its worktrees (`~/.pi/worktrees`). */
+  readonly worktreeRoot: string;
+  /** Canonicalized worktree/workspace paths that must never be pruned. */
+  readonly referencedPaths: ReadonlySet<string>;
+}
+
+export interface PruneOrphanedWorktreesResult {
+  readonly removed: readonly string[];
+  readonly skipped: readonly string[];
 }
 
 export interface GitWorkspaceInspection {
@@ -106,13 +123,167 @@ export class GitWorktreeManager {
     } catch (error) {
       const refreshed = await this.refreshWorktrees(workspace);
       if (!refreshed.worktrees.some((entry) => entry.worktreeId === targetPath)) {
+        await deleteAppWorktreeBranch(repoRoot, existing?.branchName);
         return;
       }
       throw error;
     }
 
     await this.refreshWorktrees(workspace);
+    await deleteAppWorktreeBranch(repoRoot, existing?.branchName);
   }
+
+  /**
+   * Roll back a worktree that this app just created (fix: transactional thread
+   * creation). Force-removes the worktree and deletes its branch — both are
+   * brand-new artifacts owned by the failed call, so nothing pre-existing is
+   * touched. Best-effort: never throws.
+   */
+  async destroyWorktree(workspace: WorkspaceRef, input: DestroyCreatedWorktreeInput): Promise<void> {
+    let repoRoot: string;
+    try {
+      repoRoot = await resolveRepositoryRoot(workspace.path);
+    } catch {
+      return;
+    }
+    const targetPath = await canonicalPath(input.path);
+    try {
+      await runGit(["-C", repoRoot, "worktree", "remove", "--force", targetPath]);
+    } catch {
+      // The worktree may not have been fully materialized; fall through to prune + branch cleanup.
+    }
+    if (input.branchName) {
+      try {
+        await runGit(["-C", repoRoot, "branch", "-D", input.branchName]);
+      } catch {
+        // Branch may never have been created; ignore.
+      }
+    }
+    await this.refreshWorktrees(workspace).catch(() => undefined);
+  }
+
+  /**
+   * Startup reconcile pass: remove git worktrees under the app's worktree root
+   * that no longer have a catalog/session reference. Never force-removes a dirty
+   * worktree (a non-`--force` `git worktree remove` refuses when the tree is
+   * modified), so user work is never destroyed — such worktrees are skipped and
+   * reported instead.
+   */
+  async pruneOrphanedWorktrees(input: PruneOrphanedWorktreesInput): Promise<PruneOrphanedWorktreesResult> {
+    const worktreeRoot = await canonicalPath(input.worktreeRoot);
+    const removed: string[] = [];
+    const skipped: string[] = [];
+
+    const candidates = await listAppWorktreeCandidates(worktreeRoot);
+    for (const candidatePath of candidates) {
+      if (input.referencedPaths.has(candidatePath)) {
+        continue;
+      }
+      let repoRoot: string;
+      let branchName: string | undefined;
+      try {
+        const info = await inspectLinkedWorktree(candidatePath);
+        if (!info) {
+          skipped.push(candidatePath);
+          continue;
+        }
+        repoRoot = info.repoRoot;
+        branchName = info.branchName;
+      } catch {
+        skipped.push(candidatePath);
+        continue;
+      }
+
+      try {
+        // No `--force`: git refuses to remove a dirty worktree, protecting user work.
+        await runGit(["-C", repoRoot, "worktree", "remove", candidatePath]);
+        removed.push(candidatePath);
+        await deleteAppWorktreeBranch(repoRoot, branchName);
+      } catch (error) {
+        skipped.push(candidatePath);
+        console.warn(`pi-gui: kept orphaned worktree ${candidatePath}: ${errorMessage(error)}`);
+      }
+    }
+
+    return { removed, skipped };
+  }
+}
+
+/**
+ * Delete an app-created worktree branch after its worktree was removed. Only
+ * touches `pi/*` branches, and uses the safe `git branch -d` (refuses to delete
+ * unmerged work) so a leaked branch is preferred over lost commits.
+ */
+async function deleteAppWorktreeBranch(repoRoot: string, branchName: string | undefined): Promise<void> {
+  if (!branchName || !branchName.startsWith("pi/")) {
+    return;
+  }
+  try {
+    await runGit(["-C", repoRoot, "branch", "-d", branchName]);
+  } catch (error) {
+    console.warn(`pi-gui: kept branch ${branchName} after worktree removal: ${errorMessage(error)}`);
+  }
+}
+
+async function listAppWorktreeCandidates(worktreeRoot: string): Promise<readonly string[]> {
+  // Layout: <worktreeRoot>/<repoName>/<folder>
+  let repoDirs: string[];
+  try {
+    repoDirs = (await readdir(worktreeRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+  const candidates: string[] = [];
+  for (const repoDir of repoDirs) {
+    let folders: string[];
+    try {
+      folders = (await readdir(join(worktreeRoot, repoDir), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+    } catch {
+      continue;
+    }
+    for (const folder of folders) {
+      candidates.push(await canonicalPath(join(worktreeRoot, repoDir, folder)));
+    }
+  }
+  return candidates;
+}
+
+async function inspectLinkedWorktree(
+  worktreePath: string,
+): Promise<{ readonly repoRoot: string; readonly branchName?: string } | undefined> {
+  const output = await runGit(["-C", worktreePath, "worktree", "list", "--porcelain"]);
+  const blocks = output.split(/\n\s*\n/).filter((block) => block.trim());
+  let repoRoot: string | undefined;
+  let branchName: string | undefined;
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/).map((line) => line.trim());
+    const worktreeLine = lines.find((line) => line.startsWith("worktree "));
+    if (!worktreeLine) {
+      continue;
+    }
+    const entryPath = await canonicalPath(worktreeLine.slice("worktree ".length).trim());
+    if (repoRoot === undefined) {
+      repoRoot = entryPath; // first entry is the main worktree
+    }
+    if (entryPath === worktreePath) {
+      const branchLine = lines.find((line) => line.startsWith("branch "));
+      if (branchLine) {
+        branchName = normalizeBranchName(branchLine.slice("branch ".length).trim());
+      }
+    }
+  }
+  if (!repoRoot || repoRoot === worktreePath) {
+    return undefined; // not a linked worktree
+  }
+  return { repoRoot, ...(branchName ? { branchName } : {}) };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function resolveRepositoryRoot(workspacePath: string): Promise<string> {
