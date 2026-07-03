@@ -88,7 +88,7 @@ export interface SessionRecord {
   readonly config?: SessionConfig;
 }
 
-export type OrchestrationChildThreadStatus = "running" | "waiting" | "complete" | "failed";
+export type OrchestrationChildThreadStatus = "queued" | "running" | "waiting" | "complete" | "failed";
 export type OrchestrationSupervisionGate = "continue" | "stop" | "wake";
 export type OrchestrationSupervisionStatus = "monitoring" | "attention" | "stopped";
 export type OrchestrationEvidenceKind =

@@ -311,6 +311,12 @@ export async function setChildSupervisionLoopGate(
     return store.withError("Unknown child thread.");
   }
 
+  // Stopping supervision must also stop the child agent: otherwise the loop
+  // stops watching but the child keeps running (and spending) unsupervised.
+  if (input.gate === "stop") {
+    await cancelChildRun(store, child);
+  }
+
   updateChildSupervisionLoop(
     store,
     input.childThreadId,
@@ -321,6 +327,26 @@ export async function setChildSupervisionLoopGate(
   );
   await store.persistUiState();
   return store.emit();
+}
+
+async function cancelChildRun(store: AppStoreInternals, child: OrchestrationChildThread): Promise<void> {
+  if (!child.childSessionId) {
+    return;
+  }
+  await store.driver.cancelCurrentRun(childSessionRef(child)).catch(() => undefined);
+}
+
+/**
+ * Cancel the active runs of every child owned by a parent session. Call this
+ * when the parent's own run is cancelled so children don't keep running
+ * unsupervised. Best-effort per child.
+ */
+export async function cancelChildRunsForParent(store: AppStoreInternals, parentRef: SessionRef): Promise<void> {
+  const children = store.state.orchestrationChildren.filter(
+    (child) =>
+      child.parentWorkspaceId === parentRef.workspaceId && child.parentSessionId === parentRef.sessionId,
+  );
+  await Promise.all(children.map((child) => cancelChildRun(store, child)));
 }
 
 export async function createChildThreadToolResult(
@@ -777,7 +803,13 @@ function advanceSupervisionLoop(
 }
 
 function monitoringReason(status: OrchestrationChildThreadStatus): string {
-  return status === "waiting" ? "Child has queued follow-up; waiting for the run to continue." : "Monitoring child thread.";
+  if (status === "waiting") {
+    return "Child has queued follow-up; waiting for the run to continue.";
+  }
+  if (status === "queued") {
+    return "Child queued; waiting for the run to start.";
+  }
+  return "Monitoring child thread.";
 }
 
 function supervisionPublishKey(child: OrchestrationChildThread): string {
@@ -1561,7 +1593,20 @@ function toOrchestrationStatus(
   if (status === "running") {
     return "running";
   }
+  // An idle session that has never produced a run is queued, not complete. The
+  // child record is inserted before its prompt is void-fired, so without this a
+  // never-started child would read "complete" and trigger a false parent wake.
+  if (!hasStartedRun(store, sessionRef)) {
+    return "queued";
+  }
   return "complete";
+}
+
+function hasStartedRun(store: AppStoreInternals, sessionRef: SessionRef): boolean {
+  const transcript = store.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [];
+  return transcript.some(
+    (message) => message.kind === "tool" || (message.kind === "message" && message.role === "assistant"),
+  );
 }
 
 function toChildTranscript(
