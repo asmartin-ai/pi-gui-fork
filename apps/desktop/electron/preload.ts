@@ -5,8 +5,6 @@ import {
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
-  type DesktopComputerUsePrivacyPane,
-  type DesktopComputerUseStatus,
   type DesktopNotificationPermissionStatus,
   type WorkspaceFilePreview,
   type PiDesktopCommand,
@@ -246,12 +244,6 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.requestNotificationPermission) as Promise<DesktopNotificationPermissionStatus>,
   openSystemNotificationSettings: () =>
     ipcRenderer.invoke(desktopIpc.openSystemNotificationSettings) as Promise<void>,
-  getComputerUseStatus: () =>
-    ipcRenderer.invoke(desktopIpc.getComputerUseStatus) as Promise<DesktopComputerUseStatus>,
-  setLockedComputerUseEnabled: (enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setLockedComputerUseEnabled, enabled) as Promise<DesktopComputerUseStatus>,
-  openComputerUsePrivacySettings: (pane: DesktopComputerUsePrivacyPane) =>
-    ipcRenderer.invoke(desktopIpc.openComputerUsePrivacySettings, pane) as Promise<void>,
   onNotificationPermissionStatusChanged: (callback: (status: DesktopNotificationPermissionStatus) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, status: DesktopNotificationPermissionStatus) => callback(status);
     ipcRenderer.on(desktopIpc.notificationPermissionStatusChanged, handler);

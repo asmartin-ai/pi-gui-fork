@@ -415,10 +415,6 @@ function truncate(value: string, limit = 160): string {
 }
 
 function summarizeToolDetail(value: string): string {
-  const firstLine = value.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-  if (firstLine && /^Computer Use (blocked|unavailable|failed):/.test(firstLine)) {
-    return truncate(firstLine);
-  }
   return truncate(value);
 }
 

@@ -19,18 +19,12 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore, type DesktopAppViewState } from "./app-store";
-import { configureComputerUseRuntime, runComputerUseLockedUseSelfTest } from "./computer-use-runtime";
 import {
   createOrchestrationRuntimeExtension,
   createOrchestrationRuntimeTools,
   type OrchestrationRuntimeBridge,
 } from "./orchestration-runtime";
 import * as orchestrationTools from "./app-store-orchestration";
-import {
-  getComputerUseStatus,
-  openComputerUsePrivacySettings,
-  setLockedComputerUseEnabled,
-} from "./computer-use-status";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles, readWorkspaceFile } from "./app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -1001,23 +995,14 @@ app.whenReady().then(async () => {
         reject: (error: Error) => void;
       }
     | undefined;
-  const computerUseRuntimeDriverOptions = await configureComputerUseRuntime({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    execPath: process.execPath,
-  });
   const orchestrationRuntimeBridge = createStoreBackedOrchestrationRuntimeBridge();
   const driverOptions = {
-    extensionFactories: [
-      createOrchestrationRuntimeExtension(orchestrationRuntimeBridge),
-      ...(computerUseRuntimeDriverOptions?.extensionFactories ?? []),
-    ],
+    extensionFactories: [createOrchestrationRuntimeExtension(orchestrationRuntimeBridge)],
     inlineExtensionMetadata: [
       {
         displayName: "Thread orchestration",
         description: "Start child pi-gui threads from transcript tool calls",
       },
-      ...(computerUseRuntimeDriverOptions?.inlineExtensionMetadata ?? []),
     ],
   };
   store = new DesktopAppStore({
@@ -1047,7 +1032,6 @@ app.whenReady().then(async () => {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
         runOrchestrationRuntimeTool: (input: OrchestrationRuntimeToolTestInput) =>
           runOrchestrationRuntimeToolForTest(orchestrationRuntimeBridge, input),
-        runComputerUseLockedUseSelfTest: () => runComputerUseLockedUseSelfTest(),
         setDeferredThreadTitleMode: () => {
           generateThreadTitleOverride = () =>
             new Promise<string | null>((resolve, reject) => {
@@ -1290,13 +1274,6 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.openSystemNotificationSettings, () =>
     notificationPermissionService?.openSystemSettings() ?? Promise.resolve(),
-  );
-  ipcMain.handle(desktopIpc.getComputerUseStatus, () => getComputerUseStatus());
-  ipcMain.handle(desktopIpc.setLockedComputerUseEnabled, (_event, enabled: boolean) =>
-    setLockedComputerUseEnabled(enabled),
-  );
-  ipcMain.handle(desktopIpc.openComputerUsePrivacySettings, (_event, pane) =>
-    openComputerUsePrivacySettings(pane),
   );
   ipcMain.handle(desktopIpc.createSession, (event, input: CreateSessionInput) =>
     runWindowScopedForEvent(event, () => store.createSession(input)),
