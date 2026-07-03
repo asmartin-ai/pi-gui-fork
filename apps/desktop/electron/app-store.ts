@@ -110,6 +110,12 @@ import * as composer from "./app-store-composer";
 import * as orchestration from "./app-store-orchestration";
 import { isSessionActivelyViewed, isSessionVisibleInWindow } from "./session-visibility";
 
+/**
+ * How long after the app writes settings to ignore the watcher's echoing `settingsChanged` event.
+ * Comfortably longer than the watcher's debounce so the self-write's event lands inside the window.
+ */
+const SETTINGS_SELF_WRITE_SUPPRESS_MS = 2_000;
+
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
@@ -150,6 +156,12 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly watcherAttachInFlight = new Set<string>();
   /** Per-workspace serial queue so external reconciles never overlap or race. */
   private readonly externalChangeQueues = new Map<string, Promise<void>>();
+  /**
+   * Timestamp until which a watcher `settingsChanged` reconcile is treated as the app's own
+   * settings write and skipped. The GUI writes the same files it watches, so without this a
+   * self-write would trigger refreshRuntime and clobber the just-applied model selection.
+   */
+  private settingsSelfWriteSuppressedUntil = 0;
   /** Cached session schema info (version-skew flag) projected onto the transcript payload. */
   private readonly sessionSchemaInfoCache = new Map<string, SessionSchemaInfo>();
   private readonly sessionSchemaInfoInFlight = new Set<string>();
@@ -811,6 +823,7 @@ export class DesktopAppStore implements AppStoreInternals {
     }
     return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setProjectDefaultModel(ws, { provider, modelId });
+      this.markSettingsSelfWrite();
       this.runtimeByWorkspace.set(ws.workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     });
@@ -833,6 +846,7 @@ export class DesktopAppStore implements AppStoreInternals {
     }
     return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setProjectDefaultThinkingLevel(ws, thinkingLevel);
+      this.markSettingsSelfWrite();
       this.runtimeByWorkspace.set(ws.workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     });
@@ -931,6 +945,7 @@ export class DesktopAppStore implements AppStoreInternals {
     }
     return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.setProjectScopedModelPatterns(ws, patterns);
+      this.markSettingsSelfWrite();
       this.runtimeByWorkspace.set(ws.workspaceId, snapshot);
       return this.refreshState({ clearLastError: true });
     });
@@ -1008,6 +1023,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.withErrorHandling(async () => {
       const snapshot = await action(ws);
+      // The action just flushed settings the external-change watcher is watching; mark the window
+      // so the resulting settingsChanged event is recognized as our own and not reloaded.
+      this.markSettingsSelfWrite();
       if (options?.refreshAllWorkspaces) {
         await this.refreshRuntimeForAllWorkspaces(workspaceId, snapshot);
       } else {
@@ -1503,8 +1521,13 @@ export class DesktopAppStore implements AppStoreInternals {
   private enqueueExternalChanges(workspaceId: string, events: readonly ExternalChangeEvent[]): void {
     const hasSessionChange = events.some((event) => event.type !== "settingsChanged");
     const reloadSettings = events.some((event) => event.type === "settingsChanged");
+    const reloadSelectedTranscript = events.some((event) => event.type === "sessionFileChanged");
     this.enqueueWorkspaceReconcile(workspaceId, () =>
-      this.applyWorkspaceReconcile(workspaceId, { rescanSessions: hasSessionChange, reloadSettings }),
+      this.applyWorkspaceReconcile(workspaceId, {
+        rescanSessions: hasSessionChange,
+        reloadSettings,
+        reloadSelectedTranscript,
+      }),
     );
   }
 
@@ -1525,7 +1548,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async applyWorkspaceReconcile(
     workspaceId: string,
-    options: { readonly rescanSessions: boolean; readonly reloadSettings: boolean },
+    options: {
+      readonly rescanSessions: boolean;
+      readonly reloadSettings: boolean;
+      readonly reloadSelectedTranscript: boolean;
+    },
   ): Promise<void> {
     if (options.rescanSessions) {
       // Re-scan the pi session dir into the catalog. We deliberately do NOT call
@@ -1539,7 +1566,10 @@ export class DesktopAppStore implements AppStoreInternals {
       // cached schema info for this workspace; it is re-read on the next publish.
       this.invalidateSessionSchemaInfoForWorkspace(workspaceId);
     }
-    if (options.reloadSettings) {
+    // Skip the runtime reload for the app's own settings writes: refreshRuntime re-runs
+    // autoEnableModelsForAuthenticatedProviders, which would resurrect models the user just
+    // narrowed away. External settings edits (outside the self-write window) still reload.
+    if (options.reloadSettings && Date.now() >= this.settingsSelfWriteSuppressedUntil) {
       const ws = this.workspaceRefFromState(workspaceId);
       if (ws) {
         this.runtimeByWorkspace.set(workspaceId, await this.driver.runtimeSupervisor.refreshRuntime(ws));
@@ -1550,10 +1580,10 @@ export class DesktopAppStore implements AppStoreInternals {
     // first session (previously settings-only) is upgraded to a session-dir watch.
     await this.refreshState({ persistState: false });
 
-    if (options.rescanSessions) {
-      // The disk-tail path in the driver re-reads an idle session's JSONL when its
-      // mtime grows, so re-pull the selected session's transcript if it belongs to
-      // this workspace and is not mid-run (a live run stays authoritative in memory).
+    // Only re-pull the selected session's transcript when a session file's content actually
+    // changed (an external append). A sibling session being added/removed, or a plain focus
+    // reconcile, must not reload the viewed transcript — that caused a spurious scroll jump.
+    if (options.reloadSelectedTranscript) {
       const selected = this.selectedSessionRef();
       if (
         selected &&
@@ -1574,8 +1604,17 @@ export class DesktopAppStore implements AppStoreInternals {
    */
   private reconcileWorkspaceOnFocus(workspaceId: string): void {
     this.enqueueWorkspaceReconcile(workspaceId, () =>
-      this.applyWorkspaceReconcile(workspaceId, { rescanSessions: true, reloadSettings: false }),
+      this.applyWorkspaceReconcile(workspaceId, {
+        rescanSessions: true,
+        reloadSettings: false,
+        reloadSelectedTranscript: false,
+      }),
     );
+  }
+
+  /** Mark that the app just wrote settings, so the watcher's echoing event is not reloaded. */
+  private markSettingsSelfWrite(): void {
+    this.settingsSelfWriteSuppressedUntil = Date.now() + SETTINGS_SELF_WRITE_SUPPRESS_MS;
   }
 
   private invalidateSessionSchemaInfoForWorkspace(workspaceId: string): void {
