@@ -12,6 +12,7 @@ import {
   PiSdkDriver,
   type PiSdkDriverConfig,
   SessionLeasedError,
+  type SessionSchemaInfo,
   sessionKey,
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
@@ -149,6 +150,9 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly watcherAttachInFlight = new Set<string>();
   /** Per-workspace serial queue so external reconciles never overlap or race. */
   private readonly externalChangeQueues = new Map<string, Promise<void>>();
+  /** Cached session schema info (version-skew flag) projected onto the transcript payload. */
+  private readonly sessionSchemaInfoCache = new Map<string, SessionSchemaInfo>();
+  private readonly sessionSchemaInfoInFlight = new Set<string>();
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
@@ -1354,6 +1358,11 @@ export class DesktopAppStore implements AppStoreInternals {
   private async pruneStaleSessionSubscriptions(sessions: readonly SessionCatalogEntry[]): Promise<void> {
     const activeKeys = new Set(sessions.map((session) => sessionKey(session.sessionRef)));
     const persistedUiChanged = this.sessionState.prune(activeKeys);
+    for (const key of this.sessionSchemaInfoCache.keys()) {
+      if (!activeKeys.has(key)) {
+        this.sessionSchemaInfoCache.delete(key);
+      }
+    }
     this.pruneOrphanedUiState(activeKeys, persistedUiChanged);
     await this.pruneOrphanedAttachmentFiles(activeKeys);
   }
@@ -1526,6 +1535,9 @@ export class DesktopAppStore implements AppStoreInternals {
       // catalog resync updates the session list, and the selected session's
       // transcript is refreshed non-destructively below.
       await this.driver.reconcileWorkspace(workspaceId);
+      // An out-of-band file replacement can change the schema version, so drop
+      // cached schema info for this workspace; it is re-read on the next publish.
+      this.invalidateSessionSchemaInfoForWorkspace(workspaceId);
     }
     if (options.reloadSettings) {
       const ws = this.workspaceRefFromState(workspaceId);
@@ -1564,6 +1576,15 @@ export class DesktopAppStore implements AppStoreInternals {
     this.enqueueWorkspaceReconcile(workspaceId, () =>
       this.applyWorkspaceReconcile(workspaceId, { rescanSessions: true, reloadSettings: false }),
     );
+  }
+
+  private invalidateSessionSchemaInfoForWorkspace(workspaceId: string): void {
+    const prefix = `${workspaceId}:`;
+    for (const key of this.sessionSchemaInfoCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.sessionSchemaInfoCache.delete(key);
+      }
+    }
   }
 
   private disposeExternalChangeWatchers(): void {
@@ -2474,11 +2495,44 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
+    this.ensureSessionSchemaInfo(sessionRef);
+    const schemaInfo = this.sessionSchemaInfoCache.get(sessionKey(sessionRef));
     return {
       workspaceId: sessionRef.workspaceId,
       sessionId: sessionRef.sessionId,
       transcript: (this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? []).map(cloneTranscriptMessage),
+      ...(schemaInfo ? { schemaInfo } : {}),
     };
+  }
+
+  /**
+   * Lazily read a session's schema info (the "written by a newer pi" version-skew
+   * flag) and cache it so it is not an extra header read on every transcript
+   * publish. On first miss the async read runs fire-and-forget; if the file was
+   * written by a newer runtime we re-publish so the banner appears once the read
+   * resolves. The cache is invalidated on external reconcile so an out-of-band
+   * file replacement refreshes the flag.
+   */
+  private ensureSessionSchemaInfo(sessionRef: SessionRef): void {
+    const key = sessionKey(sessionRef);
+    if (this.sessionSchemaInfoCache.has(key) || this.sessionSchemaInfoInFlight.has(key)) {
+      return;
+    }
+    this.sessionSchemaInfoInFlight.add(key);
+    void this.driver
+      .getSessionSchemaInfo(sessionRef)
+      .then((info) => {
+        this.sessionSchemaInfoCache.set(key, info);
+        if (info.writtenByNewerRuntime) {
+          this.publishSelectedTranscriptFor(sessionRef);
+        }
+      })
+      .catch((error) => {
+        console.error(`[app-store] failed to read session schema info for ${key}`, error);
+      })
+      .finally(() => {
+        this.sessionSchemaInfoInFlight.delete(key);
+      });
   }
 
   emit(): DesktopAppState {
