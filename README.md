@@ -13,17 +13,19 @@ of truth. It is a UI shell around [`@earendil-works/pi-coding-agent`](https://ww
 not a separate agent runtime: session management, model/auth setup, and agent
 execution all run through upstream `pi`.
 
-![pi-gui thread view](./docs/assets/thread-dark.png)
+![pi-gui in action](./docs/assets/demo.gif)
+
+<sub>Expanding a tool call, reviewing the diff panel, the integrated terminal, and a theme switch. ([higher-quality MP4](./docs/assets/demo.mp4))</sub>
 
 ## Screenshots
 
-| Thread timeline (light) | Inline diff viewer |
+| Thread timeline (dark) | Thread timeline (light) |
 | --- | --- |
-| ![Thread view, light theme](./docs/assets/thread-light.png) | ![Diff panel](./docs/assets/diff-dark.png) |
+| ![Thread view, dark theme](./docs/assets/thread-dark.png) | ![Thread view, light theme](./docs/assets/thread-light.png) |
 
-| Integrated terminal | |
+| Inline diff viewer | Integrated terminal |
 | --- | --- |
-| ![Integrated terminal](./docs/assets/terminal-dark.png) | |
+| ![Diff panel](./docs/assets/diff-dark.png) | ![Integrated terminal](./docs/assets/terminal-dark.png) |
 
 ## Features
 
