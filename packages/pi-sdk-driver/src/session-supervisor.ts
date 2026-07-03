@@ -44,6 +44,11 @@ import type {
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
 import { isMissingFileError, JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
 import {
+  buildSessionSchemaInfo,
+  readSessionFileSchemaVersion,
+  type SessionSchemaInfo,
+} from "./session-schema.js";
+import {
   buildOwnLease,
   currentLeaseIdentity,
   defaultIsPidAlive,
@@ -381,16 +386,46 @@ export class SessionSupervisor {
    */
   private async readTranscriptFromDisk(sessionRef: SessionRef): Promise<SessionTranscriptItem[]> {
     const sessionEntry = await this.catalogs.sessions.getSession(sessionRef);
-    const sessionFile =
-      sessionEntry?.sessionFilePath ??
-      (await this.catalogs.getSessionFile(sessionRef)) ??
-      (await this.findSessionFileOnDisk(sessionRef));
+    const sessionFile = await this.resolveSessionFilePath(sessionRef, sessionEntry);
     if (!sessionFile) {
       throw new Error(`Session ${sessionKey(sessionRef)} has no tracked session file.`);
     }
 
     const sessionManager = SessionManager.open(sessionFile);
     return transcriptFromMessages(sessionManager.buildSessionContext().messages, sessionEntry?.updatedAt);
+  }
+
+  private async resolveSessionFilePath(
+    sessionRef: SessionRef,
+    sessionEntry?: SessionCatalogSnapshot["sessions"][number],
+  ): Promise<string | undefined> {
+    const entry = sessionEntry ?? (await this.catalogs.sessions.getSession(sessionRef));
+    return (
+      entry?.sessionFilePath ??
+      (await this.catalogs.getSessionFile(sessionRef)) ??
+      (await this.findSessionFileOnDisk(sessionRef))
+    );
+  }
+
+  /**
+   * Report whether a session file was written by a newer pi than the bundled
+   * runtime (which would silently drop content the runtime can't parse). Cheap:
+   * live sessions read the already-parsed header; closed sessions read only the
+   * file's first line. Additive and read-only — no behavior change for
+   * current/older sessions. See {@link SessionSchemaInfo} for field names.
+   */
+  async getSessionSchemaInfo(sessionRef: SessionRef): Promise<SessionSchemaInfo> {
+    const record = this.records.get(sessionKey(sessionRef));
+    if (record?.session && !record.closed) {
+      const version = record.session.sessionManager.getHeader()?.version;
+      return buildSessionSchemaInfo(typeof version === "number" ? version : undefined);
+    }
+
+    const sessionFile = await this.resolveSessionFilePath(sessionRef);
+    if (!sessionFile) {
+      return buildSessionSchemaInfo(undefined);
+    }
+    return buildSessionSchemaInfo(await readSessionFileSchemaVersion(sessionFile));
   }
 
   private async findSessionFileOnDisk(sessionRef: SessionRef): Promise<string | undefined> {
