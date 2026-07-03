@@ -26,16 +26,27 @@ const REAL_AUTH_ENV_VAR = "PI_APP_REAL_AUTH";
 const REAL_AUTH_SOURCE_DIR_ENV_VAR = "PI_APP_REAL_AUTH_SOURCE_DIR";
 const REQUIRED_REAL_AUTH_FILES = ["auth.json"] as const;
 const OPTIONAL_REAL_AUTH_FILES = ["settings.json", "models.json"] as const;
-const PROVIDER_ENV_VARS = [
-  "OPENAI_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "GOOGLE_API_KEY",
-  "GEMINI_API_KEY",
-  "AZURE_OPENAI_API_KEY",
-  "XAI_API_KEY",
-  "MISTRAL_API_KEY",
-  "DEEPSEEK_API_KEY",
+// Provider auth env vars the pi runtime honors that do NOT end in `_API_KEY`
+// (see the runtime's `Environment Variables` help block). Every `*_API_KEY`
+// var is scrubbed dynamically below, so this only needs the exceptions.
+const NON_API_KEY_PROVIDER_ENV_VARS = [
+  "ANTHROPIC_OAUTH_TOKEN",
+  "AWS_PROFILE",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
 ] as const;
+
+// Any ambient provider credential connects a provider in the isolated runtime,
+// which silently poisons "no providers connected" assertions on developer
+// machines that export keys the hardcoded list happened to miss. Scrub the full
+// class instead: every `*_API_KEY` var plus the documented non-suffixed ones.
+function isProviderAuthEnvVar(key: string): boolean {
+  return key.endsWith("_API_KEY") || (NON_API_KEY_PROVIDER_ENV_VARS as readonly string[]).includes(key);
+}
 export const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
 
@@ -273,8 +284,10 @@ function buildDesktopLaunchEnv(
   }
 
   if (options.scrubProviderEnv || options.realAuthSourceDir) {
-    for (const key of PROVIDER_ENV_VARS) {
-      delete env[key];
+    for (const key of Object.keys(env)) {
+      if (isProviderAuthEnvVar(key)) {
+        delete env[key];
+      }
     }
   }
 
