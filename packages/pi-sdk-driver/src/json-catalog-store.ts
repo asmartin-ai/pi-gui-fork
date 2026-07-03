@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { writeFileAtomic } from "./atomic-write.js";
 import type {
   CatalogStorage,
   SessionCatalogEntry,
@@ -254,18 +255,8 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
 
   private async persistState(state: CatalogFileState): Promise<void> {
     const operation = this.writeQueue.then(async () => {
-      await mkdir(dirname(this.filePath), { recursive: true });
-      const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
       const payload = `${JSON.stringify(state, null, 2)}\n`;
-      await writeFile(tmpPath, payload, "utf8");
-      try {
-        await unlink(this.filePath);
-      } catch (error) {
-        if (!isMissingFileError(error)) {
-          throw error;
-        }
-      }
-      await rename(tmpPath, this.filePath);
+      await writeFileAtomic(this.filePath, payload);
     });
 
     this.writeQueue = operation.then(

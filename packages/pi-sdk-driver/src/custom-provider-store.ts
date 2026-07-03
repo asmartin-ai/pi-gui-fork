@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "./atomic-write.js";
 import {
   BUILT_IN_PROVIDER_IDS,
   CUSTOM_PROVIDER_ID_PATTERN,
@@ -219,9 +219,6 @@ async function readModelsJson(path: string): Promise<Record<string, unknown>> {
 }
 
 async function atomicWriteJson(path: string, data: Record<string, unknown>): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
   const payload = `${JSON.stringify(data, null, 2)}\n`;
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tempPath, payload, "utf8");
-  await rename(tempPath, path);
+  await writeFileAtomic(path, payload);
 }
