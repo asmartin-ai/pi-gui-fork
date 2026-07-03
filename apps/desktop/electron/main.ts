@@ -32,7 +32,7 @@ import { NotificationManager } from "./notification-manager";
 import {
   NotificationPermissionService,
 } from "./notification-permission";
-import { checkForUpdate, initUpdateChecker } from "./update-checker";
+import { checkForUpdate, initUpdateChecker, openReleasesPage } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
 import type { AppView, DesktopAppState, ThemeMode, ThemePresetId } from "../src/desktop-state";
@@ -192,6 +192,7 @@ function createTestExtensionContext(sessionRef: SessionRef): ExtensionContext {
 }
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
+const QUIT_FLUSH_TIMEOUT_MS = 5_000;
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
 
@@ -723,30 +724,47 @@ function createAppWindow(sourceView?: DesktopAppViewState): BrowserWindow {
 
 function attachStatePublisher(window: BrowserWindow): void {
   const webContentsId = window.webContents.id;
-  stopPublishingStateByWebContentsId.get(webContentsId)?.();
-  stopPublishingSelectedTranscriptByWebContentsId.get(webContentsId)?.();
-  const stopPublishingState = store.subscribe((state) => {
-    publishStateToWindow(window, state);
-    void publishSelectedTranscriptToWindow(window);
-  });
-  const stopPublishingSelectedTranscript = store.subscribeToSelectedTranscript(() => {
-    void publishSelectedTranscriptToWindow(window);
-  });
-  stopPublishingStateByWebContentsId.set(webContentsId, stopPublishingState);
-  stopPublishingSelectedTranscriptByWebContentsId.set(webContentsId, stopPublishingSelectedTranscript);
-  let disposed = false;
-  const clearPublishing = () => {
-    if (disposed) {
-      return;
-    }
-    disposed = true;
+  const startPublishing = () => {
+    stopPublishingStateByWebContentsId.get(webContentsId)?.();
+    stopPublishingSelectedTranscriptByWebContentsId.get(webContentsId)?.();
+    const stopPublishingState = store.subscribe((state) => {
+      publishStateToWindow(window, state);
+      void publishSelectedTranscriptToWindow(window);
+    });
+    const stopPublishingSelectedTranscript = store.subscribeToSelectedTranscript(() => {
+      void publishSelectedTranscriptToWindow(window);
+    });
+    stopPublishingStateByWebContentsId.set(webContentsId, stopPublishingState);
+    stopPublishingSelectedTranscriptByWebContentsId.set(webContentsId, stopPublishingSelectedTranscript);
+  };
+  const stopPublishing = () => {
     stopPublishingStateByWebContentsId.get(webContentsId)?.();
     stopPublishingStateByWebContentsId.delete(webContentsId);
     stopPublishingSelectedTranscriptByWebContentsId.get(webContentsId)?.();
     stopPublishingSelectedTranscriptByWebContentsId.delete(webContentsId);
   };
-  window.webContents.once("render-process-gone", clearPublishing);
-  window.once("closed", clearPublishing);
+
+  startPublishing();
+
+  // A renderer crash detaches the (now-dead) subscriptions, but View > Reload
+  // brings the same webContents back — re-subscribe on recovery so the reloaded
+  // window resumes live state pushes instead of going permanently stale.
+  let recovering = false;
+  window.webContents.on("render-process-gone", () => {
+    recovering = true;
+    stopPublishing();
+  });
+  window.webContents.on("did-finish-load", () => {
+    if (!recovering) {
+      return;
+    }
+    recovering = false;
+    startPublishing();
+    // Push the current state immediately so the reloaded UI is fresh.
+    publishStateToWindow(window);
+    void publishSelectedTranscriptToWindow(window);
+  });
+  window.once("closed", stopPublishing);
 }
 
 function attachViewedSessionTracking(window: BrowserWindow): void {
@@ -844,38 +862,56 @@ async function pickWorkspaceViaDialog(parentWindow?: BrowserWindow | null): Prom
 
 async function runManualUpdateCheck(): Promise<void> {
   const window = mainWindow && canPublishToWindow(mainWindow) ? mainWindow : undefined;
-  const result = await checkForUpdate();
+  const showDialog = (options: MessageBoxOptions) =>
+    window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
 
-  if (result.status === "update-available") {
-    return;
-  }
+  try {
+    const result = await checkForUpdate();
 
-  if (result.status === "up-to-date") {
-    const options: MessageBoxOptions = {
-      type: "info",
-      title: "pi-gui",
-      message: `You're up to date on version ${result.currentVersion}.`,
-      buttons: ["OK"],
-    };
-    if (window) {
-      await dialog.showMessageBox(window, options);
-    } else {
-      await dialog.showMessageBox(options);
+    if (result.status === "update-available") {
+      // The manual menu path always confirms with a dialog — a notification may
+      // be silently suppressed if the OS permission is denied.
+      const choice = await showDialog({
+        type: "info",
+        title: "pi-gui",
+        message: `Version ${result.latestVersion} is available.`,
+        detail: `You have ${result.currentVersion}.`,
+        buttons: ["Download", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (choice.response === 0) {
+        await openReleasesPage();
+      }
+      return;
     }
-    return;
-  }
 
-  const options: MessageBoxOptions = {
-    type: "warning",
-    title: "pi-gui",
-    message: "Could not check for updates right now.",
-    detail: result.message,
-    buttons: ["OK"],
-  };
-  if (window) {
-    await dialog.showMessageBox(window, options);
-  } else {
-    await dialog.showMessageBox(options);
+    if (result.status === "up-to-date") {
+      await showDialog({
+        type: "info",
+        title: "pi-gui",
+        message: `You're up to date on version ${result.currentVersion}.`,
+        buttons: ["OK"],
+      });
+      return;
+    }
+
+    await showDialog({
+      type: "warning",
+      title: "pi-gui",
+      message: "Could not check for updates right now.",
+      detail: result.message,
+      buttons: ["OK"],
+    });
+  } catch (error) {
+    console.error("pi-gui: manual update check failed:", error);
+    await showDialog({
+      type: "warning",
+      title: "pi-gui",
+      message: "Could not check for updates right now.",
+      detail: error instanceof Error ? error.message : String(error),
+      buttons: ["OK"],
+    }).catch(() => undefined);
   }
 }
 
@@ -1030,6 +1066,8 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        promptForText: (message: string, placeholder?: string, allowEmpty?: boolean) =>
+          promptForText(mainWindow, message, placeholder ?? "", allowEmpty ?? false),
         runOrchestrationRuntimeTool: (input: OrchestrationRuntimeToolTestInput) =>
           runOrchestrationRuntimeToolForTest(orchestrationRuntimeBridge, input),
         setDeferredThreadTitleMode: () => {
@@ -1467,12 +1505,21 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   quittingAfterStoreFlush = true;
-  void store
+  const flush = store
     .flushPersistence()
-    .catch(() => undefined)
-    .finally(() => {
-      app.quit();
+    .catch((error) => {
+      console.error("pi-gui: persistence flush failed during quit:", error);
     });
+  // Never let a hung flush block quit forever — quit after a bounded wait.
+  const flushDeadline = new Promise<void>((resolve) => {
+    setTimeout(() => {
+      console.warn("pi-gui: persistence flush timed out during quit; quitting anyway.");
+      resolve();
+    }, QUIT_FLUSH_TIMEOUT_MS);
+  });
+  void Promise.race([flush, flushDeadline]).finally(() => {
+    app.quit();
+  });
 });
 
 function resolveInitialWorkspacePaths(): readonly string[] {
@@ -1581,25 +1628,133 @@ async function showLoginInstructions(parentWindow: BrowserWindow | null | undefi
   await window.webContents.executeJavaScript(`window.alert(${JSON.stringify(message)})`, true);
 }
 
-async function promptForText(parentWindow: BrowserWindow | null | undefined, message: string, placeholder = "", allowEmpty = false): Promise<string> {
-  const window = resolveDialogWindow(parentWindow);
-  if (!window) {
+// Electron does not implement window.prompt(), so provider-login text prompts
+// are served by a small dedicated modal window instead.
+async function promptForText(
+  parentWindow: BrowserWindow | null | undefined,
+  message: string,
+  placeholder = "",
+  allowEmpty = false,
+): Promise<string> {
+  const parent = resolveDialogWindow(parentWindow);
+  if (!parent) {
     throw new Error("Main window is not available for login.");
   }
-  window.show();
-  window.focus();
-  const result = await window.webContents.executeJavaScript(
-    `window.prompt(${JSON.stringify(message)}, ${JSON.stringify(placeholder)})`,
-    true,
-  );
-  if (typeof result !== "string") {
-    throw new Error("Login cancelled.");
+  parent.show();
+  parent.focus();
+
+  const modal = new BrowserWindow({
+    parent,
+    modal: true,
+    show: false,
+    width: 460,
+    height: 220,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: "pi-gui",
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+
+  try {
+    await modal.loadURL(promptDataUrl(message, placeholder));
+    modal.show();
+    modal.focus();
+
+    const result = await new Promise<string | null>((resolve) => {
+      let settled = false;
+      const finish = (value: string | null) => {
+        if (!settled) {
+          settled = true;
+          resolve(value);
+        }
+      };
+      // Closing the window (title-bar close) counts as a cancel.
+      modal.once("closed", () => finish(null));
+      // The page wires its own buttons on load and exposes the outcome as a
+      // promise; awaiting it here avoids any handler-attachment race.
+      modal.webContents
+        .executeJavaScript("window.__piPromptResult", true)
+        .then((value) => finish(typeof value === "string" ? value : null))
+        .catch(() => finish(null));
+    });
+
+    if (result === null) {
+      throw new Error("Login cancelled.");
+    }
+    const trimmedResult = result.trim();
+    if (!allowEmpty && trimmedResult.length === 0) {
+      throw new Error("Login cancelled.");
+    }
+    return trimmedResult;
+  } finally {
+    if (!modal.isDestroyed()) {
+      modal.destroy();
+    }
   }
-  const trimmedResult = result.trim();
-  if (!allowEmpty && trimmedResult.length === 0) {
-    throw new Error("Login cancelled.");
-  }
-  return trimmedResult;
+}
+
+function promptDataUrl(message: string, placeholder: string): string {
+  const html = `<!doctype html><html><head><meta charset="utf-8" />
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 18px 20px; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f5f7; color: #1b1d22; display: flex; flex-direction: column; gap: 14px; height: 100vh; }
+  @media (prefers-color-scheme: dark) { body { background: #23262d; color: #e7e9ee; } input { background: #171a1f; color: #e7e9ee; border-color: #3a3f4a; } }
+  .msg { line-height: 1.4; white-space: pre-wrap; }
+  input { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #c3c8d0; border-radius: 6px;
+    background: #fff; color: inherit; }
+  input:focus { outline: 2px solid #4a8cff; outline-offset: 0; border-color: #4a8cff; }
+  .row { margin-top: auto; display: flex; justify-content: flex-end; gap: 8px; }
+  button { padding: 6px 16px; font-size: 13px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+  #pi-prompt-cancel { background: transparent; border-color: #b7bdc7; color: inherit; }
+  #pi-prompt-ok { background: #2f6ae0; color: #fff; }
+</style></head>
+<body>
+  <div class="msg">${escapeHtml(message)}</div>
+  <input id="pi-prompt-input" type="text" placeholder="${escapeHtml(placeholder)}" autofocus />
+  <div class="row">
+    <button id="pi-prompt-cancel" type="button">Cancel</button>
+    <button id="pi-prompt-ok" type="button">OK</button>
+  </div>
+  <script>
+    (function () {
+      var resolveResult;
+      window.__piPromptResult = new Promise(function (resolve) { resolveResult = resolve; });
+      function wire() {
+        var input = document.getElementById('pi-prompt-input');
+        var ok = document.getElementById('pi-prompt-ok');
+        var cancel = document.getElementById('pi-prompt-cancel');
+        if (!input || !ok || !cancel) { resolveResult(null); return; }
+        ok.addEventListener('click', function () { resolveResult(input.value); });
+        cancel.addEventListener('click', function () { resolveResult(null); });
+        input.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter') { event.preventDefault(); resolveResult(input.value); }
+          else if (event.key === 'Escape') { event.preventDefault(); resolveResult(null); }
+        });
+        input.focus();
+        document.body.dataset.piReady = '1';
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', wire);
+      } else {
+        wire();
+      }
+    })();
+  </script>
+</body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function probeCustomProviderModels(input: CustomProviderProbeInput): Promise<CustomProviderProbeResult> {
