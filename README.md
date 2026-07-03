@@ -1,135 +1,168 @@
 # pi-gui
 
-Electron desktop shell for `pi` sessions. Built for local agent workflows.
+A Codex-style desktop app for the [`pi`](https://github.com/earendil-works/pi) coding agent.
 
-This repo packages a desktop UI around `@earendil-works/pi-coding-agent`. It is not a standalone coding agent runtime. The app depends on the upstream `pi` package for session management, model/auth setup, and agent execution.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/minghinmatthewlam/pi-gui?include_prereleases&label=release)](https://github.com/minghinmatthewlam/pi-gui/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#install)
 
-![pi-gui demo](./docs/readme/demo.gif)
+pi-gui gives `pi` a native home on the desktop: a threaded timeline of your agent
+sessions, git worktrees per thread, an integrated terminal and inline diff viewer,
+and multi-agent orchestration — all backed by `pi`'s own session files as the source
+of truth. It is a UI shell around [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent),
+not a separate agent runtime: session management, model/auth setup, and agent
+execution all run through upstream `pi`.
 
-## Status
+![pi-gui thread view](./docs/assets/thread-dark.png)
 
-- Beta (macOS arm64, Linux AppImage)
-- Public source repo
+## Screenshots
+
+| Thread timeline (light) | Inline diff viewer |
+| --- | --- |
+| ![Thread view, light theme](./docs/assets/thread-light.png) | ![Diff panel](./docs/assets/diff-dark.png) |
+
+| Integrated terminal | |
+| --- | --- |
+| ![Integrated terminal](./docs/assets/terminal-dark.png) | |
+
+## Features
+
+- **Threaded timeline** — each session renders as a timeline of messages and
+  collapsible tool calls, Codex-style.
+- **Git worktrees per thread** — start a thread in the workspace directly (`Local`)
+  or in an isolated git worktree so parallel work never collides.
+- **Multi-agent orchestration** — an orchestrator thread can spin up and supervise
+  child worker threads.
+- **Integrated terminal** — a real PTY terminal (via `node-pty`) docked in the app.
+- **Inline diff viewer** — review changed files in a side panel (toggle with
+  <kbd>⌘/Ctrl</kbd>+<kbd>D</kbd>).
+- **Composer niceties** — `@`-mention files, and paste or drag-and-drop image
+  attachments straight into the prompt.
+- **Skills & extensions** — manage `pi` skills and extensions from a dedicated view.
+- **Appearance themes** — light and dark, with selectable theme presets.
+- **Native notifications** — get an OS notification when an agent run finishes.
+- **Session archive** — archive threads you're done with to keep the sidebar tidy.
+- **Multiple providers** — connect model providers via OAuth or API key under
+  **Settings → Providers**.
 
 ## Install
 
+pi-gui is in public beta for **macOS (Apple Silicon)** and **Linux (AppImage)**.
+
 ### From GitHub Releases
 
-Download the latest `.dmg` or `.AppImage` from [Releases](https://github.com/minghinmatthewlam/pi-gui/releases).
+Download the latest `.dmg` (macOS) or `.AppImage` (Linux) from the
+[Releases page](https://github.com/minghinmatthewlam/pi-gui/releases).
 
-Signed and notarized beta releases are the primary direct install path. Drag `pi-gui.app` into `/Applications`, then launch it normally.
+On macOS, drag `pi-gui.app` into `/Applications` and launch it. Releases are signed
+and notarized. To update, download the newer release and replace the app.
 
-Linux releases ship as AppImages.
-
-To update a DMG install, download the latest release and replace the app in `/Applications`.
-
-### With Homebrew
-
-Install from [`minghinmatthewlam/homebrew-tap`](https://github.com/minghinmatthewlam/homebrew-tap):
+### With Homebrew (macOS)
 
 ```bash
 brew tap minghinmatthewlam/tap
 brew install --cask pi-gui
 ```
 
-To update a Homebrew install:
+Update with `brew upgrade --cask pi-gui`. During beta, a Homebrew upgrade may prompt
+you to re-confirm macOS permissions or Dock placement.
 
-```bash
-brew upgrade --cask pi-gui
-```
+### From source
 
-Homebrew upgrades may behave more like reinstall than in-place patching on macOS. During beta, you may need to re-confirm Dock placement or some permission prompts after upgrading.
+See [Development](#development). Building from source is intended for contributors,
+not as the primary install path.
 
-### From Source
+## Quickstart
 
-See [Development](#development) below. Source install is intended for contributors and local development, not the primary end-user install path.
+1. Install pi-gui and launch it.
+2. Open **Settings → Providers** and connect a model provider (OAuth or API key).
+3. Add a workspace (a local project folder).
+4. Click **New thread**, pick `Local` or `Worktree`, and send your first prompt.
 
-## What It Does
+You need valid model/provider authentication that `pi` supports; pi-gui uses `pi`'s
+auth and session state, so anything you've already configured with the `pi` CLI
+carries over.
 
-- Opens local workspaces in a desktop shell
-- Lists and resumes `pi` sessions associated with each workspace
-- Creates new sessions and sends prompts through the `pi` runtime
-- Persists desktop UI state such as selected workspace, selected session, and composer draft
+## Architecture
 
-## Prerequisites
+pi-gui is an Electron app organized around a tight main/preload/renderer boundary,
+sitting on top of the `pi` runtime:
 
-- Valid model/provider authentication supported by `pi`
+- **Renderer** (`apps/desktop/src`) — the React UI: timeline, composer, diff panel,
+  terminal, settings. It talks to the main process only through a typed IPC surface.
+- **Preload** (`apps/desktop/electron/preload.ts`) — the narrow bridge that exposes
+  that IPC surface to the renderer; the renderer gets no broad Node access.
+- **Main** (`apps/desktop/electron`) — the Node side: windowing, session supervision,
+  worktrees, terminal PTYs, notifications, and persistence.
+- **`packages/pi-sdk-driver`** — a thin adapter from the desktop app to
+  `@earendil-works/pi-coding-agent`. It stays close to upstream `pi` and does not
+  fork or reimplement runtime behavior.
+- **JSONL session files as the source of truth** — `pi` persists each session as a
+  JSONL transcript on disk; pi-gui reads those files as the authoritative record for
+  closed sessions rather than keeping a divergent copy.
 
-On first launch, go to **Settings > Providers** to connect your AI provider via OAuth.
+Supporting packages: `packages/session-driver` (shared session driver types) and
+`packages/catalogs` (lightweight workspace/session catalog state).
 
 ## Development
 
-Install dependencies:
+Requires Node 20+ and [pnpm](https://pnpm.io) (managed via `corepack`).
 
 ```bash
 corepack enable
 pnpm install
 ```
 
-Run the desktop app in development:
+Common commands (run from the repo root):
 
 ```bash
-pnpm dev
+pnpm dev         # run the desktop app in development (electron-vite, hot reload)
+pnpm build       # build all workspaces
+pnpm typecheck   # type-check all workspaces
+pnpm lint        # lint all workspaces
+pnpm test        # run each workspace's tests (desktop runs the core E2E lane)
 ```
 
-Build everything:
+Desktop end-to-end tests use a Playwright + Electron harness and are organized into
+lanes. The default `pnpm test` runs the `core` lane; to run everything:
 
 ```bash
-pnpm build
+pnpm --filter @pi-gui/desktop run test:e2e:all   # core + live + native
 ```
 
-Run the default test suite:
-
-```bash
-pnpm test
-```
-
-Desktop E2E lanes and setup are documented in [`apps/desktop/README.md`](./apps/desktop/README.md). The default desktop test command runs the `core` lane; use `pnpm --filter @pi-gui/desktop run test:e2e:all` when you need `core`, `live`, and `native`.
-
-Package a Linux AppImage locally:
+See [`apps/desktop/README.md`](./apps/desktop/README.md) for lane details and
+platform-specific packaging notes. Package a Linux AppImage locally with:
 
 ```bash
 pnpm --filter @pi-gui/desktop run package:linux
 ```
 
-Production-like packaged-app checks:
+## Repository layout
 
-```bash
-pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
-```
+- `apps/desktop` — the Electron app (renderer UI + main/preload).
+- `apps/website` — the marketing/landing site.
+- `packages/pi-sdk-driver` — adapter over `@earendil-works/pi-coding-agent`.
+- `packages/session-driver` — shared session driver types.
+- `packages/catalogs` — workspace/session catalog state.
 
-Release automation expects these GitHub Actions secrets for signed/notarized macOS builds:
+## Contributing
 
-- `CSC_LINK`
-- `CSC_KEY_PASSWORD`
-- `APPLE_API_KEY`
-- `APPLE_API_KEY_ID`
-- `APPLE_API_ISSUER`
+Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup,
+verification expectations, and the desktop test lanes. Desktop changes are expected
+to be verified on the real Electron surface, not only by unit tests.
 
-Regenerate the README demo assets:
+## Computer use
 
-```bash
-pnpm --filter @pi-gui/desktop demo:readme
-```
-
-## Repository Layout
-
-- `apps/desktop`: Electron app and renderer UI
-- `packages/session-driver`: shared session driver types
-- `packages/catalogs`: lightweight workspace/session catalog state
-- `packages/pi-sdk-driver`: adapter from the desktop app to `@earendil-works/pi-coding-agent`
-
-## Known Limitations
-
-- The app currently relies on upstream `pi` behavior and local auth state.
-- Live end-to-end validation may require model credentials not stored in this repo.
-- Homebrew beta upgrades may require macOS to re-confirm some app permissions or Dock placement.
+Native computer use is not built into pi-gui. Desktop/browser control is available
+separately through the author's standalone
+[`computer-use-mcp`](https://github.com/minghinmatthewlam/computer-use-mcp) server,
+which any MCP-capable agent can use.
 
 ## Acknowledgements
 
-- Built on top of [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
-- Upstream runtime and ecosystem by [`earendil-works/pi`](https://github.com/earendil-works/pi)
+- Built on [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
+- Upstream runtime and ecosystem by [`earendil-works/pi`](https://github.com/earendil-works/pi).
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+[MIT](./LICENSE) © Matthew Lam
