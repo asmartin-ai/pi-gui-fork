@@ -148,6 +148,54 @@ test("persists attachments separately from ui state and restores the current dra
   }
 });
 
+test("recovers persisted ui state from the backup when ui-state.json is corrupt", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("corruption-recovery-workspace");
+
+  const firstRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+  try {
+    const window = await firstRun.firstWindow();
+    await createNamedThread(window, "Corruption recovery session");
+    const composer = window.getByTestId("composer");
+    await composer.fill("recover me from backup");
+    await expect(composer).toHaveValue("recover me from backup");
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(join(userDataDir, "ui-state.json"), "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .toContain("recover me from backup");
+  } finally {
+    await firstRun.close();
+  }
+
+  // Simulate a crash that left the primary file truncated: keep the last good
+  // snapshot as the `.bak` sibling and corrupt the primary. A regressed reader
+  // would swallow the parse error, return `{}`, and silently wipe every draft,
+  // pin, and workspace order on the next write.
+  const uiStatePath = join(userDataDir, "ui-state.json");
+  const goodSnapshot = await readFile(uiStatePath, "utf8");
+  expect(goodSnapshot).toContain("recover me from backup");
+  await writeFile(`${uiStatePath}.bak`, goodSnapshot, "utf8");
+  await writeFile(uiStatePath, "{ this is not valid json", "utf8");
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    await expect(window.getByTestId("workspace-list")).toContainText("corruption-recovery-workspace");
+    await expect(window.getByTestId("composer")).toHaveValue("recover me from backup", { timeout: 15_000 });
+  } finally {
+    await secondRun.close();
+  }
+});
+
 test("migrates legacy inline attachment persistence and drops legacy inline transcripts", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();

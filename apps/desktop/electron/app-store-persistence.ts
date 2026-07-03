@@ -12,8 +12,7 @@ import type {
 } from "../src/desktop-state";
 import { isThemeMode, isThemePresetId } from "../src/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
-import { readFile } from "node:fs/promises";
-import { writeFileAtomicQueued } from "./atomic-file-write";
+import { readJsonWithBackup, writeFileAtomicQueued } from "./atomic-file-write";
 
 export interface PersistedUiState {
   readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
@@ -45,10 +44,23 @@ export interface LegacyPersistedUiState extends PersistedUiState {
 }
 
 export async function readPersistedUiState(uiStateFilePath: string): Promise<LegacyPersistedUiState> {
-  try {
-    const raw = await readFile(uiStateFilePath, "utf8");
-    const parsed = JSON.parse(raw) as LegacyPersistedUiState;
-    return {
+  const result = await readJsonWithBackup<LegacyPersistedUiState>(uiStateFilePath);
+  if (result.corrupted) {
+    // Surface corruption instead of silently returning `{}` (which the next
+    // write would then persist over the last good state, losing pins, drafts,
+    // workspace order, etc.). A recovery from `.bak` still counts as corrupt so
+    // the operator sees that the primary file needs attention.
+    console.error(
+      `[app-store] corrupt ui-state at ${uiStateFilePath}` +
+        (result.recovered ? " — recovered from backup" : " — no usable backup, starting from empty state"),
+    );
+  }
+  const parsed = result.value;
+  if (!parsed || typeof parsed !== "object") {
+    return {};
+  }
+
+  return {
       version:
         parsed.version === 15
           ? 15
@@ -106,9 +118,6 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
-  } catch {
-    return {};
-  }
 }
 
 export async function writePersistedUiState(

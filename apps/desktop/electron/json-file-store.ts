@@ -1,6 +1,6 @@
-import { readdir, readFile, unlink } from "node:fs/promises";
+import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { writeFileAtomicQueued } from "./atomic-file-write";
+import { readJsonWithBackup, writeFileAtomicQueued } from "./atomic-file-write";
 
 export class JsonFileStore<T> {
   private readonly rootDir: string;
@@ -10,12 +10,14 @@ export class JsonFileStore<T> {
   }
 
   async read(sessionKey: string): Promise<T | undefined> {
-    try {
-      const raw = await readFile(this.filePath(sessionKey), "utf8");
-      return JSON.parse(raw) as T;
-    } catch {
-      return undefined;
+    const result = await readJsonWithBackup<T>(this.filePath(sessionKey));
+    if (result.corrupted) {
+      console.error(
+        `[json-file-store] corrupt entry for "${sessionKey}" in ${this.rootDir}` +
+          (result.recovered ? " — recovered from backup" : " — no usable backup, treating as empty"),
+      );
     }
+    return result.value;
   }
 
   async write(sessionKey: string, data: T): Promise<void> {
@@ -23,17 +25,37 @@ export class JsonFileStore<T> {
   }
 
   async listKeys(): Promise<string[]> {
+    let entries: string[];
     try {
-      const entries = await readdir(this.rootDir);
-      return entries.filter((name) => name.endsWith(".json")).map((name) => decodeURIComponent(name.slice(0, -".json".length)));
+      entries = await readdir(this.rootDir);
     } catch {
       return [];
     }
+
+    const keys: string[] = [];
+    for (const name of entries) {
+      if (!name.endsWith(".json")) {
+        continue;
+      }
+      try {
+        keys.push(decodeURIComponent(name.slice(0, -".json".length)));
+      } catch (error) {
+        // A single malformed filename must not abort the whole listing; that
+        // would silently disable attachment pruning for every key.
+        console.error(`[json-file-store] skipping malformed filename "${name}" in ${this.rootDir}`, error);
+      }
+    }
+    return keys;
   }
 
   async remove(sessionKey: string): Promise<void> {
+    await this.unlinkIfPresent(this.filePath(sessionKey));
+    await this.unlinkIfPresent(`${this.filePath(sessionKey)}.bak`);
+  }
+
+  private async unlinkIfPresent(path: string): Promise<void> {
     try {
-      await unlink(this.filePath(sessionKey));
+      await unlink(path);
     } catch {
       // Already gone.
     }
