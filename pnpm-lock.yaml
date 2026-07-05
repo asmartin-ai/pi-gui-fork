@@ -80,9 +80,6 @@ importers:
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
-      '@pi-gui/computer-use-extension':
-        specifier: workspace:*
-        version: link:../../packages/computer-use-extension
       '@pi-gui/pi-sdk-driver':
         specifier: workspace:*
         version: link:../../packages/pi-sdk-driver
@@ -325,15 +322,6 @@ importers:
       '@pi-gui/session-driver':
         specifier: workspace:*
         version: link:../session-driver
-
-  packages/computer-use-extension:
-    devDependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: ^0.80.3
-        version: 0.80.3(ws@8.20.0)(zod@4.3.6)
-      '@types/node':
-        specifier: ^22.13.0
-        version: 22.19.15
 
   packages/pi-sdk-driver:
     dependencies:
