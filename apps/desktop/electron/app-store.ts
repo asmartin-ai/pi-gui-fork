@@ -137,6 +137,8 @@ export interface DesktopAppViewState {
 export class DesktopAppStore implements AppStoreInternals {
   state = createEmptyDesktopAppState();
   private readonly listeners = new Set<StateListener>();
+  /** Monotonic publish counter; emit() stamps every published state with it. */
+  private publishRevision = 1;
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   private readonly sessionEventQueues = new Map<string, Promise<void>>();
@@ -2550,6 +2552,15 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   emit(): DesktopAppState {
+    // Revision must be monotonic across publishes: mutation sites bump it from
+    // whatever state they captured, and long async builders (refreshState and
+    // friends) can capture before concurrent session events bump it further —
+    // assigning a LOWER revision than one already pushed. The renderer drops
+    // lower-revision snapshots, so a regression here freezes the UI until main
+    // happens to climb back past the renderer's high-water mark. Stamp the
+    // revision at the publish point instead of trusting the mutation sites.
+    this.publishRevision = Math.max(this.publishRevision, this.state.revision) + 1;
+    this.state = { ...this.state, revision: this.publishRevision };
     const snapshot = structuredClone(this.state);
     for (const listener of this.listeners) {
       listener(snapshot);
