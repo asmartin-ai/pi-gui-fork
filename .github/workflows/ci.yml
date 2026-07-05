@@ -74,6 +74,15 @@ jobs:
       - name: Desktop Core
         run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
 
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-core-test-results
+          path: apps/desktop/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   desktop-package-linux:
     runs-on: ubuntu-latest
 
