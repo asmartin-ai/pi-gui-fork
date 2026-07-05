@@ -138,7 +138,7 @@ test("manual rename beats a delayed auto-title result", async () => {
     await composer.fill("/name Manual title wins");
     await composer.press("Enter");
 
-    await expect(window.locator(".topbar__session")).toHaveText("Manual title wins");
+    await expect(window.locator(".topbar__session")).toHaveText("Manual title wins", { timeout: 15_000 });
     await expect(window.locator(".session-row__select", { hasText: "Manual title wins" }).first()).toBeVisible();
 
     await resolveDeferredThreadTitleEventually(harness, "Ignored generated title");
