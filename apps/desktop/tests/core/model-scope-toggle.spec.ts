@@ -12,7 +12,7 @@ import {
   openNewThread,
   seedAgentDir,
   selectSession,
-  startThreadFromSurface,
+  startThreadViaIpc,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -84,10 +84,12 @@ test("switches between app-global and per-repo model scope while worktrees inher
       hiddenModelLabels: ["GPT-4 Turbo"],
     });
 
-    await startThreadFromSurface(window, {
+    await startThreadViaIpc(window, {
       workspaceName: rootWorkspaceA.name,
       environment: "worktree",
-      prompt: "Repo A worktree session",
+      prompt: "",
+      provider: "openai",
+      modelId: "gpt-4o",
     });
     await expect(window.locator(".topbar__session")).toHaveText("New thread");
     await expectComposerModelState(window, {

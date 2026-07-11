@@ -139,6 +139,8 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly listeners = new Set<StateListener>();
   /** Monotonic publish counter; emit() stamps every published state with it. */
   private publishRevision = 1;
+  /** Serialize full-state refreshes so stale async builders cannot publish over newer state. */
+  private refreshStateQueue: Promise<void> = Promise.resolve();
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   private readonly sessionEventQueues = new Map<string, Promise<void>>();
@@ -1206,6 +1208,18 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async refreshState(options: RefreshStateOptions = {}): Promise<DesktopAppState> {
+    const previousRefresh = this.refreshStateQueue;
+    const refresh = previousRefresh
+      .catch(() => undefined)
+      .then(() => this.refreshStateNow(options));
+    this.refreshStateQueue = refresh.then(
+      () => undefined,
+      () => undefined,
+    );
+    return refresh;
+  }
+
+  private async refreshStateNow(options: RefreshStateOptions): Promise<DesktopAppState> {
     this.refreshStateDepth += 1;
     try {
       const previousSelectedKey = this.currentSelectedSessionKey();

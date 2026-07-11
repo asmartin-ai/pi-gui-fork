@@ -607,7 +607,9 @@ async function runComposerCommand(
   if (parsed.type === "name") {
     store.clearPendingAutoTitle(sessionRef);
     await store.driver.renameSession(sessionRef, parsed.title);
-    return finishComposerCommand(store, sessionRef, key, `Session renamed to ${parsed.title}`);
+    return finishComposerCommand(store, sessionRef, key, `Session renamed to ${parsed.title}`, {
+      sessionTitle: parsed.title,
+    });
   }
 
   if (parsed.type === "compact") {
@@ -638,6 +640,7 @@ function finishComposerCommand(
   sessionRef: SessionRef,
   key: string,
   label: string,
+  options: { readonly sessionTitle?: string } = {},
 ): DesktopAppState {
   store.sessionState.composerDraftsBySession.delete(key);
   store.sessionState.composerAttachmentsBySession.delete(key);
@@ -654,6 +657,7 @@ function finishComposerCommand(
               session.id === sessionRef.sessionId
                 ? {
                     ...session,
+                    title: options.sessionTitle ?? session.title,
                     preview: preview ?? session.preview,
                     config: store.sessionState.sessionConfigBySession.get(key),
                   }

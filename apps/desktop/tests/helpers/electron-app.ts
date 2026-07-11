@@ -1637,12 +1637,18 @@ export async function startThreadViaIpc(
   options: {
     readonly environment?: NewThreadEnvironment;
     readonly prompt?: string;
+    readonly provider?: string;
+    readonly modelId?: string;
+    readonly thinkingLevel?: string;
     readonly workspaceName?: string;
   } = {},
 ): Promise<void> {
   const {
     environment = "local",
     prompt = "Start thread",
+    provider,
+    modelId,
+    thinkingLevel,
     workspaceName,
   } = options;
 
@@ -1670,7 +1676,7 @@ export async function startThreadViaIpc(
   );
 
   await window.evaluate(
-    async ({ rootWorkspaceId, nextEnvironment, nextPrompt }) => {
+    async ({ rootWorkspaceId, nextEnvironment, nextPrompt, nextProvider, nextModelId, nextThinkingLevel }) => {
       const app = (window as PiAppWindow).piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
@@ -1679,12 +1685,18 @@ export async function startThreadViaIpc(
         rootWorkspaceId,
         environment: nextEnvironment,
         prompt: nextPrompt,
+        provider: nextProvider,
+        modelId: nextModelId,
+        thinkingLevel: nextThinkingLevel,
       });
     },
     {
       rootWorkspaceId,
       nextEnvironment: environment,
       nextPrompt: prompt,
+      nextProvider: provider,
+      nextModelId: modelId,
+      nextThinkingLevel: thinkingLevel,
     },
   );
   await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
