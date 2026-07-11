@@ -483,6 +483,7 @@ async function generateAndApplyAutoTitle(
 
     store.clearPendingAutoTitle(sessionRef);
     await store.driver.renameSession(sessionRef, generatedTitle);
+    await store.refreshState({ clearLastError: true });
   } catch (error) {
     // Auto-title is best-effort, but a swallowed rename failure must at least
     // be visible — the thread silently keeps its placeholder title otherwise.
