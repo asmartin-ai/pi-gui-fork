@@ -109,8 +109,6 @@
   --status-error: var(--error);
   --status-warning: var(--warning);
   --status-neutral: color-mix(in srgb, var(--text-strong) 34%, transparent);
-  --status-error-tint-bg: var(--danger-tint-bg);
-  --status-warning-tint-bg: color-mix(in srgb, var(--warning) 16%, transparent);
 
   /* ---- Diff file-status dots (git status glyphs) ------------------------- */
   --diff-added-ink: var(--success);
