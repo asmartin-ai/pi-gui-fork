@@ -193,7 +193,6 @@ export function ConversationTimeline({
       return true;
     };
 
-
     if (scrollToExisting()) {
       return;
     }
