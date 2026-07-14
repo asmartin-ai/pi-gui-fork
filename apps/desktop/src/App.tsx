@@ -7,7 +7,6 @@ import {
   type AppView,
   type ComposerAttachment,
   type ComposerImageAttachment,
-  type DesktopAppState,
   type ForkThreadInput,
   type NewThreadEnvironment,
   type StartThreadInput,
@@ -19,22 +18,18 @@ import { useRunningLabel } from "./hooks/use-running-label";
 import { useTimelineScroll, type SidePanelMode } from "./hooks/use-timeline-scroll";
 import { formatRelativeTime } from "./string-utils";
 import { ComposerPanel } from "./composer-panel";
-import { DiffPanel, type DiffPanelFileRequest, type FileWorkbenchContext } from "./diff-panel";
+import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import {
   desktopCommands,
   getDesktopCommandFromShortcut,
   getDesktopShortcutLabel,
-  type CustomProviderConfig,
-  type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
 } from "./ipc";
 import { deriveModelOnboardingState } from "./model-onboarding";
-import { SkillsView } from "./skills-view";
-import { ExtensionsView } from "./extensions-view";
-import { SettingsView, type SettingsSection } from "./settings-view";
-import { SecondarySurface } from "./secondary-surface";
+import type { SettingsSection } from "./settings-view";
+import { SecondarySurfaces } from "./app/secondary-surfaces";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
@@ -76,9 +71,6 @@ export default function App() {
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
-  const [notificationPermissionStatus, setNotificationPermissionStatus] =
-    useState<DesktopNotificationPermissionStatus>("unknown");
-  const [notificationPermissionPending, setNotificationPermissionPending] = useState(false);
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
   const [treeModalState, setTreeModalState] = useState<{
     readonly open: boolean;
@@ -164,37 +156,6 @@ export default function App() {
     }
   }, [snapshot?.enableTransparency]);
 
-  useEffect(() => {
-    const piApi = window.piApp;
-    if (!piApi?.onNotificationPermissionStatusChanged) {
-      return;
-    }
-
-    return piApi.onNotificationPermissionStatusChanged((status) => {
-      setNotificationPermissionStatus(status);
-    });
-  }, []);
-
-  const refreshNotificationPermissionStatus = useCallback(() => {
-    if (!api?.getNotificationPermissionStatus) {
-      return Promise.resolve("unknown" as DesktopNotificationPermissionStatus);
-    }
-
-    return api.getNotificationPermissionStatus().then((status) => {
-      setNotificationPermissionStatus(status);
-      return status;
-    });
-  }, [api]);
-
-  useEffect(() => {
-    if (snapshot?.activeView !== "settings" || settingsSection !== "notifications") {
-      return undefined;
-    }
-
-    void refreshNotificationPermissionStatus();
-    return undefined;
-  }, [refreshNotificationPermissionStatus, settingsSection, snapshot?.activeView]);
-
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
@@ -207,22 +168,6 @@ export default function App() {
   const selectedRuntime = selectedWorkspace ? snapshot?.runtimeByWorkspace[selectedWorkspace.id] : undefined;
   const selectedModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, selectedWorkspace) : undefined;
   const selectedWorktree = selectedWorkspace ? linkedWorktreeByWorkspaceId.get(selectedWorkspace.id) : undefined;
-  const settingsWorkspace = settingsWorkspaceId
-    ? rootWorkspaceOptions.find((workspace) => workspace.id === settingsWorkspaceId)
-    : undefined;
-  const skillsWorkspace = skillsWorkspaceId
-    ? rootWorkspaceOptions.find((workspace) => workspace.id === skillsWorkspaceId)
-    : undefined;
-  const extensionsWorkspace = extensionsWorkspaceId
-    ? rootWorkspaceOptions.find((workspace) => workspace.id === extensionsWorkspaceId)
-    : undefined;
-  const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
-  const settingsModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, settingsWorkspace) : undefined;
-  const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
-  const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
-  const extensionsCommandCompatibility = extensionsWorkspace
-    ? snapshot?.extensionCommandCompatibilityByWorkspace[extensionsWorkspace.id] ?? []
-    : [];
   const newThreadWorkspace =
     rootWorkspaceOptions.find((entry) => entry.id === newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
   const newThreadRuntime = snapshot ? getEffectiveModelRuntime(snapshot, newThreadWorkspace) : undefined;
@@ -407,7 +352,7 @@ export default function App() {
     const nextWorkspaceId =
       workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
         ? workspaceId
-        : settingsWorkspace?.id || rootWorkspaceOptions[0]?.id || "";
+        : settingsWorkspaceId || rootWorkspaceOptions[0]?.id || "";
     if (nextWorkspaceId) {
       setSettingsWorkspaceId(nextWorkspaceId);
     }
@@ -961,8 +906,13 @@ export default function App() {
   }
 
   const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeoverForSelectedThread && Boolean(selectedWorkspace);
+  const isSecondarySurfaceView =
+    snapshot.activeView === "settings" ||
+    snapshot.activeView === "skills" ||
+    snapshot.activeView === "extensions";
   const mainClassName = [
     "main",
+    isSecondarySurfaceView ? "main--surface" : "",
     sidePanelMode ? "main--with-side-panel" : "",
     sidePanelMode ? "main--with-diff" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
@@ -997,7 +947,7 @@ export default function App() {
     const nextWorkspaceId =
       workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
         ? workspaceId
-        : skillsWorkspace?.id || rootWorkspaceOptions[0]?.id || "";
+        : skillsWorkspaceId || rootWorkspaceOptions[0]?.id || "";
     if (nextWorkspaceId) {
       setSkillsWorkspaceId(nextWorkspaceId);
     }
@@ -1008,7 +958,7 @@ export default function App() {
     const nextWorkspaceId =
       workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
         ? workspaceId
-        : extensionsWorkspace?.id || rootWorkspaceOptions[0]?.id || "";
+        : extensionsWorkspaceId || rootWorkspaceOptions[0]?.id || "";
     if (nextWorkspaceId) {
       setExtensionsWorkspaceId(nextWorkspaceId);
     }
@@ -1232,171 +1182,9 @@ export default function App() {
     );
   };
 
-  const handleSetDefaultModel = (provider: string, modelId: string) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setDefaultModel(settingsWorkspace.id, provider, modelId));
-  };
-
-  const handleSetThinkingLevel = (thinkingLevel: RuntimeSnapshot["settings"]["defaultThinkingLevel"]) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setDefaultThinkingLevel(settingsWorkspace.id, thinkingLevel));
-  };
-
-  const handleToggleSkillCommands = (enabled: boolean) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setEnableSkillCommands(settingsWorkspace.id, enabled));
-  };
-
-  const handleSetScopedModelPatterns = (patterns: readonly string[]) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(settingsWorkspace.id, patterns));
-  };
-
-  const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
-    if (!api) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setModelSettingsScopeMode(mode));
-  };
-
-  const handleLoginProvider = (providerId: string) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.loginProvider(settingsWorkspace.id, providerId));
-  };
-
-  const handleLogoutProvider = (providerId: string) => {
-    if (!settingsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.logoutProvider(settingsWorkspace.id, providerId));
-  };
-
-  const handleSetProviderApiKey = async (providerId: string, apiKey: string): Promise<string | undefined> => {
-    if (!api || !settingsWorkspace) {
-      return "Select a workspace first.";
-    }
-    const state = await updateSnapshot(api, setSnapshot, () =>
-      api.setProviderApiKey(settingsWorkspace.id, providerId, apiKey),
-    );
-    return state.lastError;
-  };
-
-  const handleRemoveProviderApiKey = async (providerId: string): Promise<string | undefined> => {
-    if (!api || !settingsWorkspace) {
-      return "Select a workspace first.";
-    }
-    const state = await updateSnapshot(api, setSnapshot, () =>
-      api.logoutProvider(settingsWorkspace.id, providerId),
-    );
-    return state.lastError;
-  };
-
-  const handleSaveCustomProvider = async (config: CustomProviderConfig): Promise<string | undefined> => {
-    if (!api || !settingsWorkspace) {
-      return "Select a workspace first.";
-    }
-    const state = await updateSnapshot(api, setSnapshot, () =>
-      api.setCustomProvider(settingsWorkspace.id, config),
-    );
-    return state.lastError;
-  };
-
-  const handleDeleteCustomProvider = async (providerId: string): Promise<string | undefined> => {
-    if (!api || !settingsWorkspace) {
-      return "Select a workspace first.";
-    }
-    const state = await updateSnapshot(api, setSnapshot, () =>
-      api.deleteCustomProvider(settingsWorkspace.id, providerId),
-    );
-    return state.lastError;
-  };
-
-  const handleToggleSkill = (filePath: string, enabled: boolean) => {
-    if (!skillsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setSkillEnabled(skillsWorkspace.id, filePath, enabled));
-  };
-
-  const handleOpenSkillFolder = (filePath: string) => {
-    if (!skillsWorkspace) {
-      return;
-    }
-    void api.openSkillInFinder(skillsWorkspace.id, filePath);
-  };
-
-  const handleToggleExtension = (filePath: string, enabled: boolean) => {
-    if (!extensionsWorkspace) {
-      return;
-    }
-    void updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(extensionsWorkspace.id, filePath, enabled));
-  };
-
-  const handleOpenExtensionFolder = (filePath: string) => {
-    if (!extensionsWorkspace) {
-      return;
-    }
-    void api.openExtensionInFinder(extensionsWorkspace.id, filePath);
-  };
-
   const handleTrySkill = (command: string) => {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView("threads"));
     slashMenu.fillComposerFromSlash(command);
-  };
-
-  const handleSetThemeMode = (mode: "system" | "light" | "dark") => {
-    if (!api) return;
-    void updateSnapshot(api, setSnapshot, () => api.setThemeMode(mode));
-  };
-
-  const handleSetThemePresetId = (presetId: DesktopAppState["themePresetId"]) => {
-    if (!api) return;
-    void updateSnapshot(api, setSnapshot, () => api.setThemePresetId(presetId));
-  };
-
-  const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
-    void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
-  };
-
-  const handleSetIntegratedTerminalShell = (shellPath: string) => {
-    void updateSnapshot(api, setSnapshot, () => api.setIntegratedTerminalShell(shellPath));
-  };
-
-  const handleRequestNotificationPermission = () => {
-    if (!api?.requestNotificationPermission) {
-      return;
-    }
-    setNotificationPermissionPending(true);
-    void api
-      .requestNotificationPermission()
-      .then((status) => {
-        setNotificationPermissionStatus(status);
-      })
-      .finally(() => {
-        setNotificationPermissionPending(false);
-      });
-  };
-
-  const handleOpenSystemNotificationSettings = () => {
-    if (!api?.openSystemNotificationSettings) {
-      return;
-    }
-    setNotificationPermissionPending(true);
-    void api
-      .openSystemNotificationSettings()
-      .finally(() => {
-        setNotificationPermissionPending(false);
-      });
   };
 
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
@@ -1571,154 +1359,6 @@ export default function App() {
     handleStartThread();
   };
 
-  const settingsNav = [
-    { id: "appearance", label: "Appearance" },
-    { id: "general", label: "General" },
-    { id: "providers", label: "Providers" },
-    { id: "models", label: "Models" },
-    { id: "notifications", label: "Notifications" },
-  ] as const;
-
-  if (snapshot.activeView === "settings") {
-    return (
-      <SecondarySurface
-        activeNavId={settingsSection}
-        navItems={settingsNav}
-        onBack={() => setActiveView("threads")}
-        onSelectNav={(section) => setSettingsSection(section as SettingsSection)}
-        testId="settings-surface"
-        title="Settings"
-      >
-        {settingsSection === "providers" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
-          <div className="surface-toolbar">
-            <label className="surface-toolbar__field">
-              <span>Workspace</span>
-              <select
-                value={settingsWorkspace?.id ?? ""}
-                onChange={(event) => setSettingsWorkspaceId(event.target.value)}
-              >
-                {rootWorkspaceOptions.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : null}
-        <SettingsView
-          workspace={settingsWorkspace}
-          runtime={settingsSection === "models" ? settingsModelRuntime : settingsRuntime}
-          section={settingsSection}
-          notificationPreferences={snapshot.notificationPreferences}
-          notificationPermissionStatus={notificationPermissionStatus}
-          notificationPermissionPending={notificationPermissionPending}
-          modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
-          integratedTerminalShell={snapshot.integratedTerminalShell}
-          themeMode={snapshot.themeMode}
-          themePresetId={snapshot.themePresetId}
-          enableTransparency={snapshot.enableTransparency}
-          onLoginProvider={handleLoginProvider}
-          onLogoutProvider={handleLogoutProvider}
-          onSetProviderApiKey={handleSetProviderApiKey}
-          onRemoveProviderApiKey={handleRemoveProviderApiKey}
-          onSaveCustomProvider={handleSaveCustomProvider}
-          onDeleteCustomProvider={handleDeleteCustomProvider}
-          onSetModelSettingsScopeMode={handleSetModelSettingsScopeMode}
-          onSetDefaultModel={handleSetDefaultModel}
-          onSetNotificationPreferences={handleSetNotificationPreferences}
-          onSetIntegratedTerminalShell={handleSetIntegratedTerminalShell}
-          onRequestNotificationPermission={handleRequestNotificationPermission}
-          onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
-          onSetScopedModelPatterns={handleSetScopedModelPatterns}
-          onSetThemeMode={handleSetThemeMode}
-          onSetThemePresetId={handleSetThemePresetId}
-          onSetThinkingLevel={handleSetThinkingLevel}
-          onToggleSkillCommands={handleToggleSkillCommands}
-          onSetEnableTransparency={(enabled) => {
-            void updateSnapshot(api, setSnapshot, () => api.setEnableTransparency(enabled));
-          }}
-        />
-      </SecondarySurface>
-    );
-  }
-
-  if (snapshot.activeView === "skills") {
-    return (
-      <SecondarySurface onBack={() => setActiveView("threads")} testId="skills-surface" title="Skills">
-        <div className="surface-toolbar">
-          <label className="surface-toolbar__field">
-            <span>Workspace</span>
-            <select
-              value={skillsWorkspace?.id ?? ""}
-              onChange={(event) => setSkillsWorkspaceId(event.target.value)}
-            >
-              {rootWorkspaceOptions.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <SkillsView
-          workspace={skillsWorkspace}
-          runtime={skillsRuntime}
-          onOpenSkillFolder={handleOpenSkillFolder}
-          onRefresh={() => {
-            if (!skillsWorkspace) {
-              return;
-            }
-            void updateSnapshot(api, setSnapshot, () => api.refreshRuntime(skillsWorkspace.id));
-          }}
-          onToggleSkill={handleToggleSkill}
-          onTrySkill={(skill) =>
-            handleTrySkill(
-              skill.filePath
-                ? `${skill.slashCommand} `
-                : "Create a new skill for this workspace and explain which files you will add.",
-            )
-          }
-        />
-      </SecondarySurface>
-    );
-  }
-
-  if (snapshot.activeView === "extensions") {
-    return (
-      <SecondarySurface onBack={() => setActiveView("threads")} testId="extensions-surface" title="Extensions">
-        <div className="surface-toolbar">
-          <label className="surface-toolbar__field">
-            <span>Workspace</span>
-            <select
-              value={extensionsWorkspace?.id ?? ""}
-              onChange={(event) => setExtensionsWorkspaceId(event.target.value)}
-            >
-              {rootWorkspaceOptions.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <ExtensionsView
-          workspace={extensionsWorkspace}
-          runtime={extensionsRuntime}
-          commandCompatibility={extensionsCommandCompatibility}
-          onOpenExtensionFolder={handleOpenExtensionFolder}
-          onRefresh={() => {
-            if (!extensionsWorkspace) {
-              return;
-            }
-            void updateSnapshot(api, setSnapshot, () => api.refreshRuntime(extensionsWorkspace.id));
-          }}
-          onToggleExtension={handleToggleExtension}
-        />
-      </SecondarySurface>
-    );
-  }
-
   const shellClassName = `shell${snapshot.sidebarCollapsed ? " shell--sidebar-collapsed" : ""}`;
 
   return (
@@ -1756,6 +1396,26 @@ export default function App() {
       ) : null}
 
       <main className={mainClassName}>
+        {isSecondarySurfaceView ? (
+          <SecondarySurfaces
+            api={api}
+            snapshot={snapshot}
+            setSnapshot={setSnapshot}
+            activeView={snapshot.activeView as "settings" | "skills" | "extensions"}
+            rootWorkspaceOptions={rootWorkspaceOptions}
+            settingsSection={settingsSection}
+            onSelectSettingsSection={setSettingsSection}
+            settingsWorkspaceId={settingsWorkspaceId}
+            onSelectSettingsWorkspace={setSettingsWorkspaceId}
+            skillsWorkspaceId={skillsWorkspaceId}
+            onSelectSkillsWorkspace={setSkillsWorkspaceId}
+            extensionsWorkspaceId={extensionsWorkspaceId}
+            onSelectExtensionsWorkspace={setExtensionsWorkspaceId}
+            onBack={() => setActiveView("threads")}
+            onTrySkill={handleTrySkill}
+          />
+        ) : (
+          <>
         <Topbar
           activeView={snapshot.activeView}
           rootWorkspace={rootWorkspace}
@@ -2014,6 +1674,8 @@ export default function App() {
             contexts={fileWorkbenchContexts}
           />
         ) : null}
+          </>
+        )}
       </main>
     </div>
   );
