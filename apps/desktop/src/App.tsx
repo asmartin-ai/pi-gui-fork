@@ -31,6 +31,7 @@ import { SidebarToggleButton } from "./sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
 import { ConversationTimeline } from "./conversation-timeline";
+import { loadPromptRailVisible, savePromptRailVisible } from "./prompt-rail-store";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
@@ -65,6 +66,7 @@ export default function App() {
   const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
+  const [promptRailVisible, setPromptRailVisible] = useState(loadPromptRailVisible);
   const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
   const sidebarToggleStateRef = useRef<{
@@ -276,6 +278,14 @@ export default function App() {
   const toggleFilesPanel = useCallback(() => {
     toggleSidePanelMode("files");
   }, [toggleSidePanelMode]);
+
+  const togglePromptRail = useCallback(() => {
+    setPromptRailVisible((current) => {
+      const next = !current;
+      savePromptRailVisible(next);
+      return next;
+    });
+  }, []);
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -791,6 +801,8 @@ export default function App() {
           onToggleChanges={toggleChangesPanel}
           filesVisible={sidePanelMode === "files"}
           onToggleFiles={toggleFilesPanel}
+          promptRailVisible={promptRailVisible}
+          onTogglePromptRail={togglePromptRail}
         />
 
         {showTerminalTakeover ? (
@@ -905,6 +917,7 @@ export default function App() {
                   onContentHeightChange={handleTimelineContentHeightChange}
                   onViewFileInDiff={handleViewFileInDiff}
                   onForkFromMessage={selectedSession.status === "running" ? undefined : openForkModal}
+                  promptRailVisible={promptRailVisible}
                 />
               </div>
             </section>

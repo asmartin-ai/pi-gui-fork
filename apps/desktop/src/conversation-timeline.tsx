@@ -37,6 +37,7 @@ interface ConversationTimelineProps {
   readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onForkFromMessage?: (messageIndex: number, preview?: string) => void;
+  readonly promptRailVisible?: boolean;
 }
 
 export function ConversationTimeline({
@@ -54,6 +55,7 @@ export function ConversationTimeline({
   onContentHeightChange,
   onViewFileInDiff,
   onForkFromMessage,
+  promptRailVisible = true,
 }: ConversationTimelineProps) {
   const renderedMessageIndexById = useMemo(() => {
     const map = new Map<string, number>();
@@ -290,7 +292,7 @@ export function ConversationTimeline({
         </button>
       ) : null}
     </div>
-      {!isTranscriptLoading && userPrompts.length > 1 ? (
+      {promptRailVisible && !isTranscriptLoading && userPrompts.length > 1 ? (
         <TimelineContextRail prompts={userPrompts} onSelect={scrollToMessage} />
       ) : null}
     </div>
