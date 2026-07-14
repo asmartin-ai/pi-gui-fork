@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
+import type { DisplayTimelineItem } from "./timeline-types";
+import { buildDisplayTimelineItems } from "./timeline-turns";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
 import { SparkIcon } from "./icons";
@@ -64,6 +66,8 @@ export function ConversationTimeline({
     }
     return map;
   }, [transcript]);
+
+  const displayItems = useMemo(() => buildDisplayTimelineItems(transcript), [transcript]);
 
   // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
   // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
@@ -195,7 +199,7 @@ export function ConversationTimeline({
         </div>
       ) : shouldVirtualize ? (
         <VirtualizedTranscriptList
-          transcript={transcript}
+          displayItems={displayItems}
           timelinePaneRef={timelinePaneRef}
           onContentHeightChange={onContentHeightChange}
           measuredHeightsRef={measuredHeightsRef}
@@ -209,7 +213,7 @@ export function ConversationTimeline({
         />
       ) : (
         <div className="timeline" data-testid="transcript">
-          {transcript.map((item) => (
+          {displayItems.map((item) => (
             <MeasuredTimelineItem
               item={item}
               key={item.id}
@@ -268,7 +272,7 @@ function TranscriptEmptyState() {
 }
 
 function VirtualizedTranscriptList({
-  transcript,
+  displayItems,
   timelinePaneRef,
   onContentHeightChange,
   measuredHeightsRef,
@@ -280,7 +284,7 @@ function VirtualizedTranscriptList({
   renderedMessageIndexById,
   onForkFromMessage,
 }: {
-  readonly transcript: readonly TranscriptMessage[];
+  readonly displayItems: readonly DisplayTimelineItem[];
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
   readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
   readonly measuredHeightsRef: MutableRefObject<Map<string, number>>;
@@ -325,7 +329,7 @@ function VirtualizedTranscriptList({
     };
   }, [timelinePaneRef]);
 
-  const rowHeights = transcript.map((item) => measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item));
+  const rowHeights = displayItems.map((item) => measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item));
   const rowOffsets: number[] = [];
   let totalHeight = 0;
   for (const [index, rowHeight] of rowHeights.entries()) {
@@ -356,7 +360,7 @@ function VirtualizedTranscriptList({
 
   return (
     <div className="timeline timeline--virtualized" data-testid="transcript" style={{ height: `${totalHeight}px` }}>
-      {transcript.slice(startIndex, endIndex).map((item, offsetIndex) => {
+      {displayItems.slice(startIndex, endIndex).map((item, offsetIndex) => {
         const index = startIndex + offsetIndex;
         return (
           <MeasuredTimelineItem
@@ -388,7 +392,7 @@ function MeasuredTimelineItem({
   sourceMessageIndex,
   onForkFromMessage,
 }: {
-  readonly item: TranscriptMessage;
+  readonly item: DisplayTimelineItem;
   readonly className?: string;
   readonly top?: number;
   readonly onHeightChange: (id: string, height: number) => void;
@@ -477,7 +481,10 @@ function findEndIndex(offsets: readonly number[], targetOffset: number): number 
   return Math.min(offsets.length, Math.max(lastVisibleIndex + 1, 1));
 }
 
-function estimateTimelineItemHeight(item: TranscriptMessage): number {
+function estimateTimelineItemHeight(item: DisplayTimelineItem): number {
+  if (item.kind === "turn-marker") {
+    return 32;
+  }
   if (item.kind === "message") {
     const attachmentHeight = item.attachments?.some((attachment) => attachment.kind === "image")
       ? 120

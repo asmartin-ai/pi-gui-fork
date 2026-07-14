@@ -509,6 +509,31 @@
   color: var(--muted-soft);
 }
 
+/* ---- Turn timing marker ------------------------------------------------- */
+
+.timeline-turn-marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.timeline-turn-marker::before,
+.timeline-turn-marker::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.timeline-turn-marker__label {
+  flex-shrink: 0;
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
 /* ---- Loading skeleton --------------------------------------------------- */
 
 .transcript-skeleton {
