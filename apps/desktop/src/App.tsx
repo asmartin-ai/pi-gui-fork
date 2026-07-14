@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
   getSelectedWorkspace,
   type AppView,
   type ComposerImageAttachment,
-  type ForkThreadInput,
-  type NewThreadEnvironment,
 } from "./desktop-state";
-import { applySnapshotIfNewer, updateSnapshot, useDesktopAppState } from "./app/desktop-app-state";
+import { updateSnapshot, useDesktopAppState } from "./app/desktop-app-state";
 import { buildFileWorkbenchContexts } from "./app/file-workbench-contexts";
 import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app/app-shell-utils";
 import { useRunningLabel } from "./hooks/use-running-label";
@@ -46,8 +43,8 @@ import { TreeModal } from "./tree-modal";
 import { ForkModal } from "./fork-modal";
 import { getEffectiveModelRuntime } from "./model-settings";
 import { applyThemePresetToRoot } from "./theme-presets";
-import { resolveRepoWorkspaceId } from "./workspace-roots";
 import { deriveWorkspaceContext } from "./workspace-context";
+import { useTreeForkModals } from "./hooks/use-tree-fork-modals";
 import {
   extractImageFilesFromClipboardData,
   extractFilesFromDataTransfer,
@@ -64,28 +61,6 @@ export default function App() {
   const [extensionsWorkspaceId, setExtensionsWorkspaceId] = useState("");
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
-  const [treeModalState, setTreeModalState] = useState<{
-    readonly open: boolean;
-    readonly loading: boolean;
-    readonly submitting: boolean;
-    readonly tree?: SessionTreeSnapshot;
-    readonly error?: string;
-  }>({
-    open: false,
-    loading: false,
-    submitting: false,
-  });
-  const [forkModalState, setForkModalState] = useState<{
-    readonly open: boolean;
-    readonly submitting: boolean;
-    readonly sourceMessageIndex: number;
-    readonly messagePreview?: string;
-    readonly error?: string;
-  }>({
-    open: false,
-    submitting: false,
-    sourceMessageIndex: -1,
-  });
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const previousActiveViewRef = useRef<AppView | null>(null);
@@ -331,159 +306,28 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView("settings"));
   };
 
-  const closeTreeModal = useCallback(() => {
-    setTreeModalState((current) =>
-      current.submitting
-        ? current
-        : {
-            open: false,
-            loading: false,
-            submitting: false,
-          },
-    );
-    focusComposer();
-  }, []);
-
-  const openTreeModal = useCallback(() => {
-    if (!api || !selectedWorkspace || !selectedSession) {
-      return;
-    }
-
-    setTreeModalState({
-      open: true,
-      loading: true,
-      submitting: false,
-    });
-    setComposerDraft("");
-
-    void api
-      .getSessionTree({
-        workspaceId: selectedWorkspace.id,
-        sessionId: selectedSession.id,
-      })
-      .then((tree) => {
-        setTreeModalState({
-          open: true,
-          loading: false,
-          submitting: false,
-          tree,
-        });
-      })
-      .catch((error) => {
-        setTreeModalState({
-          open: true,
-          loading: false,
-          submitting: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-  }, [api, selectedSession, selectedWorkspace]);
-
-  const navigateTreeSelection = useCallback(
-    (targetId: string, options?: { readonly summarize?: boolean; readonly customInstructions?: string }) => {
-      if (!api || !selectedWorkspace || !selectedSession) {
-        return;
-      }
-
-      setTreeModalState((current) => ({ ...current, submitting: true, error: undefined }));
-      void api
-        .navigateSessionTree(
-          {
-            workspaceId: selectedWorkspace.id,
-            sessionId: selectedSession.id,
-          },
-          targetId,
-          options,
-        )
-        .then(({ state, result }) => {
-          applySnapshotIfNewer(setSnapshot, state);
-          setTreeModalState({
-            open: false,
-            loading: false,
-            submitting: false,
-          });
-          setComposerDraft((current) =>
-            !current.trim() && result.editorText ? result.editorText : state.composerDraft,
-          );
-          focusComposer();
-        })
-        .catch((error) => {
-          setTreeModalState((current) => ({
-            ...current,
-            submitting: false,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-        });
-    },
-    [api, selectedSession, selectedWorkspace],
-  );
-
-  const closeForkModal = useCallback(() => {
-    setForkModalState((current) =>
-      current.submitting
-        ? current
-        : {
-            open: false,
-            submitting: false,
-            sourceMessageIndex: -1,
-          },
-    );
-  }, []);
-
-  const openForkModal = useCallback(
-    (sourceMessageIndex: number, preview?: string) => {
-      if (!api || !selectedWorkspace || !selectedSession) {
-        return;
-      }
-      const trimmed = preview?.trim();
-      setForkModalState({
-        open: true,
-        submitting: false,
-        sourceMessageIndex,
-        messagePreview: trimmed ? trimmed.slice(0, 280) : undefined,
-      });
-    },
-    [api, selectedSession, selectedWorkspace],
-  );
-
-  const handleForkSubmit = useCallback(
-    (environment: NewThreadEnvironment) => {
-      if (!api || !selectedWorkspace || !selectedSession) {
-        return;
-      }
-      const rootWorkspaceId =
-        (snapshot ? resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace.id) : undefined) ??
-        selectedWorkspace.id;
-      const input: ForkThreadInput = {
-        sourceWorkspaceId: selectedWorkspace.id,
-        sourceSessionId: selectedSession.id,
-        rootWorkspaceId,
-        environment,
-        sourceMessageIndex: forkModalState.sourceMessageIndex,
-        position: "after",
-      };
-      setForkModalState((current) => ({ ...current, submitting: true, error: undefined }));
-      void api
-        .forkThread(input)
-        .then((state) => {
-          applySnapshotIfNewer(setSnapshot, state);
-          setForkModalState({
-            open: false,
-            submitting: false,
-            sourceMessageIndex: -1,
-          });
-          focusComposer();
-        })
-        .catch((error) => {
-          setForkModalState((current) => ({
-            ...current,
-            submitting: false,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-        });
-    },
-    [api, forkModalState.sourceMessageIndex, selectedSession, selectedWorkspace, snapshot],
-  );
+  const {
+    treeModalState,
+    forkModalState,
+    closeTreeModal,
+    openTreeModal,
+    navigateTreeSelection,
+    closeForkModal,
+    openForkModal,
+    handleForkSubmit,
+    canUseWorktree,
+  } = useTreeForkModals({
+    api,
+    snapshot,
+    setSnapshot,
+    selectedWorkspace,
+    selectedSession,
+    selectedSessionKey,
+    rootWorkspace,
+    activeView: snapshot?.activeView,
+    setComposerDraft,
+    focusComposer,
+  });
 
   const slashMenu = useSlashMenu({
     composerDraft,
@@ -709,18 +553,6 @@ export default function App() {
     handleTogglePrimarySidebar,
     newThread,
   ]);
-
-  useEffect(() => {
-    setTreeModalState((current) =>
-      current.open
-        ? {
-            open: false,
-            loading: false,
-            submitting: false,
-          }
-        : current,
-    );
-  }, [selectedSessionKey, snapshot?.activeView]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -1374,7 +1206,7 @@ export default function App() {
                 error={forkModalState.error}
                 submitting={forkModalState.submitting}
                 messagePreview={forkModalState.messagePreview}
-                canUseWorktree={Boolean(rootWorkspace)}
+                canUseWorktree={canUseWorktree}
                 onClose={closeForkModal}
                 onSubmit={handleForkSubmit}
               />
