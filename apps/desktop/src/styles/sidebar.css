@@ -666,6 +666,35 @@
   height: 16px;
 }
 
+.session-row__menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.session-row .session-row__menu-button {
+  min-width: 20px;
+  padding-left: 6px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.session-row__menu {
+  top: calc(100% + 4px);
+  right: -6px;
+  z-index: 20;
+}
+
+.session-row:has(.session-row__menu) .session-row__menu-button {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.session-rename {
+  margin-left: 18px;
+}
+
 .session-row:hover .session-row__time,
 .session-row:focus-within .session-row__time {
   opacity: 0;

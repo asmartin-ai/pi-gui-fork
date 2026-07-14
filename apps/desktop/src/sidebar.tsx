@@ -18,6 +18,7 @@ import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PinIcon, PlusI
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
+import { useThreadMenu, type ThreadMenuState } from "./hooks/use-thread-menu";
 import { comparePinnedThreads, sessionThreadKey, type ThreadGroup, type ThreadListEntry } from "./thread-groups";
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopAppState } from "./desktop-state";
@@ -74,6 +75,7 @@ export function Sidebar(props: SidebarProps) {
   } = props;
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const threadMenu = useThreadMenu({ api, setSnapshot, updateSnapshot });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const pinnedSortableId = (thread: ThreadListEntry) => `pinned:${sessionThreadKey(thread)}`;
   const pinnedSessionKeyFromSortableId = (id: string) => id.startsWith("pinned:") ? id.slice("pinned:".length) : id;
@@ -273,6 +275,7 @@ export function Sidebar(props: SidebarProps) {
                   sortableIdForThread={pinnedSortableId}
                   selectedWorkspace={selectedWorkspace}
                   selectedSession={selectedSession}
+                  threadMenu={threadMenu}
                   onArchiveSession={onArchiveSession}
                   onSelectSession={onSelectSession}
                   onSetSessionPinned={onSetSessionPinned}
@@ -289,6 +292,7 @@ export function Sidebar(props: SidebarProps) {
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
                     wsMenu={wsMenu}
                     api={api}
+                    threadMenu={threadMenu}
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
                     onSetSessionPinned={onSetSessionPinned}
@@ -306,6 +310,7 @@ export function Sidebar(props: SidebarProps) {
                   linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
                   wsMenu={wsMenu}
                   api={api}
+                  threadMenu={threadMenu}
                   onArchiveSession={onArchiveSession}
                   onSelectSession={onSelectSession}
                   onSetSessionPinned={onSetSessionPinned}
@@ -334,6 +339,7 @@ export function Sidebar(props: SidebarProps) {
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
                     wsMenu={wsMenu}
                     api={api}
+                    threadMenu={threadMenu}
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
                     onSetSessionPinned={onSetSessionPinned}
@@ -359,6 +365,7 @@ interface WorkspaceGroupProps {
   readonly linkedWorktreeByWorkspaceId: ReadonlyMap<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
+  readonly threadMenu: ThreadMenuState;
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSetSessionPinned: (target: { workspaceId: string; sessionId: string }, pinned: boolean) => void;
@@ -410,6 +417,7 @@ function WorkspaceGroupContent(
     linkedWorktreeByWorkspaceId,
     wsMenu,
     api,
+    threadMenu,
     onArchiveSession,
     onSelectSession,
     onSetSessionPinned,
@@ -558,6 +566,7 @@ function WorkspaceGroupContent(
                   key={`${thread.workspaceId}:${thread.session.id}`}
                   active={active}
                   thread={thread}
+                  threadMenu={threadMenu}
                   onAction={() =>
                     onArchiveSession({
                       workspaceId: thread.workspaceId,
@@ -603,6 +612,7 @@ function WorkspaceGroupContent(
                         active={active}
                         archived
                         thread={thread}
+                        threadMenu={threadMenu}
                         onAction={() =>
                           onUnarchiveSession({
                             workspaceId: thread.workspaceId,
@@ -635,6 +645,7 @@ function PinnedThreadsSection({
   sortableIdForThread,
   selectedWorkspace,
   selectedSession,
+  threadMenu,
   onArchiveSession,
   onSelectSession,
   onSetSessionPinned,
@@ -644,6 +655,7 @@ function PinnedThreadsSection({
   readonly sortableIdForThread: (thread: ThreadListEntry) => string;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
+  readonly threadMenu: ThreadMenuState;
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSetSessionPinned: (target: { workspaceId: string; sessionId: string }, pinned: boolean) => void;
@@ -664,6 +676,7 @@ function PinnedThreadsSection({
                 id={sortableIdForThread(thread)}
                 active={active}
                 thread={thread}
+                threadMenu={threadMenu}
                 onAction={() =>
                   onArchiveSession({
                     workspaceId: thread.workspaceId,
@@ -692,6 +705,7 @@ function SortablePinnedThreadRow({
   id,
   active,
   thread,
+  threadMenu,
   onAction,
   onSelect,
   onTogglePinned,
@@ -699,6 +713,7 @@ function SortablePinnedThreadRow({
   readonly id: string;
   readonly active: boolean;
   readonly thread: ThreadListEntry;
+  readonly threadMenu: ThreadMenuState;
   readonly onAction: () => void;
   readonly onSelect: () => void;
   readonly onTogglePinned: () => void;
@@ -715,6 +730,7 @@ function SortablePinnedThreadRow({
       style={style}
       active={active}
       thread={thread}
+      threadMenu={threadMenu}
       showContext
       dragging={isDragging}
       dragAttributes={attributes}
@@ -746,6 +762,7 @@ interface ThreadSessionRowProps {
   readonly dragAttributes?: DraggableAttributes;
   readonly dragListeners?: DraggableSyntheticListeners;
   readonly thread: ThreadListEntry;
+  readonly threadMenu?: ThreadMenuState;
   readonly onAction: () => void;
   readonly onSelect: () => void;
   readonly onTogglePinned: () => void;
@@ -761,6 +778,7 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
   dragAttributes,
   dragListeners,
   thread,
+  threadMenu,
   onAction,
   onSelect,
   onTogglePinned,
@@ -776,6 +794,7 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
     overlay ? "session-row--overlay" : "",
   ].filter(Boolean).join(" ");
   return (
+    <>
     <div
       ref={ref}
       style={style}
@@ -783,6 +802,12 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
       data-sidebar-indicator={indicatorVariant}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-id={thread.session.id}
+      onContextMenu={(event) => {
+        if (!threadMenu || overlay) return;
+        event.preventDefault();
+        event.stopPropagation();
+        threadMenu.openMenu(thread.session.id);
+      }}
     >
       <button
         className="session-row__select"
@@ -829,7 +854,91 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
         >
           {archived ? <RestoreIcon /> : <ArchiveIcon />}
         </button>
+        {threadMenu && !overlay ? (
+          <span
+            className="session-row__menu-wrap"
+            ref={threadMenu.menuSessionId === thread.session.id ? threadMenu.menuWrapRef : undefined}
+          >
+            <button
+              aria-label={`Thread actions for ${thread.session.title}${actionContext}`}
+              aria-haspopup="menu"
+              aria-expanded={threadMenu.menuSessionId === thread.session.id}
+              className="icon-button session-row__action session-row__menu-button"
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                threadMenu.toggleMenu(thread.session.id);
+              }}
+            >
+              …
+            </button>
+            {threadMenu.menuSessionId === thread.session.id ? (
+              <div className="workspace-menu session-row__menu" role="menu">
+                <button
+                  className="workspace-menu__item"
+                  type="button"
+                  onClick={(event) => threadMenu.runMenuAction(event, () => threadMenu.startRename(thread))}
+                >
+                  Rename thread
+                </button>
+                <button
+                  className="workspace-menu__item"
+                  type="button"
+                  onClick={(event) => threadMenu.runMenuAction(event, () => threadMenu.archiveOrRestore(thread))}
+                >
+                  {archived ? "Restore" : "Archive"}
+                </button>
+                {thread.session.hasUnseenUpdate ? (
+                  <button
+                    className="workspace-menu__item"
+                    type="button"
+                    onClick={(event) => threadMenu.runMenuAction(event, () => threadMenu.markRead(thread))}
+                  >
+                    Mark as read
+                  </button>
+                ) : null}
+                <button
+                  className="workspace-menu__item"
+                  type="button"
+                  onClick={(event) => threadMenu.runMenuAction(event, () => threadMenu.copySessionId(thread))}
+                >
+                  Copy session id
+                </button>
+              </div>
+            ) : null}
+          </span>
+        ) : null}
       </span>
     </div>
+    {threadMenu?.renameSessionId === thread.session.id ? (
+      <form
+        className="workspace-rename session-rename"
+        ref={threadMenu.renamePanelRef}
+        onSubmit={(event) => {
+          event.preventDefault();
+          threadMenu.submitRename(thread);
+        }}
+      >
+        <input
+          aria-label={`Rename thread ${thread.session.title}`}
+          className="workspace-rename__input"
+          ref={threadMenu.renameInputRef}
+          value={threadMenu.renameDraft}
+          onChange={(event) => threadMenu.setRenameDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              threadMenu.cancelRename();
+            }
+          }}
+        />
+        <div className="workspace-rename__actions">
+          <button className="workspace-rename__button" type="button" onClick={threadMenu.cancelRename}>Cancel</button>
+          <button className="workspace-rename__button workspace-rename__button--primary" type="submit">Save</button>
+        </div>
+      </form>
+    ) : null}
+  </>
   );
 });
