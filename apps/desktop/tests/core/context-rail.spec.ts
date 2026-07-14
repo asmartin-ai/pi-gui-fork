@@ -86,7 +86,34 @@ test("context rail lists prompts and scrolls to a turn; timing markers render", 
 
     const firstPromptRow = window.locator('[data-message-id]', { hasText: "PROMPT 0 unique-marker-0" });
     await expect(firstPromptRow).toBeInViewport();
+
+    // The topbar toggle hides the rail even on this wide viewport, while the
+    // transcript keeps its 768px measure.
+    await window.getByRole("button", { name: "Hide prompt navigation" }).click();
+    await expect(rail).toBeHidden();
+    const measureAfterHide = await window
+      .getByTestId("transcript")
+      .evaluate((el) => (el as HTMLElement).clientWidth);
+    expect(measureAfterHide).toBe(768);
   } finally {
     await run.close();
+  }
+
+  // The hidden preference persists across a restart.
+  const rerun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await rerun.firstWindow();
+    await rerun.electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setBounds({ x: 40, y: 40, width: 1500, height: 950 });
+    });
+    await waitForWorkspaceByPath(window, workspacePath);
+    await expect(window.getByTestId("transcript")).toBeVisible({ timeout: 15_000 });
+    await expect(window.getByTestId("timeline-context-rail")).toBeHidden();
+
+    // Toggling back on restores it.
+    await window.getByRole("button", { name: "Show prompt navigation" }).click();
+    await expect(window.getByTestId("timeline-context-rail")).toBeVisible();
+  } finally {
+    await rerun.close();
   }
 });
