@@ -8,6 +8,7 @@ import { SparkIcon } from "./icons";
 
 const OVERSCAN_PX = 720;
 const ROW_GAP_PX = 14;
+const SCROLL_TO_PADDING_PX = 16;
 export const VIRTUALIZATION_THRESHOLD = 80;
 
 interface ThreadSearchModel {
@@ -157,6 +158,62 @@ export function ConversationTimeline({
     timelinePaneElementRef?.(node);
   }, [timelinePaneElementRef, timelinePaneRef]);
 
+  const userPrompts = useMemo<readonly UserPromptEntry[]>(() => {
+    const prompts: UserPromptEntry[] = [];
+    let turnNumber = 0;
+    for (const item of transcript) {
+      if (item.kind !== "message" || item.role !== "user") {
+        continue;
+      }
+      turnNumber += 1;
+      prompts.push({ id: item.id, turnNumber, preview: buildPromptPreview(item.text) });
+    }
+    return prompts;
+  }, [transcript]);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      return;
+    }
+
+    // Mark this as a deliberate scroll so the bottom-pinning engine treats it as
+    // intent and does not snap the view back to the latest activity.
+    onTimelineScrollIntent?.();
+
+    const scrollToExisting = (): boolean => {
+      const target = pane.querySelector<HTMLElement>(`[data-message-id="${cssEscape(messageId)}"]`);
+      if (!target) {
+        return false;
+      }
+      const paneRect = pane.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const nextTop = Math.max(0, pane.scrollTop + (targetRect.top - paneRect.top) - SCROLL_TO_PADDING_PX);
+      pane.scrollTo({ top: nextTop, behavior: "smooth" });
+      return true;
+    };
+
+
+    if (scrollToExisting()) {
+      return;
+    }
+
+    // Virtualized rows outside the render window are absent from the DOM, so jump
+    // to the computed offset first, then let the row mount and fine-tune.
+    let offset = 0;
+    for (const item of displayItems) {
+      if (item.id === messageId) {
+        break;
+      }
+      offset += measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item);
+      offset += ROW_GAP_PX;
+    }
+    pane.scrollTop = Math.max(0, offset - SCROLL_TO_PADDING_PX);
+    window.requestAnimationFrame(() => {
+      scrollToExisting();
+    });
+  }, [displayItems, onTimelineScrollIntent, timelinePaneRef]);
+
   useLayoutEffect(() => {
     const pane = timelinePaneRef.current;
     if (!pane) {
@@ -170,6 +227,7 @@ export function ConversationTimeline({
   }, [onTimelineScroll, timelinePaneRef]);
 
   return (
+    <div className="timeline-surface">
     <div
       className="timeline-pane timeline-pane--thread"
       data-testid="timeline-pane"
@@ -233,7 +291,59 @@ export function ConversationTimeline({
         </button>
       ) : null}
     </div>
+      {!isTranscriptLoading && userPrompts.length > 1 ? (
+        <TimelineContextRail prompts={userPrompts} onSelect={scrollToMessage} />
+      ) : null}
+    </div>
   );
+}
+
+interface UserPromptEntry {
+  readonly id: string;
+  readonly turnNumber: number;
+  readonly preview: string;
+}
+
+function TimelineContextRail({
+  prompts,
+  onSelect,
+}: {
+  readonly prompts: readonly UserPromptEntry[];
+  readonly onSelect: (messageId: string) => void;
+}) {
+  return (
+    <nav className="timeline-context-rail" data-testid="timeline-context-rail" aria-label="Prompts in this thread">
+      <div className="timeline-context-rail__title">Prompts</div>
+      <ol className="timeline-context-rail__list">
+        {prompts.map((prompt) => (
+          <li key={prompt.id}>
+            <button
+              type="button"
+              className="timeline-context-rail__item"
+              data-testid="timeline-context-rail-item"
+              title={prompt.preview}
+              onClick={() => onSelect(prompt.id)}
+            >
+              <span className="timeline-context-rail__index">{prompt.turnNumber}</span>
+              <span className="timeline-context-rail__text">{prompt.preview}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+function buildPromptPreview(text: string): string {
+  const firstLine = text.split("\n").map((line) => line.trim()).find((line) => line.length > 0) ?? "";
+  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine || "Prompt";
+}
+
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, "\\$&");
 }
 
 function TranscriptSkeleton() {
@@ -429,6 +539,7 @@ function MeasuredTimelineItem({
     <div
       className={className}
       ref={rowRef}
+      data-message-id={item.id}
       style={top == null ? undefined : { transform: `translateY(${top}px)` }}
     >
       <TimelineItem

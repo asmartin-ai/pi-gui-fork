@@ -47,10 +47,97 @@
   scroll-behavior: auto;
 }
 
+/* Row wrapper holding the scrolling transcript and the right context rail. It
+ * takes over the vertical flex growth the pane used to own, so the pane keeps
+ * its own bounded height + internal scroll while the rail sits beside it. */
+.timeline-surface {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  gap: 20px;
+}
+
 .timeline-pane--thread {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   max-height: none;
+}
+
+.timeline-context-rail {
+  flex: 0 0 auto;
+  width: 176px;
+  align-self: stretch;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+
+.timeline-context-rail__title {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 0;
+}
+
+.timeline-context-rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timeline-context-rail__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-context-rail__item:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.timeline-context-rail__index {
+  flex-shrink: 0;
+  color: var(--muted-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.timeline-context-rail__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The rail only earns its space once the conversation column has room for it. */
+@media (max-width: 1100px) {
+  .timeline-context-rail {
+    display: none;
+  }
 }
 
 .timeline-empty {
