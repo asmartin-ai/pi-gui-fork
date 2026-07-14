@@ -287,8 +287,8 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1480,
     height: 980,
-    minWidth: 1200,
-    minHeight: 760,
+    minWidth: 560,
+    minHeight: 600,
     transparent: enableTransparency,
     vibrancy: process.platform === "darwin" && enableTransparency ? "under-window" : undefined,
     titleBarStyle: "hiddenInset",

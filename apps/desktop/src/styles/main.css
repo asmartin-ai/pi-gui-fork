@@ -2626,6 +2626,31 @@
   }
 }
 
+/* Very narrow: settings/skills rows stack so the label text keeps a usable
+   width instead of collapsing to one character per line beside the control. */
+@media (max-width: 700px) {
+  .secondary-surface {
+    grid-template-columns: 168px minmax(0, 1fr);
+  }
+
+  .secondary-surface__content {
+    padding: var(--space-6) var(--space-4) var(--space-5);
+  }
+
+  .settings-row,
+  .settings-field__header,
+  .settings-list__row,
+  .skill-detail__header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .settings-row__actions {
+    justify-content: flex-start;
+  }
+}
+
 /* Thread search */
 
 .thread-search-bar {

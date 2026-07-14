@@ -829,7 +829,10 @@
 }
 
 @media (max-width: 1180px) {
-  .shell {
+  /* Scope to the expanded shell: `.shell--sidebar-collapsed` has the same
+     specificity as `.shell`, so an unscoped rule here would win by source
+     order and pin `.main` to a 272px column when the sidebar is collapsed. */
+  .shell:not(.shell--sidebar-collapsed) {
     grid-template-columns: 272px minmax(0, 1fr);
   }
 }
