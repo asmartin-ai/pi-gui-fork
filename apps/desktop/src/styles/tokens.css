@@ -98,6 +98,7 @@
   --danger-tint-bg: color-mix(in srgb, var(--error) 10%, transparent);
   --danger-tint-border: color-mix(in srgb, var(--error) 18%, transparent);
   --warning: #d97706;
+  --warning-ink: #a45a18;
 
   /* ---- Elevation — hairline stroke baked in (Codex signature) ------------ */
   --elevation-hairline: 0 0 0 0.5px var(--border-heavy);
@@ -128,6 +129,7 @@
 :root.dark {
   --success: #40c977;
   --success-ink: #6ee7b7;
+  --warning-ink: #f0b25a;
 
   --code-inline-bg: rgba(255, 255, 255, 0.08);
   --code-block-bg: rgba(0, 0, 0, 0.25);
