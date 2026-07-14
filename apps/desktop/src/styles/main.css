@@ -1129,10 +1129,6 @@
   line-height: 1;
 }
 
-.main--surface {
-  grid-template-rows: minmax(0, 1fr);
-}
-
 .secondary-surface {
   min-height: 0;
   height: 100%;

@@ -6,11 +6,5 @@ export function isEventInsideTerminal(event: globalThis.KeyboardEvent): boolean 
 }
 
 export function canTogglePrimarySidebar(view: AppView | undefined): boolean {
-  return (
-    view === "threads" ||
-    view === "new-thread" ||
-    view === "settings" ||
-    view === "skills" ||
-    view === "extensions"
-  );
+  return view === "threads" || view === "new-thread";
 }

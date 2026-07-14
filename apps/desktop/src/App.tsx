@@ -912,7 +912,6 @@ export default function App() {
     snapshot.activeView === "extensions";
   const mainClassName = [
     "main",
-    isSecondarySurfaceView ? "main--surface" : "",
     sidePanelMode ? "main--with-side-panel" : "",
     sidePanelMode ? "main--with-diff" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
@@ -1395,27 +1394,26 @@ export default function App() {
         />
       ) : null}
 
+      {isSecondarySurfaceView ? (
+        <SecondarySurfaces
+          api={api}
+          snapshot={snapshot}
+          setSnapshot={setSnapshot}
+          activeView={snapshot.activeView as "settings" | "skills" | "extensions"}
+          rootWorkspaceOptions={rootWorkspaceOptions}
+          settingsSection={settingsSection}
+          onSelectSettingsSection={setSettingsSection}
+          settingsWorkspaceId={settingsWorkspaceId}
+          onSelectSettingsWorkspace={setSettingsWorkspaceId}
+          skillsWorkspaceId={skillsWorkspaceId}
+          onSelectSkillsWorkspace={setSkillsWorkspaceId}
+          extensionsWorkspaceId={extensionsWorkspaceId}
+          onSelectExtensionsWorkspace={setExtensionsWorkspaceId}
+          onBack={() => setActiveView("threads")}
+          onTrySkill={handleTrySkill}
+        />
+      ) : (
       <main className={mainClassName}>
-        {isSecondarySurfaceView ? (
-          <SecondarySurfaces
-            api={api}
-            snapshot={snapshot}
-            setSnapshot={setSnapshot}
-            activeView={snapshot.activeView as "settings" | "skills" | "extensions"}
-            rootWorkspaceOptions={rootWorkspaceOptions}
-            settingsSection={settingsSection}
-            onSelectSettingsSection={setSettingsSection}
-            settingsWorkspaceId={settingsWorkspaceId}
-            onSelectSettingsWorkspace={setSettingsWorkspaceId}
-            skillsWorkspaceId={skillsWorkspaceId}
-            onSelectSkillsWorkspace={setSkillsWorkspaceId}
-            extensionsWorkspaceId={extensionsWorkspaceId}
-            onSelectExtensionsWorkspace={setExtensionsWorkspaceId}
-            onBack={() => setActiveView("threads")}
-            onTrySkill={handleTrySkill}
-          />
-        ) : (
-          <>
         <Topbar
           activeView={snapshot.activeView}
           rootWorkspace={rootWorkspace}
@@ -1674,9 +1672,8 @@ export default function App() {
             contexts={fileWorkbenchContexts}
           />
         ) : null}
-          </>
-        )}
       </main>
+      )}
     </div>
   );
 }
