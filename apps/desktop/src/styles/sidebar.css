@@ -477,6 +477,7 @@
   border-radius: var(--radius-md);
   min-height: 32px;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px;
   position: relative;
   overflow: visible;
 }
@@ -590,13 +591,33 @@
 }
 
 .session-row__trailing {
-  min-width: 92px;
+  min-width: 0;
   height: 24px;
   position: relative;
   display: flex;
   justify-content: flex-end;
-  gap: 1px;
   align-items: center;
+}
+
+.session-row__action-cluster {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.session-row:hover .session-row__trailing,
+.session-row:focus-within .session-row__trailing,
+.session-row--pinned .session-row__trailing {
+  min-width: 74px;
+}
+
+.session-row__trailing:has(.session-row__workspace-icon) {
+  padding-left: 18px;
 }
 
 .session-row__time,
@@ -610,10 +631,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
 }
 
 .session-row__workspace-icon {

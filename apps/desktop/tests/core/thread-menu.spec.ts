@@ -23,6 +23,8 @@ test("thread menu supports rename, archive/restore, mark read, copy id, and righ
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("thread-menu-workspace");
+  const targetTitle = "Thread menu target with a deliberately long title for sidebar truncation";
+  const renamedTitle = "Renamed from menu";
   const firstRun = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
@@ -31,7 +33,7 @@ test("thread menu supports rename, archive/restore, mark read, copy id, and righ
   let target: { workspaceId: string; sessionId: string } | undefined;
   try {
     const window = await firstRun.firstWindow();
-    await createNamedThread(window, "Thread menu target");
+    await createNamedThread(window, targetTitle);
     const state = await getDesktopState(window);
     target = { workspaceId: state.selectedWorkspaceId, sessionId: state.selectedSessionId };
     await createNamedThread(window, "Other active thread");
@@ -64,7 +66,7 @@ test("thread menu supports rename, archive/restore, mark read, copy id, and righ
   const harness = await launchDesktop(userDataDir, { testMode: "background" });
   try {
     const window = await harness.firstWindow();
-    let row = window.locator(".session-row", { hasText: "Thread menu target" }).first();
+    let row = window.locator(".session-row", { hasText: targetTitle }).first();
     await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
 
     await row.click({ button: "right" });
@@ -83,30 +85,60 @@ test("thread menu supports rename, archive/restore, mark read, copy id, and righ
     await expect(row).toHaveAttribute("data-sidebar-indicator", "none");
     await captureProof(window, "02-marked-read.png");
 
-    row = window.locator(".session-row", { hasText: "Thread menu target" }).first();
+    row = window.locator(".session-row", { hasText: targetTitle }).first();
+    await row.hover();
+    await row.locator(".session-row__menu-button").click();
+    await expect(window.locator(".topbar__session")).toHaveText("Other active thread");
+    await window.keyboard.press("Escape");
+    await window.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await row.hover();
+
+    const selectBox = await row.locator(".session-row__select").boundingBox();
+    const trailingBox = await row.locator(".session-row__trailing").boundingBox();
+    const rowBox = await row.boundingBox();
+    const clusterBox = await row.locator(".session-row__action-cluster").boundingBox();
+    expect(selectBox).not.toBeNull();
+    expect(trailingBox).not.toBeNull();
+    expect(rowBox).not.toBeNull();
+    expect(clusterBox).not.toBeNull();
+    expect(trailingBox!.width).toBeGreaterThanOrEqual(clusterBox!.width);
+    const gapStart = selectBox!.x + selectBox!.width;
+    const gapWidth = trailingBox!.x - gapStart;
+    expect(gapWidth).toBeGreaterThanOrEqual(1);
+    expect(gapWidth).toBeLessThanOrEqual(3);
+    expect(trailingBox!.width).toBeLessThan(92);
+    const gapPoint = { x: gapStart + gapWidth / 2, y: rowBox!.y + rowBox!.height / 2 };
+    const hitIsAction = await window.evaluate(({ x, y }) =>
+      document.elementFromPoint(x, y)?.closest(".session-row__action") !== null,
+    gapPoint);
+    expect(hitIsAction).toBe(false);
+    await window.mouse.click(gapPoint.x, gapPoint.y);
+    await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
+    await captureProof(window, "06-gap-fixed.png");
+
     await row.hover();
     await row.locator(".session-row__menu-button").click();
     await row.getByRole("menu").getByRole("button", { name: "Rename thread" }).click();
-    const renameInput = window.getByLabel("Rename thread Thread menu target");
-    await renameInput.fill("Renamed from menu");
+    const renameInput = window.getByLabel(`Rename thread ${targetTitle}`);
+    await renameInput.fill(renamedTitle);
     await window.getByRole("button", { name: "Save" }).click();
-    row = window.locator(".session-row", { hasText: "Renamed from menu" }).first();
+    row = window.locator(".session-row", { hasText: renamedTitle }).first();
     await expect(row).toBeVisible();
     await captureProof(window, "03-renamed.png");
 
     await row.hover();
     await row.locator(".session-row__menu-button").click();
     await row.getByRole("menu").getByRole("button", { name: "Archive" }).click();
-    await expect(window.locator(".session-list > .session-row", { hasText: "Renamed from menu" })).toHaveCount(0);
+    await expect(window.locator(".session-list > .session-row", { hasText: renamedTitle })).toHaveCount(0);
     const archivedToggle = window.locator(".archived-thread-group__toggle");
     await expect(archivedToggle).toBeVisible();
     await captureProof(window, "04-archived.png");
 
     await archivedToggle.click();
-    const archivedRow = window.locator(".session-list--archived .session-row", { hasText: "Renamed from menu" });
+    const archivedRow = window.locator(".session-list--archived .session-row", { hasText: renamedTitle });
     await archivedRow.click({ button: "right" });
     await archivedRow.getByRole("menu").getByRole("button", { name: "Restore" }).click();
-    await expect(window.locator(".session-list > .session-row", { hasText: "Renamed from menu" })).toHaveCount(1);
+    await expect(window.locator(".session-list > .session-row", { hasText: renamedTitle })).toHaveCount(1);
   } finally {
     await harness.close();
   }

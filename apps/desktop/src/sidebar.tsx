@@ -802,6 +802,9 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
       data-sidebar-indicator={indicatorVariant}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-id={thread.session.id}
+      onClick={() => {
+        if (!dragging) onSelect();
+      }}
       onContextMenu={(event) => {
         if (!threadMenu || overlay) return;
         event.preventDefault();
@@ -811,7 +814,10 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
     >
       <button
         className="session-row__select"
-        onClick={onSelect}
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
         type="button"
         {...dragAttributes}
         {...dragListeners}
@@ -835,26 +841,33 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
           </span>
         ) : null}
         <span className="session-row__time">{formatRelativeTime(thread.session.updatedAt)}</span>
-        {!archived ? (
+        <span className="session-row__action-cluster">
+          {!archived ? (
+            <button
+              aria-label={`${pinned ? "Unpin" : "Pin"} ${thread.session.title}${actionContext}`}
+              aria-pressed={pinned}
+              className="icon-button session-row__action session-row__pin-action"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onTogglePinned();
+              }}
+            >
+              <PinIcon filled={pinned} />
+            </button>
+          ) : null}
           <button
-            aria-label={`${pinned ? "Unpin" : "Pin"} ${thread.session.title}${actionContext}`}
-            aria-pressed={pinned}
-            className="icon-button session-row__action session-row__pin-action"
+            aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}${actionContext}`}
+            className="icon-button session-row__action"
             type="button"
-            onClick={onTogglePinned}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction();
+            }}
           >
-            <PinIcon filled={pinned} />
+            {archived ? <RestoreIcon /> : <ArchiveIcon />}
           </button>
-        ) : null}
-        <button
-          aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}${actionContext}`}
-          className="icon-button session-row__action"
-          type="button"
-          onClick={onAction}
-        >
-          {archived ? <RestoreIcon /> : <ArchiveIcon />}
-        </button>
-        {threadMenu && !overlay ? (
+          {threadMenu && !overlay ? (
           <span
             className="session-row__menu-wrap"
             ref={threadMenu.menuSessionId === thread.session.id ? threadMenu.menuWrapRef : undefined}
@@ -908,7 +921,8 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
               </div>
             ) : null}
           </span>
-        ) : null}
+          ) : null}
+        </span>
       </span>
     </div>
     {threadMenu?.renameSessionId === thread.session.id ? (
