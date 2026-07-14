@@ -542,9 +542,16 @@
   height: 11px;
   border-radius: var(--radius-pill);
   border: 2px solid var(--border-heavy);
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
+  border-top-color: var(--status-running);
+  border-right-color: var(--status-running);
   animation: session-row-spin 900ms linear infinite;
+}
+
+.session-row__status--failed {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--status-error);
 }
 
 .session-row__status--unseen {

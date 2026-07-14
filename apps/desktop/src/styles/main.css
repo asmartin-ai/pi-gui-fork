@@ -561,15 +561,15 @@
   width: 7px;
   height: 7px;
   border-radius: var(--radius-pill);
-  background: #45bd6f;
+  background: var(--status-running);
 }
 
 .terminal-panel__status--exited {
-  background: #a0a7b4;
+  background: var(--status-neutral);
 }
 
 .terminal-panel__status--error {
-  background: #f87171;
+  background: var(--status-error);
 }
 
 .terminal-panel__actions {
@@ -606,7 +606,7 @@
 
 .terminal-panel__error {
   padding: 18px;
-  color: #fecaca;
+  color: var(--error-ink);
   font: 12px Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   white-space: pre-wrap;
 }
@@ -650,19 +650,19 @@
 }
 
 .diff-panel__status-dot--modified {
-  background: #e8a838;
+  background: var(--diff-modified-ink);
 }
 
 .diff-panel__status-dot--added {
-  background: #2ea043;
+  background: var(--diff-added-ink);
 }
 
 .diff-panel__status-dot--deleted {
-  background: #f85149;
+  background: var(--diff-removed-ink);
 }
 
 .diff-panel__status-dot--untracked {
-  background: #8b949e;
+  background: var(--diff-untracked-ink);
 }
 
 .diff-panel__stage-btn {

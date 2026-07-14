@@ -100,6 +100,24 @@
   --warning: #d97706;
   --warning-ink: #a45a18;
 
+  /* ---- Semantic status signals — color = state, never decoration --------- */
+  /* One coherent language across sidebar / terminal / diff / notifications:  */
+  /* green = live/running, red = failed, amber = attention, grey = idle,      */
+  /* accent = selection/unseen. All derive from theme colors so they flip.    */
+  --status-running: var(--success);
+  --status-success: var(--success);
+  --status-error: var(--error);
+  --status-warning: var(--warning);
+  --status-neutral: color-mix(in srgb, var(--text-strong) 34%, transparent);
+  --status-error-tint-bg: var(--danger-tint-bg);
+  --status-warning-tint-bg: color-mix(in srgb, var(--warning) 16%, transparent);
+
+  /* ---- Diff file-status dots (git status glyphs) ------------------------- */
+  --diff-added-ink: var(--success);
+  --diff-removed-ink: var(--error);
+  --diff-modified-ink: var(--warning);
+  --diff-untracked-ink: var(--status-neutral);
+
   /* ---- Elevation — hairline stroke baked in (Codex signature) ------------ */
   --elevation-hairline: 0 0 0 0.5px var(--border-heavy);
   --elevation-popover: var(--elevation-hairline), var(--shadow-md);

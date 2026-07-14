@@ -742,9 +742,12 @@ function SortablePinnedThreadRow({
   );
 }
 
-function sessionIndicatorVariant(thread: ThreadListEntry): "running" | "unseen" | "none" {
+function sessionIndicatorVariant(thread: ThreadListEntry): "running" | "failed" | "unseen" | "none" {
   if (thread.session.status === "running") {
     return "running";
+  }
+  if (thread.session.status === "failed") {
+    return "failed";
   }
   if (thread.session.hasUnseenUpdate) {
     return "unseen";
@@ -824,6 +827,7 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(funct
       >
         <span className="session-row__leading" aria-hidden="true">
           {indicatorVariant === "running" ? <span className="session-row__status session-row__status--running" /> : null}
+          {indicatorVariant === "failed" ? <span className="session-row__status session-row__status--failed" /> : null}
           {indicatorVariant === "unseen" ? <span className="session-row__status session-row__status--unseen" /> : null}
         </span>
         <span className="session-row__body">
