@@ -2,7 +2,7 @@ import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
-import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon, ForkIcon } from "./icons";
+import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon, ForkIcon, SparkIcon, TerminalIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
 
 export function TimelineItem({
@@ -162,6 +162,9 @@ function TimelineToolCallItem({
   return (
     <article className={`timeline-tool timeline-tool--${item.status}`}>
       <div className="timeline-tool__header-row">
+        <span className="timeline-tool__glyph" aria-hidden="true">
+          {toolGlyph(item.toolName)}
+        </span>
         <button
           className="timeline-tool__header"
           type="button"
@@ -183,7 +186,10 @@ function TimelineToolCallItem({
               <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
             </span>
           ) : null}
-          <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
+          <span className="timeline-tool__meta-inline">
+            <span className="timeline-tool__status-pip" aria-hidden="true" />
+            {`${item.toolName} \u00b7 ${statusLabel(item.status)}`}
+          </span>
         </button>
         {filePath && onViewFileInDiff ? (
           <button
@@ -238,6 +244,19 @@ function TimelineToolCallItem({
 
 function isWriteTool(toolName: string): boolean {
   return /write|edit|patch|apply/i.test(toolName);
+}
+
+function toolGlyph(toolName: string) {
+  if (isWriteTool(toolName)) {
+    return <DiffIcon />;
+  }
+  if (/bash|shell|exec|terminal|command|run/i.test(toolName)) {
+    return <TerminalIcon />;
+  }
+  if (/read|view|cat|open|file|glob|grep|search|ls/i.test(toolName)) {
+    return <FileIcon />;
+  }
+  return <SparkIcon />;
 }
 
 function buildCompactLabel(item: TimelineToolCall, diffStats: { added: number; removed: number } | undefined): string {
