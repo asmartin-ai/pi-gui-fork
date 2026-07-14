@@ -45,6 +45,7 @@ import { getEffectiveModelRuntime } from "./model-settings";
 import { applyThemePresetToRoot } from "./theme-presets";
 import { deriveWorkspaceContext } from "./workspace-context";
 import { useTreeForkModals } from "./hooks/use-tree-fork-modals";
+import { useComposerDraftSync } from "./hooks/use-composer-draft-sync";
 import {
   extractImageFilesFromClipboardData,
   extractFilesFromDataTransfer,
@@ -54,7 +55,6 @@ import {
 
 export default function App() {
   const [snapshot, setSnapshot, selectedTranscript] = useDesktopAppState();
-  const [composerDraft, setComposerDraft] = useState("");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -64,12 +64,6 @@ export default function App() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const previousActiveViewRef = useRef<AppView | null>(null);
-  const hydratedComposerSessionKeyRef = useRef("");
-  const handledComposerSyncNonceRef = useRef(0);
-  const pendingComposerDraftRef = useRef<string | null>(null);
-  const composerDraftWriteTimerRef = useRef<number | null>(null);
-  const flushComposerDraftRef = useRef<() => void>(() => {});
-  const composerDraftRef = useRef("");
   const [dismissedSchemaSkewSessionKeys, setDismissedSchemaSkewSessionKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -155,7 +149,11 @@ export default function App() {
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
-  composerDraftRef.current = composerDraft;
+  const { composerDraft, setComposerDraft, composerDraftRef, flushComposerDraft } = useComposerDraftSync({
+    api,
+    snapshot,
+    selectedSessionKey,
+  });
   const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKey === selectedSessionKey;
   const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKey === selectedSessionKey;
   const selectedTranscriptForSession =
@@ -232,7 +230,6 @@ export default function App() {
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
   const isSelectedExtensionDockExpanded = dockExpandedBySession[selectedSessionKey] ?? false;
-  const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace, snapshot?.workspaceOrder],
@@ -390,35 +387,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (!snapshot) {
-      return;
-    }
-
-    if (hydratedComposerSessionKeyRef.current !== selectedSessionKey) {
-      hydratedComposerSessionKeyRef.current = selectedSessionKey;
-      handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-      setComposerDraft(snapshot.composerDraft);
-      return;
-    }
-
-    if (snapshot.composerDraftSyncNonce === handledComposerSyncNonceRef.current) {
-      return;
-    }
-
-    handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-    if (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state") {
-      return;
-    }
-
-    setComposerDraft(snapshot.composerDraft);
-  }, [
-    selectedSessionKey,
-    snapshot?.composerDraft,
-    snapshot?.composerDraftSyncNonce,
-    snapshot?.composerDraftSyncSource,
-  ]);
-
-  useEffect(() => {
     const sessionExtensionUiBySession = snapshot?.sessionExtensionUiBySession;
     if (!sessionExtensionUiBySession) {
       setDockExpandedBySession((current) => (Object.keys(current).length > 0 ? {} : current));
@@ -569,30 +537,6 @@ export default function App() {
 
     previousActiveViewRef.current = snapshot.activeView;
   }, [selectedSession, selectedWorkspace?.id, snapshot]);
-
-  useEffect(() => {
-    if (!api || composerDraft === persistedComposerDraft) {
-      pendingComposerDraftRef.current = null;
-      return undefined;
-    }
-
-    pendingComposerDraftRef.current = composerDraft;
-    const timeout = window.setTimeout(() => {
-      composerDraftWriteTimerRef.current = null;
-      pendingComposerDraftRef.current = null;
-      void api.updateComposerDraft(composerDraft);
-    }, 350);
-    composerDraftWriteTimerRef.current = timeout;
-
-    // Only the timer is cancelled here (each keystroke reschedules it); the pending value stays in
-    // pendingComposerDraftRef so a session switch can flush it before the active session changes.
-    return () => {
-      window.clearTimeout(timeout);
-      composerDraftWriteTimerRef.current = null;
-    };
-  }, [api, composerDraft, persistedComposerDraft]);
-
-  useEffect(() => () => flushComposerDraftRef.current(), []);
 
   const sidePanelAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession);
   useEffect(() => {
@@ -842,19 +786,6 @@ export default function App() {
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
     void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
   };
-
-  const flushComposerDraft = () => {
-    if (composerDraftWriteTimerRef.current !== null) {
-      window.clearTimeout(composerDraftWriteTimerRef.current);
-      composerDraftWriteTimerRef.current = null;
-    }
-    const pending = pendingComposerDraftRef.current;
-    pendingComposerDraftRef.current = null;
-    if (pending !== null && api) {
-      void api.updateComposerDraft(pending);
-    }
-  };
-  flushComposerDraftRef.current = flushComposerDraft;
 
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
     // Flush any debounced draft write before the active session changes, otherwise the pending
