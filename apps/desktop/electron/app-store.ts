@@ -2148,6 +2148,15 @@ export class DesktopAppStore implements AppStoreInternals {
             clearLastError: true,
           });
           refreshedFollowedSession = shouldFollowSessionMutation;
+        } else {
+          // The compensating reload that would pull this unknown session into
+          // state is skipped while a refresh is already unwinding, and
+          // applySessionEventState then silently no-ops for the missing session —
+          // so the event (e.g. a rename) is dropped. Make that drop visible.
+          console.warn(
+            `[app-store] ${event.type} for unknown session ${key} skipped reload ` +
+              `(refreshStateDepth=${this.refreshStateDepth}); event state not applied`,
+          );
         }
       }
 
