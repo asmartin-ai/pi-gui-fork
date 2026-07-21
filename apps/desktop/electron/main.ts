@@ -977,15 +977,21 @@ function installApplicationMenu(): void {
 
 // Ensure npm (and other Homebrew/npm-global binaries) are available
 // even when pi-gui is launched via Finder/Dock (which has a minimal PATH).
-const extraBinPaths = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  `${process.env.HOME}/.npm-global/bin`,
-].filter((p) => p);
-const currentPath = process.env.PATH ?? "";
-const missingPaths = extraBinPaths.filter((p) => !currentPath.split(":").includes(p));
-if (missingPaths.length > 0) {
-  process.env.PATH = [...missingPaths, currentPath].join(":");
+// This only applies to POSIX platforms; Windows resolves binaries differently
+// and uses a different PATH separator, so skip it there.
+if (process.platform !== "win32") {
+  const homeDir = process.env.HOME;
+  const extraBinPaths = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    homeDir ? `${homeDir}/.npm-global/bin` : undefined,
+  ].filter((p): p is string => Boolean(p));
+  const currentPath = process.env.PATH ?? "";
+  const existing = new Set(currentPath.split(path.delimiter));
+  const missingPaths = extraBinPaths.filter((p) => !existing.has(p));
+  if (missingPaths.length > 0) {
+    process.env.PATH = [...missingPaths, currentPath].join(path.delimiter);
+  }
 }
 
 app.setName("pi");

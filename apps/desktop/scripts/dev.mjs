@@ -20,12 +20,17 @@ const packagePaths = [
 
 const isBun = process.versions.bun || process.env.npm_config_user_agent?.includes("bun");
 
+// On Windows, `pnpm`/`bun` resolve to `.cmd`/`.exe` shims that cannot be spawned
+// directly by CreateProcess, so route through the shell.
+const useShell = process.platform === "win32";
+
 async function run(cmd, args, cwd) {
   await new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd,
       stdio: "inherit",
       env: process.env,
+      shell: useShell,
     });
 
     child.once("error", reject);
@@ -45,6 +50,7 @@ function start(cmd, args, cwd) {
     cwd,
     stdio: "inherit",
     env: process.env,
+    shell: useShell,
   });
 }
 
