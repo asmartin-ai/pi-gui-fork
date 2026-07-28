@@ -62,7 +62,7 @@ function Get-SevenZip() {
 function Invoke-SevenZip([string]$SevenZip, [string[]]$Arguments) {
   & $SevenZip @Arguments
   if ($LASTEXITCODE -ne 0) {
-    throw "7-Zip failed with exit code $LASTEXITCODE: $($Arguments -join ' ')"
+    throw "7-Zip failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')"
   }
 }
 
@@ -101,7 +101,33 @@ if ($SmokePackages) {
     Assert-X64Pe $installedApp
 
     Invoke-SevenZip $sevenZip @("x", "-y", "-o$portableRoot", $portable)
-    $portableApp = Join-Path $portableRoot "pi-gui.exe"
+    $portableAppFile = Get-ChildItem `
+      -LiteralPath $portableRoot `
+      -Filter "pi-gui.exe" `
+      -File `
+      -Recurse | Select-Object -First 1
+    if (-not $portableAppFile) {
+      $embeddedArchive = Get-ChildItem `
+        -LiteralPath $portableRoot `
+        -Filter "app-*.7z" `
+        -File `
+        -Recurse | Select-Object -First 1
+      if (-not $embeddedArchive) {
+        throw "Portable package did not contain pi-gui.exe or an embedded application archive"
+      }
+      $embeddedRoot = Join-Path $portableRoot "embedded"
+      New-Item -ItemType Directory -Path $embeddedRoot | Out-Null
+      Invoke-SevenZip $sevenZip @("x", "-y", "-o$embeddedRoot", $embeddedArchive.FullName)
+      $portableAppFile = Get-ChildItem `
+        -LiteralPath $embeddedRoot `
+        -Filter "pi-gui.exe" `
+        -File `
+        -Recurse | Select-Object -First 1
+    }
+    if (-not $portableAppFile) {
+      throw "Portable application archive did not contain pi-gui.exe"
+    }
+    $portableApp = $portableAppFile.FullName
     Assert-ValidSignature $portableApp
     Assert-X64Pe $portableApp
   }

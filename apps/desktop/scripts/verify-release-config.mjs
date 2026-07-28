@@ -201,6 +201,7 @@ function validateWorkflow(
     '"t", $setup',
     '"t", $portable',
     '"x", "-y"',
+    '"app-*.7z"',
     "Assert-X64Pe $installedApp",
     "Assert-X64Pe $portableApp",
   ]) {
