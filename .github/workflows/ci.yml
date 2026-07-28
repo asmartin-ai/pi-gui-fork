@@ -33,6 +33,9 @@ jobs:
       - name: Driver unit tests
         run: pnpm --filter @pi-gui/pi-sdk-driver test
 
+      - name: Changed-file adapter tests
+        run: pnpm --filter @pi-gui/desktop run test:changed-files
+
       - name: Verify install copy
         run: pnpm verify:install-copy
 
@@ -135,6 +138,9 @@ jobs:
 
       - name: Verify dev launcher argv/PATH contract
         run: pnpm --dir apps/desktop run verify:launcher-contract
+
+      - name: Changed-file adapter tests
+        run: pnpm --filter @pi-gui/desktop run test:changed-files
 
       - name: Package Windows directory
         run: pnpm --filter @pi-gui/desktop run package:win:dir
