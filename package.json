@@ -25,7 +25,9 @@
     "bun:test": "for dir in apps/* packages/*; do (cd \"$dir\" && (grep -q '\"bun:test\":' package.json && bun run bun:test || (grep -q '\"test\":' package.json && bun run test))); done",
     "e2e": "playwright test",
     "test:homebrew-tap": "node scripts/test-update-homebrew-tap.mjs",
+    "test:release-helpers": "node --test apps/desktop/scripts/release-artifacts.test.mjs",
     "verify:install-copy": "node scripts/verify-install-copy.mjs",
+    "verify:release-config": "node apps/desktop/scripts/verify-release-config.mjs",
     "verify:homebrew-flow": "node scripts/verify-homebrew-flow.mjs",
     "release:homebrew-sync": "node scripts/release-homebrew-sync.mjs"
   },
