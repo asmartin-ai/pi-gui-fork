@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createNamedThread,
@@ -35,12 +36,26 @@ function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+async function seedFuzzyStatusSkill(workspacePath: string): Promise<void> {
+  const skillDir = join(workspacePath, ".agents", "skills", "observe-state");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    `# Observe State
+
+Inspect the current application state.
+`,
+    "utf8",
+  );
+}
+
 test("supports keyboard shortcuts, slash menus, and topbar controls through the user surface", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const agentDir = join(userDataDir, "agent");
   const workspacePath = await makeWorkspace("controls-workspace");
   await seedAgentDir(agentDir);
+  await seedFuzzyStatusSkill(workspacePath);
   const harness = await launchDesktop(userDataDir, {
     agentDir,
     initialWorkspaces: [workspacePath],
@@ -69,6 +84,9 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toBeVisible();
     await expect(slashMenu).toContainText("Status");
+    await expect(slashMenu).toContainText("Observe State");
+    await expect(slashMenu).toContainText("/skill:observe-state");
+    await expect(slashMenu.locator(".slash-menu__item").first()).toContainText("/status");
     const slashMenuBox = await slashMenu.boundingBox();
     const composerBox = await composer.boundingBox();
     expect(slashMenuBox).not.toBeNull();
