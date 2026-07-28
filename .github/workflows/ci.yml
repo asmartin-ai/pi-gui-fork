@@ -114,11 +114,51 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Package Linux AppImage
+      - name: Verify Linux package configuration
+        run: pnpm verify:release-config
+
+      - name: Package Linux AppImage and deb
         run: pnpm --filter @pi-gui/desktop run package:linux
 
       - name: Verify packaged runtime dependencies
         run: pnpm --dir apps/desktop run verify:packaged-runtime-deps:linux
+
+      - name: Verify Linux packages
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          bash apps/desktop/scripts/verify-linux-release.sh \
+            --install \
+            "$PWD/apps/desktop/release" \
+            "$version" \
+            "$PWD/apps/desktop/release-proof/linux"
+
+      - name: Stage validated Linux candidate
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          node apps/desktop/scripts/release-artifacts.mjs stage \
+            --platform linux \
+            --version "$version" \
+            --commit "$GITHUB_SHA" \
+            --input apps/desktop/release \
+            --output apps/desktop/release-candidate
+
+      - name: Upload immutable Linux CI candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-release-linux-${{ github.sha }}
+          path: apps/desktop/release-candidate/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload Linux package proof
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-linux-package-proof-${{ github.sha }}
+          path: apps/desktop/release-proof/linux/
+          if-no-files-found: warn
+          retention-days: 14
 
   desktop-package-windows:
     runs-on: windows-latest

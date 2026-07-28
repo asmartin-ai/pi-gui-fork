@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -42,6 +42,12 @@ function updateAssets(platform) {
       `pi-gui-${VERSION}-arm64.dmg`,
     ];
   }
+  if (platform === "linux") {
+    return [
+      `pi-gui-${VERSION}-x86_64.AppImage`,
+      `pi-gui_${VERSION}_amd64.deb`,
+    ];
+  }
   return [primaryUpdateAsset(platform)];
 }
 
@@ -63,7 +69,7 @@ async function createFixture(root, platform, override = {}) {
     const blockmapName = `${name}.blockmap`;
     if (expectedFiles(platform, VERSION).includes(blockmapName)) {
       entry.blockMapSize = (await hashFile(path.join(source, blockmapName))).size;
-    } else if (platform === "linux") {
+    } else if (name.endsWith(".AppImage")) {
       entry.blockMapSize = Math.min(8, digest.size);
     }
     files.push(entry);
@@ -128,6 +134,63 @@ test("rejects bytes changed after the platform manifest was written", async () =
       inputDir: staged,
     }),
     /digest mismatch/,
+  );
+});
+
+test("requires the Debian package when staging Linux artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-gui-release-linux-missing-deb-"));
+  const source = await createFixture(root, "linux");
+  await unlink(path.join(source, `pi-gui_${VERSION}_amd64.deb`));
+
+  await assert.rejects(
+    stageArtifacts({
+      platform: "linux",
+      version: VERSION,
+      commit: COMMIT,
+      inputDir: source,
+      outputDir: path.join(root, "staged"),
+    }),
+    /Missing release artifact: .*\.deb/,
+  );
+});
+
+test("requires latest-linux.yml to checksum the Debian package", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-gui-release-linux-manifest-"));
+  const source = await createFixture(root, "linux");
+  const manifestPath = path.join(source, "latest-linux.yml");
+  const manifest = parse(await readFile(manifestPath, "utf8"));
+  manifest.files = manifest.files.filter(({ url }) => !url.endsWith(".deb"));
+  await writeFile(manifestPath, stringify(manifest), "utf8");
+
+  await assert.rejects(
+    stageArtifacts({
+      platform: "linux",
+      version: VERSION,
+      commit: COMMIT,
+      inputDir: source,
+      outputDir: path.join(root, "staged"),
+    }),
+    /does not reference required payload .*\.deb/,
+  );
+});
+
+test("rejects Debian package bytes changed after Linux staging", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-gui-release-linux-tamper-"));
+  const staged = await stageFixture(root, "linux");
+  await writeFile(
+    path.join(staged, `pi-gui_${VERSION}_amd64.deb`),
+    "changed after staging\n",
+    "utf8",
+  );
+
+  await assert.rejects(
+    verifyArtifacts({
+      platform: "linux",
+      version: VERSION,
+      commit: COMMIT,
+      inputDir: staged,
+    }),
+    /digest mismatch for .*\.deb/,
   );
 });
 
