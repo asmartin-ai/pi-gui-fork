@@ -480,7 +480,7 @@ export function DiffPanel({
                               }}
                             >
                               <span className={`diff-panel__status-dot diff-panel__status-dot--${file.status}`} />
-                              <span>{file.path}</span>
+                              <span className="diff-panel__file-path">{formatPathForDisplay(file.path)}</span>
                               <span className="file-workbench__status-label">{statusLabel(file)}</span>
                             </button>
                             <button
@@ -505,7 +505,7 @@ export function DiffPanel({
 
       <div className="diff-panel__viewer file-workbench__viewer">
         <div className="diff-panel__viewer-header file-workbench__viewer-header">
-          <span>{selectedFile?.path ?? "Select a file"}</span>
+          <span>{selectedFile ? formatPathForDisplay(selectedFile.path) : "Select a file"}</span>
           {selectedFile && panelMode === "changes" ? (
             <span className="file-workbench__viewer-modes" role="group" aria-label="Viewer mode">
               <button
@@ -710,6 +710,11 @@ function workspaceIdFromReviewedFileKey(key: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function formatPathForDisplay(path: string): string {
+  const hasControlCharacter = /[\u0001-\u001f\u007f]/.test(path);
+  return path.trim() !== path || hasControlCharacter ? JSON.stringify(path) : path;
 }
 
 function contextLabel(context: FileWorkbenchContext): string {

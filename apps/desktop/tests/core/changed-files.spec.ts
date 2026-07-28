@@ -22,7 +22,7 @@ test("preserves an exact changed-file path through diff and stage actions", asyn
   test.setTimeout(30_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("changed-file-path");
-  const filePath = " leading path -> destination.txt";
+  const filePath = " leading\t\"quoted\" -> destination\n.txt ";
   await initGitRepo(workspacePath);
   await commitAllInGitRepo(workspacePath, "init");
   await writeFile(join(workspacePath, filePath), "exact path contents\n", "utf8");
@@ -41,6 +41,7 @@ test("preserves an exact changed-file path through diff and stage actions", asyn
     const changedRow = diffPanel.locator(".diff-panel__file");
     await expect(changedRow).toHaveCount(1);
     await expect(changedRow).toHaveAttribute("data-file-path", filePath);
+    expect(await changedRow.locator(".diff-panel__file-path").textContent()).toBe(JSON.stringify(filePath));
 
     await changedRow.locator(".diff-panel__file-name").click();
     await expect(diffPanel.locator(".diff-inline")).toContainText("exact path contents");
