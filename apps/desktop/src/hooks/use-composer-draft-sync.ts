@@ -8,6 +8,12 @@ interface UseComposerDraftSyncParams {
   readonly selectedSessionKey: string;
 }
 
+interface PendingComposerDraftWrite {
+  readonly draft: string;
+  readonly generation: number;
+  readonly sessionKey: string;
+}
+
 /**
  * Owns the session composer draft: local state mirrored into a ref, hydration from the
  * persisted snapshot (respecting the sync nonce/source), a debounced write-back, and a
@@ -19,21 +25,25 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
   const composerDraftRef = useRef("");
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
-  const hasPendingLocalEditRef = useRef(false);
-  const pendingComposerDraftRef = useRef<string | null>(null);
+  const localEditGenerationRef = useRef(0);
+  const acknowledgedLocalEditGenerationRef = useRef(0);
+  const nextComposerDraftWriteIdRef = useRef(0);
+  const inFlightComposerDraftWritesRef = useRef(new Map<number, PendingComposerDraftWrite>());
+  const pendingComposerDraftRef = useRef<PendingComposerDraftWrite | null>(null);
   const composerDraftWriteTimerRef = useRef<number | null>(null);
   const flushComposerDraftRef = useRef<() => void>(() => {});
 
   composerDraftRef.current = composerDraft;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
   const setComposerDraft = useCallback((nextDraft: SetStateAction<string>) => {
-    setComposerDraftState((currentDraft) => {
-      const resolvedDraft = typeof nextDraft === "function" ? nextDraft(currentDraft) : nextDraft;
-      if (resolvedDraft !== currentDraft) {
-        hasPendingLocalEditRef.current = true;
-      }
-      return resolvedDraft;
-    });
+    const currentDraft = composerDraftRef.current;
+    const resolvedDraft = typeof nextDraft === "function" ? nextDraft(currentDraft) : nextDraft;
+    if (resolvedDraft === currentDraft) {
+      return;
+    }
+    composerDraftRef.current = resolvedDraft;
+    localEditGenerationRef.current += 1;
+    setComposerDraftState(resolvedDraft);
   }, []);
 
   useEffect(() => {
@@ -44,8 +54,9 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     if (hydratedComposerSessionKeyRef.current !== selectedSessionKey) {
       hydratedComposerSessionKeyRef.current = selectedSessionKey;
       handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-      hasPendingLocalEditRef.current = false;
+      acknowledgedLocalEditGenerationRef.current = localEditGenerationRef.current;
       pendingComposerDraftRef.current = null;
+      composerDraftRef.current = snapshot.composerDraft;
       setComposerDraftState(snapshot.composerDraft);
       return;
     }
@@ -56,14 +67,15 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
 
     handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
     if (
-      hasPendingLocalEditRef.current &&
+      localEditGenerationRef.current > acknowledgedLocalEditGenerationRef.current &&
       (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state")
     ) {
       return;
     }
 
-    hasPendingLocalEditRef.current = false;
+    acknowledgedLocalEditGenerationRef.current = localEditGenerationRef.current;
     pendingComposerDraftRef.current = null;
+    composerDraftRef.current = snapshot.composerDraft;
     setComposerDraftState(snapshot.composerDraft);
   }, [
     selectedSessionKey,
@@ -72,21 +84,75 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     snapshot?.composerDraftSyncSource,
   ]);
 
+  const persistComposerDraft = (write: PendingComposerDraftWrite) => {
+    if (!api) {
+      return;
+    }
+    const writeId = ++nextComposerDraftWriteIdRef.current;
+    inFlightComposerDraftWritesRef.current.set(writeId, write);
+    void api.updateComposerDraft(write.draft).then(
+      (state) => {
+        inFlightComposerDraftWritesRef.current.delete(writeId);
+        const hasOtherWriteForSession = [...inFlightComposerDraftWritesRef.current.values()].some(
+          (candidate) => candidate.sessionKey === write.sessionKey,
+        );
+        if (
+          write.sessionKey === selectedSessionKey &&
+          write.generation === localEditGenerationRef.current &&
+          state.composerDraft === write.draft &&
+          !hasOtherWriteForSession
+        ) {
+          acknowledgedLocalEditGenerationRef.current = write.generation;
+        }
+      },
+      () => {
+        inFlightComposerDraftWritesRef.current.delete(writeId);
+      },
+    );
+  };
+
   useEffect(() => {
-    if (composerDraft === persistedComposerDraft) {
-      hasPendingLocalEditRef.current = false;
+    const generation = localEditGenerationRef.current;
+    if (generation <= acknowledgedLocalEditGenerationRef.current) {
       pendingComposerDraftRef.current = null;
       return undefined;
     }
-    if (!api || !hasPendingLocalEditRef.current) {
+    if (!api) {
       return undefined;
     }
 
-    pendingComposerDraftRef.current = composerDraft;
+    const inFlightWritesForSession = [...inFlightComposerDraftWritesRef.current.values()].filter(
+      (write) => write.sessionKey === selectedSessionKey,
+    );
+    if (
+      composerDraft === persistedComposerDraft &&
+      inFlightWritesForSession.length === 0
+    ) {
+      acknowledgedLocalEditGenerationRef.current = generation;
+      pendingComposerDraftRef.current = null;
+      return undefined;
+    }
+    if (
+      inFlightWritesForSession.some(
+        (write) => write.generation === generation && write.draft === composerDraft,
+      )
+    ) {
+      pendingComposerDraftRef.current = null;
+      return undefined;
+    }
+
+    const pendingWrite = {
+      draft: composerDraft,
+      generation,
+      sessionKey: selectedSessionKey,
+    } satisfies PendingComposerDraftWrite;
+    pendingComposerDraftRef.current = pendingWrite;
     const timeout = window.setTimeout(() => {
       composerDraftWriteTimerRef.current = null;
-      pendingComposerDraftRef.current = null;
-      void api.updateComposerDraft(composerDraft);
+      if (pendingComposerDraftRef.current === pendingWrite) {
+        pendingComposerDraftRef.current = null;
+      }
+      persistComposerDraft(pendingWrite);
     }, 350);
     composerDraftWriteTimerRef.current = timeout;
 
@@ -96,7 +162,7 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
       window.clearTimeout(timeout);
       composerDraftWriteTimerRef.current = null;
     };
-  }, [api, composerDraft, persistedComposerDraft]);
+  }, [api, composerDraft, persistedComposerDraft, selectedSessionKey]);
 
   useEffect(() => () => flushComposerDraftRef.current(), []);
 
@@ -107,8 +173,8 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     }
     const pending = pendingComposerDraftRef.current;
     pendingComposerDraftRef.current = null;
-    if (pending !== null && api) {
-      void api.updateComposerDraft(pending);
+    if (pending !== null) {
+      persistComposerDraft(pending);
     }
   };
   flushComposerDraftRef.current = flushComposerDraft;

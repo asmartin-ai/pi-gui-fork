@@ -9,6 +9,7 @@ import {
   makeWorkspace,
   selectSession,
 } from "../helpers/electron-app";
+import { desktopIpc } from "../../src/ipc";
 
 test("ignores stale persisted draft acknowledgements while typing", async () => {
   test.setTimeout(60_000);
@@ -87,6 +88,120 @@ test("adopts a persisted draft when no local edit is pending", async () => {
     await window.waitForTimeout(600);
     await expect(composer).toHaveValue(persistedDraft);
     await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(persistedDraft);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("does not resurrect a cleared draft while an older write is in flight", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-draft-in-flight-clear");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "In-flight composer clear");
+    await harness.electronApp.evaluate(({ ipcMain }, channel) => {
+      type InvokeHandler = (...args: unknown[]) => unknown;
+      interface DraftWriteControl {
+        readonly drafts: string[];
+        releaseFirstWrite(): void;
+      }
+      const invokeHandlers = (
+        ipcMain as typeof ipcMain & { readonly _invokeHandlers?: Map<string, InvokeHandler> }
+      )._invokeHandlers;
+      const originalHandler = invokeHandlers?.get(channel);
+      if (!originalHandler) {
+        throw new Error(`No IPC handler registered for ${channel}`);
+      }
+
+      let releaseFirstWrite = () => {};
+      const firstWriteGate = new Promise<void>((resolve) => {
+        releaseFirstWrite = resolve;
+      });
+      const control: DraftWriteControl = {
+        drafts: [],
+        releaseFirstWrite,
+      };
+      (
+        globalThis as typeof globalThis & {
+          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: DraftWriteControl;
+        }
+      ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL = control;
+
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, async (...args) => {
+        const draft = args[1];
+        if (typeof draft !== "string") {
+          throw new Error("Composer draft IPC argument was not a string");
+        }
+        control.drafts.push(draft);
+        if (control.drafts.length === 1) {
+          await firstWriteGate;
+        }
+        return originalHandler(...args);
+      });
+    }, desktopIpc.updateComposerDraft);
+
+    const composer = window.getByTestId("composer");
+    await composer.fill("obsolete in-flight draft");
+    await expect
+      .poll(() =>
+        harness.electronApp.evaluate(() => {
+          const control = (
+            globalThis as typeof globalThis & {
+              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
+            }
+          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
+          return control?.drafts ?? [];
+        }),
+      )
+      .toEqual(["obsolete in-flight draft"]);
+
+    await composer.fill("");
+    await expect
+      .poll(() =>
+        harness.electronApp.evaluate(() => {
+          const control = (
+            globalThis as typeof globalThis & {
+              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
+            }
+          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
+          return control?.drafts ?? [];
+        }),
+      )
+      .toEqual(["obsolete in-flight draft", ""]);
+
+    await harness.electronApp.evaluate(() => {
+      const control = (
+        globalThis as typeof globalThis & {
+          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { releaseFirstWrite(): void };
+        }
+      ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
+      if (!control) {
+        throw new Error("Delayed composer draft write was not pending");
+      }
+      control.releaseFirstWrite();
+    });
+
+    await expect
+      .poll(() =>
+        harness.electronApp.evaluate(() => {
+          const control = (
+            globalThis as typeof globalThis & {
+              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
+            }
+          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
+          return control?.drafts ?? [];
+        }),
+      )
+      .toEqual(["obsolete in-flight draft", "", ""]);
+    await expect(composer).toHaveValue("");
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe("");
   } finally {
     await harness.close();
   }
