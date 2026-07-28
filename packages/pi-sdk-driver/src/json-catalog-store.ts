@@ -28,6 +28,13 @@ type ParsedCatalogFileState = Partial<Omit<CatalogFileState, "version">> & {
   version?: 1 | 2;
 };
 
+interface CatalogFileCoordinator {
+  mutationQueue: Promise<void>;
+  generation: number;
+}
+
+const coordinatorsByPath = new Map<string, CatalogFileCoordinator>();
+
 export interface JsonCatalogStoreOptions {
   readonly catalogFilePath?: string;
 }
@@ -45,12 +52,15 @@ export interface SessionFileCatalogStorage extends CatalogStorage {
 
 export class JsonCatalogStore implements SessionFileCatalogStorage {
   private readonly filePath: string;
+  private readonly coordinator: CatalogFileCoordinator;
   private state: CatalogFileState | undefined;
-  private loadPromise: Promise<void> | undefined;
-  private writeQueue: Promise<void> = Promise.resolve();
+  private stateGeneration = -1;
+  private loadPromise: Promise<CatalogFileState> | undefined;
+  private loadGeneration = -1;
 
   constructor(options: JsonCatalogStoreOptions = {}) {
     this.filePath = options.catalogFilePath ? resolve(options.catalogFilePath) : defaultCatalogFilePath();
+    this.coordinator = coordinatorForPath(this.filePath);
   }
 
   readonly workspaces = {
@@ -219,52 +229,88 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
   }
 
   private async getState(): Promise<CatalogFileState> {
-    if (this.state) {
+    const generation = this.coordinator.generation;
+    if (this.state && this.stateGeneration === generation) {
       return this.state;
     }
-    if (!this.loadPromise) {
+    if (!this.loadPromise || this.loadGeneration !== generation) {
       this.loadPromise = this.loadState();
+      this.loadGeneration = generation;
     }
-    await this.loadPromise;
-    if (!this.state) {
-      this.state = createEmptyState();
+    const loadPromise = this.loadPromise;
+    try {
+      const state = await loadPromise;
+      if (this.loadPromise === loadPromise && this.coordinator.generation === generation) {
+        this.cacheState(state, generation);
+      }
+      return state;
+    } catch (error) {
+      if (this.loadPromise === loadPromise) {
+        this.clearStateCache();
+      }
+      throw error;
     }
-    return this.state;
   }
 
-  private async loadState(): Promise<void> {
+  private async loadState(): Promise<CatalogFileState> {
     try {
       const raw = await readFile(this.filePath, "utf8");
-      this.state = parseState(raw, this.filePath);
+      return parseState(raw, this.filePath);
     } catch (error) {
       if (isMissingFileError(error)) {
-        this.state = createEmptyState();
-        return;
+        return createEmptyState();
       }
       throw error;
     }
   }
 
   private async mutateState(mutator: (state: CatalogFileState) => void | false): Promise<void> {
-    const state = await this.getState();
-    if (mutator(state) === false) {
-      return;
-    }
-    await this.persistState(state);
-  }
-
-  private async persistState(state: CatalogFileState): Promise<void> {
-    const operation = this.writeQueue.then(async () => {
-      await writeJsonFileAtomic(this.filePath, state);
+    const operation = this.coordinator.mutationQueue.then(async () => {
+      this.clearStateCache();
+      const nextState = await this.loadState();
+      if (mutator(nextState) === false) {
+        this.cacheState(nextState, this.coordinator.generation);
+        return;
+      }
+      await writeJsonFileAtomic(this.filePath, nextState);
+      this.coordinator.generation += 1;
+      this.cacheState(nextState, this.coordinator.generation);
     });
 
-    this.writeQueue = operation.then(
+    this.coordinator.mutationQueue = operation.then(
       () => undefined,
       () => undefined,
     );
 
     await operation;
   }
+
+  private cacheState(state: CatalogFileState, generation: number): void {
+    this.state = state;
+    this.stateGeneration = generation;
+    this.loadPromise = undefined;
+    this.loadGeneration = -1;
+  }
+
+  private clearStateCache(): void {
+    this.state = undefined;
+    this.stateGeneration = -1;
+    this.loadPromise = undefined;
+    this.loadGeneration = -1;
+  }
+}
+
+function coordinatorForPath(filePath: string): CatalogFileCoordinator {
+  const existing = coordinatorsByPath.get(filePath);
+  if (existing) {
+    return existing;
+  }
+  const coordinator: CatalogFileCoordinator = {
+    mutationQueue: Promise.resolve(),
+    generation: 0,
+  };
+  coordinatorsByPath.set(filePath, coordinator);
+  return coordinator;
 }
 
 function defaultCatalogFilePath(): string {

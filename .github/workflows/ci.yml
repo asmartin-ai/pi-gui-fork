@@ -36,6 +36,18 @@ jobs:
       - name: Verify install copy
         run: pnpm verify:install-copy
 
+      - name: Verify dev launcher argv/PATH contract
+        run: pnpm --dir apps/desktop run verify:launcher-contract
+
+      - name: Test release artifact helpers
+        run: pnpm test:release-helpers
+
+      - name: Verify release version consistency
+        run: pnpm verify:release-version
+
+      - name: Verify release configuration
+        run: pnpm verify:release-config
+
   website-build:
     runs-on: ubuntu-latest
 
@@ -120,6 +132,9 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Verify dev launcher argv/PATH contract
+        run: pnpm --dir apps/desktop run verify:launcher-contract
 
       - name: Package Windows directory
         run: pnpm --filter @pi-gui/desktop run package:win:dir

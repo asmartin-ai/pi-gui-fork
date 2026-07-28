@@ -101,6 +101,8 @@ import {
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
+  /** Existing owner for catalog state. Takes precedence over catalogFilePath when provided. */
+  readonly catalogStorage?: SessionFileCatalogStorage;
   readonly createAgentSessionRuntimeImpl?: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
   readonly modelRegistry?: ModelRegistry;
   readonly extensionFactories?: readonly ExtensionFactory[];
@@ -185,9 +187,11 @@ export class SessionSupervisor {
   private readonly isPidAlive = defaultIsPidAlive;
 
   constructor(options: PiSdkDriverOptions = {}) {
-    this.catalogs = options.catalogFilePath
-      ? new JsonCatalogStore({ catalogFilePath: options.catalogFilePath })
-      : new JsonCatalogStore();
+    this.catalogs =
+      options.catalogStorage ??
+      (options.catalogFilePath
+        ? new JsonCatalogStore({ catalogFilePath: options.catalogFilePath })
+        : new JsonCatalogStore());
     this.createAgentSessionRuntimeImpl =
       options.createAgentSessionRuntimeImpl ??
       ((createOptions) =>

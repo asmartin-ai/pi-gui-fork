@@ -276,6 +276,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.1(@types/node@22.19.15)(jiti@2.7.0)(terser@5.46.1)(yaml@2.9.0))
+      app-builder-bin:
+        specifier: 5.0.0-alpha.12
+        version: 5.0.0-alpha.12
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3

@@ -288,6 +288,12 @@ export interface RemoveWorktreeInput {
   readonly worktreeId: string;
 }
 
+export interface StartupDiagnostic {
+  readonly scope: "application" | "workspace";
+  readonly message: string;
+  readonly workspacePath?: string;
+}
+
 export interface DesktopAppState {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly worktreesByWorkspace: Readonly<Record<string, readonly WorktreeRecord[]>>;
@@ -317,6 +323,7 @@ export interface DesktopAppState {
   readonly themePresetId: ThemePresetId;
   readonly sidebarCollapsed: boolean;
   readonly enableTransparency: boolean;
+  readonly startupDiagnostics: readonly StartupDiagnostic[];
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -366,6 +373,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     themePresetId: "default",
     sidebarCollapsed: false,
     enableTransparency: false,
+    startupDiagnostics: [],
     revision: 0,
   };
 }
