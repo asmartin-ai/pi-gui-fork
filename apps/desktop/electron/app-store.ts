@@ -173,6 +173,7 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
+  readonly worktreeRoot: string;
   private readonly uiStateFilePath: string;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
   readonly sessionState = new SessionStateMap();
@@ -207,6 +208,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.driver = new PiSdkDriver(driverOptions);
     this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
+    this.worktreeRoot = join(options.userDataDir, "worktrees");
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
     this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
