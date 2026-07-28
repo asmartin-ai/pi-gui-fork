@@ -62,7 +62,8 @@ import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
 import type { SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
-const windowTestMode = resolveWindowTestMode();
+const appTestMode = resolveAppTestMode(process.env.PI_APP_TEST_MODE);
+const windowTestMode = appTestMode ?? "foreground";
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 let store: DesktopAppStore;
 const themeManager = new ThemeManager();
@@ -800,8 +801,8 @@ function canPublishToWindow(window: BrowserWindow): boolean {
   return !window.isDestroyed() && !window.webContents.isDestroyed() && !window.webContents.isCrashed();
 }
 
-function resolveWindowTestMode(): "foreground" | "background" {
-  return process.env.PI_APP_TEST_MODE?.trim().toLowerCase() === "background" ? "background" : "foreground";
+function resolveAppTestMode(value: string | undefined): "foreground" | "background" | undefined {
+  return value === "foreground" || value === "background" ? value : undefined;
 }
 
 function resolveDialogWindow(parentWindow?: BrowserWindow | null): BrowserWindow | undefined {
@@ -1479,7 +1480,7 @@ app.on("window-all-closed", () => {
   // macOS normally keeps the app alive after its final window closes. The
   // Electron harness closes windows to end each isolated run, so let explicit
   // test-mode launches quit instead of leaving their process behind forever.
-  if (process.platform !== "darwin" || process.env.PI_APP_TEST_MODE !== undefined) {
+  if (process.platform !== "darwin" || appTestMode !== undefined) {
     stopNotifications?.();
     stopNotifications = undefined;
     notificationManager = undefined;
