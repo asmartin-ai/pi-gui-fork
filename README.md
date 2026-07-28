@@ -108,7 +108,8 @@ Supporting packages: `packages/session-driver` (shared session driver types) and
 
 ## Development
 
-Requires Node 20+ and [pnpm](https://pnpm.io) (managed via `corepack`).
+Requires Node 20+ and [pnpm](https://pnpm.io) (managed via `corepack`). pnpm is
+the supported package manager, and `pnpm-lock.yaml` is the authoritative lockfile.
 
 ```bash
 corepack enable

@@ -88,7 +88,7 @@ function writeArgvEchoScript(dir) {
 }
 
 function writeShim(dir, marker) {
-  // A stand-in for the `.cmd`/executable shims (`pnpm`, `bun`) that broke
+  // A stand-in for the pnpm `.cmd`/executable shim that broke
   // `spawn` on Windows. cross-spawn must resolve it by name off PATH without a
   // shell.
   if (process.platform === "win32") {

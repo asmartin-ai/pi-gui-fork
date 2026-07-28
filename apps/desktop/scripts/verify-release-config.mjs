@@ -150,10 +150,6 @@ function validateBuilderConfig(config, desktopPackage, afterRemoveSource) {
     desktopPackage.scripts?.["package:linux"]?.includes(linuxPackageCommand),
     "pnpm Linux packaging must build AppImage and deb for x64",
   );
-  assert(
-    desktopPackage.scripts?.["bun:package:linux"]?.includes(linuxPackageCommand),
-    "Bun Linux packaging must build AppImage and deb for x64",
-  );
 
   assert(config.linux?.executableName === "pi-gui", "Linux executable name must remain pi-gui");
   assert(
