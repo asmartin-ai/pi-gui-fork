@@ -1117,9 +1117,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async initializeInternal(): Promise<void> {
     const persisted = await this.readUiState();
-    this.restorePersistedUiState(persisted);
     const startupDiagnostics: StartupDiagnostic[] = [];
     try {
+      this.restorePersistedUiState(persisted);
       await this.migrateLegacyPersistence(persisted);
       const initialWorkspacePaths = this.initialWorkspacePaths.map((path) => path.trim()).filter(Boolean);
       const knownWorkspaces = await this.driver.listWorkspaces();
