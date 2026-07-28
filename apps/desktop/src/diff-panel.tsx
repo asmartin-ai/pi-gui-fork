@@ -164,13 +164,25 @@ export function DiffPanel({
           return availableFiles.has(current.path) ? current : null;
         });
         setReviewed((current) => {
+          const unavailableWorkspaceIds = new Set(
+            results
+              .filter((result) => result.changedFiles.state === "unavailable")
+              .map((result) => result.workspaceId),
+          );
+          const retainedUnavailableKeys = [...current].filter((key) => {
+            const reviewedWorkspaceId = workspaceIdFromReviewedFileKey(key);
+            return reviewedWorkspaceId !== undefined && unavailableWorkspaceIds.has(reviewedWorkspaceId);
+          });
           const pruned = pruneReviewed(
             current,
-            results.flatMap((result) =>
-              result.changedFiles.state === "available"
-                ? result.changedFiles.files.map((file) => reviewedFileKey(result.workspaceId, file.path))
-                : [],
-            ),
+            [
+              ...results.flatMap((result) =>
+                result.changedFiles.state === "available"
+                  ? result.changedFiles.files.map((file) => reviewedFileKey(result.workspaceId, file.path))
+                  : [],
+              ),
+              ...retainedUnavailableKeys,
+            ],
           );
           if (pruned !== current) {
             saveReviewed(workspaceId, sessionId, pruned);
@@ -687,6 +699,17 @@ function toWorkbenchChangedFile(context: FileWorkbenchContext, file: ChangedFile
 
 function reviewedFileKey(workspaceId: string, filePath: string): string {
   return JSON.stringify([workspaceId, filePath]);
+}
+
+function workspaceIdFromReviewedFileKey(key: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(key);
+    return Array.isArray(value) && value.length === 2 && typeof value[0] === "string"
+      ? value[0]
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function contextLabel(context: FileWorkbenchContext): string {

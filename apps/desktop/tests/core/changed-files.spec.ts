@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
+import { reviewedFilesKey } from "../../src/reviewed-files-store";
 import {
   commitAllInGitRepo,
   createNamedThread,
   desktopShortcut,
+  getDesktopState,
   initGitRepo,
   launchDesktop,
   makeUserDataDir,
@@ -59,30 +61,58 @@ test("preserves an exact changed-file path through diff and stage actions", asyn
   }
 });
 
-test("shows changed files as unavailable when Git status fails", async () => {
+test("shows Git status as unavailable without losing reviewed files", async () => {
   test.setTimeout(30_000);
   const userDataDir = await makeUserDataDir();
-  const workspacePath = await makeWorkspace("changed-files-unavailable");
+  const workspacePath = await makeWorkspace("changed-files-reviewed");
+  const filePath = "reviewed.txt";
+  const gitPath = join(workspacePath, ".git");
+  const unavailableGitPath = join(workspacePath, "..", ".git-changed-files-reviewed");
+  await initGitRepo(workspacePath);
+  await commitAllInGitRepo(workspacePath, "init");
+  await writeFile(join(workspacePath, filePath), "review this\n", "utf8");
+
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
   });
+  let gitMoved = false;
 
   try {
     const window = await harness.firstWindow();
-    await createNamedThread(window, "Unavailable status test");
-    await window.keyboard.press(desktopShortcut("D"));
+    await createNamedThread(window, "Reviewed unavailable status test");
+    const state = await getDesktopState(window);
+    if (!state.selectedWorkspaceId || !state.selectedSessionId) {
+      throw new Error("Expected a selected session");
+    }
+    const storageKey = reviewedFilesKey(state.selectedWorkspaceId, state.selectedSessionId);
 
+    await window.keyboard.press(desktopShortcut("D"));
     const diffPanel = window.locator(".diff-panel");
+    await diffPanel.getByTestId(`diff-panel-reviewed-${filePath}`).check();
+    const reviewedBeforeFailure = await window.evaluate(
+      (key) => globalThis.localStorage.getItem(key),
+      storageKey,
+    );
+    expect(reviewedBeforeFailure).not.toBeNull();
+
+    await rename(gitPath, unavailableGitPath);
+    gitMoved = true;
+    await diffPanel.locator('button[aria-label="Refresh"]').click();
     await expect(diffPanel.getByTestId("changed-files-unavailable")).toHaveText(
       "Git status is unavailable for this workspace.",
     );
     await expect(diffPanel.locator(".file-workbench__section-header")).toContainText(/unavailable/i);
     await expect(diffPanel.getByText("No changes", { exact: true })).toHaveCount(0);
-
+    await expect
+      .poll(() => window.evaluate((key) => globalThis.localStorage.getItem(key), storageKey))
+      .toBe(reviewedBeforeFailure);
     await saveProof(window, "git-status-unavailable.png");
   } finally {
     await harness.close();
+    if (gitMoved) {
+      await rename(unavailableGitPath, gitPath);
+    }
   }
 });
 
