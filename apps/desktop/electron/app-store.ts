@@ -54,6 +54,7 @@ import {
   type SetChildSupervisionLoopInput,
   type SelectedTranscriptRecord,
   type StartThreadInput,
+  type StartupDiagnostic,
   type ThemeMode,
   type ThemePresetId,
   type TranscriptMessage,
@@ -1116,56 +1117,10 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async initializeInternal(): Promise<void> {
     const persisted = await this.readUiState();
+    this.restorePersistedUiState(persisted);
+    const startupDiagnostics: StartupDiagnostic[] = [];
     try {
-      this.state = {
-        ...this.state,
-        activeView: persisted.activeView ?? this.state.activeView,
-        modelSettingsScopeMode: persisted.modelSettingsScopeMode ?? this.state.modelSettingsScopeMode,
-        globalModelSettings: persisted.appGlobalModelSettings ?? this.state.globalModelSettings,
-        notificationPreferences: {
-          ...this.state.notificationPreferences,
-          ...persisted.notificationPreferences,
-        },
-        integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
-        lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
-        pinnedAtBySession: persisted.pinnedAtBySession ?? {},
-        pinnedSessionOrder: persisted.pinnedSessionOrder ?? [],
-        workspaceOrder: persisted.workspaceOrder ?? [],
-        themeMode: persisted.themeMode ?? this.state.themeMode,
-        themePresetId: persisted.themePresetId ?? this.state.themePresetId,
-        sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
-        enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
-        orchestrationChildren: persisted.orchestrationChildren ?? [],
-      };
       await this.migrateLegacyPersistence(persisted);
-      this.sessionState.lastViewedAtBySession.clear();
-      for (const [key, viewedAt] of Object.entries(persisted.lastViewedAtBySession ?? {})) {
-        if (viewedAt) {
-          this.sessionState.lastViewedAtBySession.set(key, viewedAt);
-        }
-      }
-      this.sessionState.pinnedAtBySession.clear();
-      for (const [key, pinnedAt] of Object.entries(persisted.pinnedAtBySession ?? {})) {
-        if (pinnedAt) {
-          this.sessionState.pinnedAtBySession.set(key, pinnedAt);
-        }
-      }
-      this.sessionState.pinnedSessionOrder = reconcilePinnedSessionOrder(
-        this.sessionState.pinnedAtBySession,
-        persisted.pinnedSessionOrder ?? [],
-      ).slice();
-      this.sessionState.composerDraftsBySession.clear();
-      for (const [key, draft] of Object.entries(persisted.composerDraftsBySession ?? {})) {
-        if (draft) {
-          this.sessionState.composerDraftsBySession.set(key, draft);
-        }
-      }
-      this.extensionCommandCompatibilityByWorkspace.clear();
-      for (const [workspaceId, records] of restoreCompatibilityByWorkspace(
-        persisted.extensionCommandCompatibilityByWorkspace,
-      )) {
-        this.extensionCommandCompatibilityByWorkspace.set(workspaceId, records);
-      }
       const initialWorkspacePaths = this.initialWorkspacePaths.map((path) => path.trim()).filter(Boolean);
       const knownWorkspaces = await this.driver.listWorkspaces();
       const workspacesToSync = new Map<string, string | undefined>();
@@ -1178,10 +1133,13 @@ export class DesktopAppStore implements AppStoreInternals {
         workspacesToSync.set(ws.path, ws.displayName);
       }
 
-      await Promise.all(
+      const syncDiagnostics = await Promise.all(
         [...workspacesToSync.entries()].map(([workspacePath, displayName]) =>
-          this.driver.syncWorkspace(workspacePath, displayName),
+          this.syncStartupWorkspace(workspacePath, displayName),
         ),
+      );
+      startupDiagnostics.push(
+        ...syncDiagnostics.filter((diagnostic): diagnostic is StartupDiagnostic => Boolean(diagnostic)),
       );
 
       await this.refreshState({
@@ -1202,18 +1160,111 @@ export class DesktopAppStore implements AppStoreInternals {
       }
       this.startSelectedSessionHydration(restoredSessionRef, { markViewed: false });
       this.scheduleOrchestrationSupervision();
+      this.publishStartupDiagnostics(startupDiagnostics);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[app-store] startup recovery failed", error);
+      startupDiagnostics.push({
+        scope: "application",
+        message,
+      });
       this.state = {
-        ...createEmptyDesktopAppState(),
-        themeMode: persisted.themeMode ?? "system",
-        themePresetId: persisted.themePresetId ?? "default",
-        enableTransparency: persisted.enableTransparency ?? false,
-        lastError: error instanceof Error ? error.message : String(error),
-        revision: 1,
+        ...this.state,
+        startupDiagnostics,
+        lastError: message,
+        revision: this.state.revision + 1,
       };
-      await this.persistUiState();
       this.emit();
     }
+  }
+
+  private restorePersistedUiState(persisted: LegacyPersistedUiState): void {
+    this.state = {
+      ...this.state,
+      selectedWorkspaceId: persisted.selectedWorkspaceId ?? this.state.selectedWorkspaceId,
+      selectedSessionId: persisted.selectedSessionId ?? this.state.selectedSessionId,
+      activeView: persisted.activeView ?? this.state.activeView,
+      composerDraft: persisted.composerDraft ?? this.state.composerDraft,
+      modelSettingsScopeMode: persisted.modelSettingsScopeMode ?? this.state.modelSettingsScopeMode,
+      globalModelSettings: persisted.appGlobalModelSettings ?? this.state.globalModelSettings,
+      notificationPreferences: {
+        ...this.state.notificationPreferences,
+        ...persisted.notificationPreferences,
+      },
+      integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
+      lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
+      pinnedAtBySession: persisted.pinnedAtBySession ?? {},
+      pinnedSessionOrder: persisted.pinnedSessionOrder ?? [],
+      workspaceOrder: persisted.workspaceOrder ?? [],
+      themeMode: persisted.themeMode ?? this.state.themeMode,
+      themePresetId: persisted.themePresetId ?? this.state.themePresetId,
+      sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
+      enableTransparency: persisted.enableTransparency ?? this.state.enableTransparency,
+      orchestrationChildren: persisted.orchestrationChildren ?? [],
+    };
+
+    this.sessionState.lastViewedAtBySession.clear();
+    for (const [key, viewedAt] of Object.entries(persisted.lastViewedAtBySession ?? {})) {
+      if (viewedAt) {
+        this.sessionState.lastViewedAtBySession.set(key, viewedAt);
+      }
+    }
+    this.sessionState.pinnedAtBySession.clear();
+    for (const [key, pinnedAt] of Object.entries(persisted.pinnedAtBySession ?? {})) {
+      if (pinnedAt) {
+        this.sessionState.pinnedAtBySession.set(key, pinnedAt);
+      }
+    }
+    this.sessionState.pinnedSessionOrder = reconcilePinnedSessionOrder(
+      this.sessionState.pinnedAtBySession,
+      persisted.pinnedSessionOrder ?? [],
+    ).slice();
+    this.sessionState.composerDraftsBySession.clear();
+    for (const [key, draft] of Object.entries(persisted.composerDraftsBySession ?? {})) {
+      if (draft) {
+        this.sessionState.composerDraftsBySession.set(key, draft);
+      }
+    }
+    this.extensionCommandCompatibilityByWorkspace.clear();
+    for (const [workspaceId, records] of restoreCompatibilityByWorkspace(
+      persisted.extensionCommandCompatibilityByWorkspace,
+    )) {
+      this.extensionCommandCompatibilityByWorkspace.set(workspaceId, records);
+    }
+  }
+
+  private async syncStartupWorkspace(
+    workspacePath: string,
+    displayName: string | undefined,
+  ): Promise<StartupDiagnostic | undefined> {
+    try {
+      const workspaceStat = await stat(workspacePath);
+      if (!workspaceStat.isDirectory()) {
+        throw new Error("Path is not a directory.");
+      }
+      await this.driver.syncWorkspace(workspacePath, displayName);
+      return undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[app-store] workspace unavailable during startup: ${workspacePath}: ${message}`);
+      return {
+        scope: "workspace",
+        workspacePath,
+        message,
+      };
+    }
+  }
+
+  private publishStartupDiagnostics(diagnostics: readonly StartupDiagnostic[]): void {
+    if (diagnostics.length === 0) {
+      return;
+    }
+    this.state = {
+      ...this.state,
+      startupDiagnostics: [...diagnostics],
+      revision: this.state.revision + 1,
+    };
+    this.emit();
   }
 
   private async migrateLegacyPersistence(persisted: LegacyPersistedUiState): Promise<void> {

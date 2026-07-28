@@ -1,4 +1,4 @@
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
@@ -193,6 +193,197 @@ test("recovers persisted ui state from the backup when ui-state.json is corrupt"
     await expect(window.getByTestId("composer")).toHaveValue("recover me from backup", { timeout: 15_000 });
   } finally {
     await secondRun.close();
+  }
+});
+
+test("preserves durable ui state when one startup workspace is unavailable", async () => {
+  test.setTimeout(120_000);
+  const userDataDir = await makeUserDataDir();
+  const healthyWorkspacePath = await makeWorkspace("healthy-startup-workspace");
+  const unavailableWorkspacePath = await makeWorkspace("unavailable-startup-workspace");
+  const uiStatePath = join(userDataDir, "ui-state.json");
+
+  const firstRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [healthyWorkspacePath, unavailableWorkspacePath],
+    testMode: "background",
+  });
+  let unavailableWorkspaceId = "";
+  let healthyWorkspaceId = "";
+  let unavailableSessionId = "";
+  try {
+    const window = await firstRun.firstWindow();
+    const seededState = await window.evaluate(async ({ healthyPath, unavailablePath }) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      let state = await app.getState();
+      const healthy = state.workspaces.find((entry) => entry.path === healthyPath);
+      const unavailable = state.workspaces.find((entry) => entry.path === unavailablePath);
+      if (!healthy || !unavailable) {
+        throw new Error("Expected both seeded workspaces");
+      }
+
+      await app.selectWorkspace(unavailable.id);
+      state = await app.createSession({ workspaceId: unavailable.id, title: "Unavailable workspace session" });
+      const session = state.workspaces
+        .find((entry) => entry.id === unavailable.id)
+        ?.sessions.find((entry) => entry.title === "Unavailable workspace session");
+      if (!session) {
+        throw new Error("Expected seeded unavailable-workspace session");
+      }
+
+      await app.selectSession({ workspaceId: unavailable.id, sessionId: session.id });
+      await app.updateComposerDraft("draft survives unavailable workspace");
+      await app.setSessionPinned({ workspaceId: unavailable.id, sessionId: session.id }, true);
+      await app.reorderWorkspaces([unavailable.id, healthy.id]);
+      await app.setNotificationPreferences({
+        backgroundCompletion: false,
+        backgroundFailure: true,
+        attentionNeeded: false,
+      });
+      await app.setIntegratedTerminalShell("/bin/zsh");
+      await app.setThemePresetId("github");
+      await app.setSidebarCollapsed(true);
+      state = await app.getState();
+      return {
+        state,
+        healthyWorkspaceId: healthy.id,
+        unavailableWorkspaceId: unavailable.id,
+        unavailableSessionId: session.id,
+      };
+    }, { healthyPath: healthyWorkspacePath, unavailablePath: unavailableWorkspacePath });
+
+    healthyWorkspaceId = seededState.healthyWorkspaceId;
+    unavailableWorkspaceId = seededState.unavailableWorkspaceId;
+    unavailableSessionId = seededState.unavailableSessionId;
+    expect(seededState.state.selectedWorkspaceId).toBe(unavailableWorkspaceId);
+    expect(seededState.state.selectedSessionId).toBe(unavailableSessionId);
+    await expect.poll(async () => readFile(uiStatePath, "utf8")).toContain("draft survives unavailable workspace");
+  } finally {
+    await firstRun.close();
+  }
+
+  const sessionKey = `${unavailableWorkspaceId}:${unavailableSessionId}`;
+  const existingUiState = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
+  const beforeFailure = {
+    ...existingUiState,
+    selectedWorkspaceId: unavailableWorkspaceId,
+    selectedSessionId: unavailableSessionId,
+    activeView: "threads",
+    composerDraft: "draft survives unavailable workspace",
+    composerDraftsBySession: {
+      [sessionKey]: "draft survives unavailable workspace",
+    },
+    notificationPreferences: {
+      backgroundCompletion: false,
+      backgroundFailure: true,
+      attentionNeeded: false,
+    },
+    integratedTerminalShell: "/bin/zsh",
+    pinnedAtBySession: {
+      [sessionKey]: "2026-07-27T00:00:00.000Z",
+    },
+    pinnedSessionOrder: [sessionKey],
+    workspaceOrder: [unavailableWorkspaceId, healthyWorkspaceId],
+    themePresetId: "github",
+    sidebarCollapsed: true,
+  } satisfies Record<string, unknown>;
+  await writeFile(uiStatePath, `${JSON.stringify(beforeFailure, null, 2)}\n`, "utf8");
+  const movedWorkspacePath = `${unavailableWorkspacePath}-offline`;
+  await rename(unavailableWorkspacePath, movedWorkspacePath);
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    const state = await getDesktopState(window);
+    const diagnostics = state.startupDiagnostics;
+
+    expect(state.workspaces.some((entry) => entry.id === healthyWorkspaceId)).toBe(true);
+    expect(state.workspaces.some((entry) => entry.id === unavailableWorkspaceId)).toBe(true);
+    expect(state.selectedWorkspaceId).toBe(unavailableWorkspaceId);
+    expect(state.selectedSessionId).toBe(unavailableSessionId);
+    expect(state.composerDraft).toBe("draft survives unavailable workspace");
+    expect(state.workspaceOrder).toEqual([unavailableWorkspaceId, healthyWorkspaceId]);
+    expect(state.pinnedSessionOrder).toEqual([`${unavailableWorkspaceId}:${unavailableSessionId}`]);
+    expect(state.notificationPreferences).toEqual({
+      backgroundCompletion: false,
+      backgroundFailure: true,
+      attentionNeeded: false,
+    });
+    expect(state.integratedTerminalShell).toBe("/bin/zsh");
+    expect(state.themePresetId).toBe("github");
+    expect(state.sidebarCollapsed).toBe(true);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        scope: "workspace",
+        workspacePath: unavailableWorkspacePath,
+      }),
+    ]);
+    await expect(window.getByTestId("startup-diagnostics")).toContainText("unavailable-startup-workspace");
+
+    const afterFailure = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
+    for (const key of [
+      "selectedWorkspaceId",
+      "selectedSessionId",
+      "composerDraftsBySession",
+      "notificationPreferences",
+      "integratedTerminalShell",
+      "pinnedAtBySession",
+      "pinnedSessionOrder",
+      "workspaceOrder",
+      "themePresetId",
+      "sidebarCollapsed",
+    ]) {
+      expect(afterFailure[key], `persisted key ${key}`).toEqual(beforeFailure[key]);
+    }
+
+    const healthySelection = await window.evaluate(async (workspaceId) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      return app.selectWorkspace(workspaceId);
+    }, healthyWorkspaceId);
+    expect(healthySelection.selectedWorkspaceId).toBe(healthyWorkspaceId);
+    await window.evaluate(async ({ workspaceId, sessionId }) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.selectSession({ workspaceId, sessionId });
+    }, { workspaceId: unavailableWorkspaceId, sessionId: unavailableSessionId });
+
+    const proofDir = process.env.PI_APP_PERSISTENCE_PROOF_DIR?.trim();
+    if (proofDir) {
+      await mkdir(proofDir, { recursive: true });
+      await window.screenshot({ path: join(proofDir, "unavailable-workspace-recovery.png"), fullPage: true });
+      await writeFile(
+        join(proofDir, "unavailable-workspace-second-launch.json"),
+        `${JSON.stringify({ diagnostics, state }, null, 2)}\n`,
+        "utf8",
+      );
+    }
+  } finally {
+    await secondRun.close();
+  }
+
+  const thirdRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await thirdRun.firstWindow();
+    const state = await getDesktopState(window);
+    expect(state.selectedWorkspaceId).toBe(unavailableWorkspaceId);
+    expect(state.selectedSessionId).toBe(unavailableSessionId);
+    expect(state.composerDraft).toBe("draft survives unavailable workspace");
+    expect(state.workspaces.some((entry) => entry.id === healthyWorkspaceId)).toBe(true);
+    await expect(window.getByTestId("startup-diagnostics")).toContainText("unavailable-startup-workspace");
+
+    const proofDir = process.env.PI_APP_PERSISTENCE_PROOF_DIR?.trim();
+    if (proofDir) {
+      await window.screenshot({ path: join(proofDir, "unavailable-workspace-third-launch.png"), fullPage: true });
+    }
+  } finally {
+    await thirdRun.close();
   }
 });
 
