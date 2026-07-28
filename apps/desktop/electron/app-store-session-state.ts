@@ -2,6 +2,7 @@ import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionSnapshot } from "@pi-gui/session-driver";
 import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
 import { cloneTranscriptMessage, hasUnseenSessionUpdate, previewFromTranscript } from "./app-store-utils";
+import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";
 
 export function applySessionEventState(
   state: DesktopAppState,
@@ -55,9 +56,15 @@ export function updateSessionRecord(
 ): SessionRecord {
   const updatedAt = options.snapshot?.updatedAt ?? session.updatedAt;
   const nextStatus = options.status ?? options.snapshot?.status ?? session.status;
+  const snapshotTitle = options.snapshot?.title;
+  // Queued session events may predate a rename; the placeholder must not replace a resolved title.
+  const title =
+    snapshotTitle === NEW_THREAD_PLACEHOLDER_TITLE && session.title !== NEW_THREAD_PLACEHOLDER_TITLE
+      ? session.title
+      : snapshotTitle ?? session.title;
   return {
     ...session,
-    title: options.snapshot?.title ?? session.title,
+    title,
     updatedAt,
     lastViewedAt: options.lastViewedAt,
     archivedAt: options.snapshot?.archivedAt ?? session.archivedAt,
