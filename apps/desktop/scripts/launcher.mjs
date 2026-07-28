@@ -3,7 +3,7 @@ import crossSpawn from "cross-spawn";
 /**
  * Spawn a child process the way the dev launcher needs on every platform.
  *
- * `cross-spawn` resolves Windows `.cmd`/`.exe` shims (e.g. `pnpm`, `bun`) so
+ * `cross-spawn` resolves Windows `.cmd`/`.exe` shims (such as `pnpm`) so
  * commands launch without `spawn ENOENT`, and it forwards argv verbatim. Unlike
  * `spawn(cmd, args, { shell: true })` it does NOT route through a shell, so
  * arguments are never re-split/re-interpreted and Node's `DEP0190` deprecation
