@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -34,6 +34,8 @@ test("parses NUL-delimited status records without changing path bytes represente
   const deletedPath = pathologicalPath("deleted");
   const renamedPath = pathologicalPath("renamed destination");
   const renameSourcePath = pathologicalPath("renamed source");
+  const worktreeRenamedPath = pathologicalPath("worktree renamed destination");
+  const worktreeRenameSourcePath = pathologicalPath("worktree renamed source");
   const copiedPath = pathologicalPath("copied destination");
   const copySourcePath = pathologicalPath("copied source");
   const porcelain = [
@@ -44,6 +46,8 @@ test("parses NUL-delimited status records without changing path bytes represente
     ` D ${deletedPath}`,
     `R  ${renamedPath}`,
     renameSourcePath,
+    ` R ${worktreeRenamedPath}`,
+    worktreeRenameSourcePath,
     `C  ${copiedPath}`,
     copySourcePath,
     "",
@@ -60,6 +64,13 @@ test("parses NUL-delimited status records without changing path bytes represente
       previousPath: renameSourcePath,
       status: "renamed",
       staged: true,
+    },
+    {
+      path: worktreeRenamedPath,
+      previousPath: worktreeRenameSourcePath,
+      stagingSourcePath: worktreeRenameSourcePath,
+      status: "renamed",
+      staged: false,
     },
     {
       path: copiedPath,
@@ -129,6 +140,7 @@ test("passes exact paths as isolated argv values for diff and stage", async () =
     gitResult(),
     gitResult("untracked diff", new Error("expected no-index exit 1")),
     gitResult(),
+    gitResult(),
   ];
   const executeGit: GitCommandExecutor = async (args) => {
     calls.push([...args]);
@@ -140,13 +152,52 @@ test("passes exact paths as isolated argv values for diff and stage", async () =
   };
 
   await expect(getFileDiff("/workspace", exactPath, executeGit)).resolves.toBe("untracked diff");
-  await expect(stageFile("/workspace", exactPath, executeGit)).resolves.toBeUndefined();
+  const renameDestination = pathologicalPath("rename destination");
+  const renameSource = pathologicalPath("rename source");
+  await expect(
+    stageFile("/workspace", exactPath, { executeGit }),
+  ).resolves.toBeUndefined();
+  await expect(
+    stageFile("/workspace", renameDestination, { sourcePath: renameSource, executeGit }),
+  ).resolves.toBeUndefined();
   expect(calls).toEqual([
     ["--literal-pathspecs", "diff", "--", exactPath],
     ["--literal-pathspecs", "diff", "--cached", "--", exactPath],
     ["--literal-pathspecs", "diff", "--no-index", "--", "/dev/null", exactPath],
     ["--literal-pathspecs", "add", "--", exactPath],
+    ["--literal-pathspecs", "add", "--", renameDestination, renameSource],
   ]);
+});
+
+test("stages both exact paths for a filesystem rename", async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), "pi-gui-stage-rename-"));
+  const sourcePath = "source name.txt";
+  const destinationPath = "destination name.txt";
+
+  try {
+    await runGit(workspacePath, ["init", "-b", "main"]);
+    await runGit(workspacePath, ["config", "user.name", "Pi App Tests"]);
+    await runGit(workspacePath, ["config", "user.email", "pi-gui-tests@example.com"]);
+    await writeFile(join(workspacePath, sourcePath), "rename contents\n", "utf8");
+    await runGit(workspacePath, ["add", "--", sourcePath]);
+    await runGit(workspacePath, ["commit", "-m", "base"]);
+    await rename(join(workspacePath, sourcePath), join(workspacePath, destinationPath));
+
+    await stageFile(workspacePath, destinationPath, { sourcePath });
+    await expect(getChangedFiles(workspacePath)).resolves.toEqual({
+      state: "available",
+      files: [
+        {
+          path: destinationPath,
+          previousPath: sourcePath,
+          status: "renamed",
+          staged: true,
+        },
+      ],
+    });
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true });
+  }
 });
 
 test("round-trips pathological paths through a real Git repository", async () => {

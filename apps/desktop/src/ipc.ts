@@ -171,6 +171,7 @@ export type ChangedFileStatus = "added" | "copied" | "deleted" | "modified" | "r
 export interface ChangedFileEntry {
   readonly path: string;
   readonly previousPath?: string;
+  readonly stagingSourcePath?: string;
   readonly status: ChangedFileStatus;
   readonly staged: boolean;
 }
@@ -410,7 +411,7 @@ export interface PiDesktopApi {
   readWorkspaceFile(workspaceId: string, filePath: string): Promise<WorkspaceFilePreview>;
   getChangedFiles(workspaceId: string): Promise<ChangedFilesResult>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
-  stageFile(workspaceId: string, filePath: string): Promise<void>;
+  stageFile(workspaceId: string, filePath: string, stagingSourcePath?: string): Promise<void>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
   getThemeMode(): Promise<"system" | "light" | "dark">;

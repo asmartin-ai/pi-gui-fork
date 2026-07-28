@@ -17,6 +17,11 @@ export type GitCommandExecutor = (
   options: GitCommandOptions,
 ) => Promise<GitCommandResult>;
 
+export interface StageFileOptions {
+  readonly sourcePath?: string;
+  readonly executeGit?: GitCommandExecutor;
+}
+
 export async function getChangedFiles(
   workspacePath: string,
   executeGit: GitCommandExecutor = executeGitCommand,
@@ -107,10 +112,17 @@ export async function getFileDiff(
 export async function stageFile(
   workspacePath: string,
   filePath: string,
-  executeGit: GitCommandExecutor = executeGitCommand,
+  options: StageFileOptions = {},
 ): Promise<void> {
   resolveWorkspacePath(workspacePath, filePath);
-  const result = await executeGit(["--literal-pathspecs", "add", "--", filePath], { cwd: workspacePath });
+  if (options.sourcePath !== undefined) {
+    resolveWorkspacePath(workspacePath, options.sourcePath);
+  }
+  const paths = options.sourcePath === undefined ? [filePath] : [filePath, options.sourcePath];
+  const result = await (options.executeGit ?? executeGitCommand)(
+    ["--literal-pathspecs", "add", "--", ...paths],
+    { cwd: workspacePath },
+  );
   if (result.error) {
     throw result.error;
   }
@@ -153,6 +165,7 @@ function toChangedFileEntry(
   return {
     path: filePath,
     ...(previousPath === undefined ? {} : { previousPath }),
+    ...(previousPath !== undefined && xy[1] === "R" ? { stagingSourcePath: previousPath } : {}),
     status: parseStatus(xy),
     staged: isFullyStaged(xy),
   };

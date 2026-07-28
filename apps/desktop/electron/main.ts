@@ -1457,13 +1457,16 @@ app.whenReady().then(async () => {
     }
     return getFileDiff(workspacePath, filePath);
   });
-  ipcMain.handle(desktopIpc.stageFile, async (_event, workspaceId: string, filePath: string) => {
-    const workspacePath = store.getWorkspacePath(workspaceId);
-    if (!workspacePath) {
-      throw new Error(`Unknown workspace: ${workspaceId}`);
-    }
-    await stageFile(workspacePath, filePath);
-  });
+  ipcMain.handle(
+    desktopIpc.stageFile,
+    async (_event, workspaceId: string, filePath: string, stagingSourcePath?: string) => {
+      const workspacePath = store.getWorkspacePath(workspaceId);
+      if (!workspacePath) {
+        throw new Error(`Unknown workspace: ${workspaceId}`);
+      }
+      await stageFile(workspacePath, filePath, { sourcePath: stagingSourcePath });
+    },
+  );
   ipcMain.handle(desktopIpc.toggleWindowMaximize, (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) {

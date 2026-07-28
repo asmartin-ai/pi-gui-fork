@@ -306,7 +306,7 @@ export function DiffPanel({
   }, [selectedFile, changedRows]);
 
   const handleStage = (file: WorkbenchChangedFile) => {
-    void api.stageFile(file.workspaceId, file.path).then(() => refresh());
+    void api.stageFile(file.workspaceId, file.path, file.stagingSourcePath).then(() => refresh());
   };
 
   const toggleReviewed = useCallback(
