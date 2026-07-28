@@ -1,7 +1,7 @@
 {
   "name": "pi-gui",
   "private": true,
-  "version": "0.1.0-beta.32",
+  "version": "0.1.0-beta.33",
   "license": "MIT",
   "packageManager": "pnpm@10.25.0",
   "scripts": {
@@ -14,7 +14,10 @@
     "test": "pnpm -r --if-present test",
     "e2e": "playwright test",
     "test:homebrew-tap": "node scripts/test-update-homebrew-tap.mjs",
+    "test:release-helpers": "node --test apps/desktop/scripts/release-artifacts.test.mjs apps/desktop/scripts/github-release-state.test.mjs scripts/verify-release-version.test.mjs",
     "verify:install-copy": "node scripts/verify-install-copy.mjs",
+    "verify:release-config": "node apps/desktop/scripts/verify-release-config.mjs",
+    "verify:release-version": "node scripts/verify-release-version.mjs",
     "verify:homebrew-flow": "node scripts/verify-homebrew-flow.mjs",
     "release:homebrew-sync": "node scripts/release-homebrew-sync.mjs"
   },

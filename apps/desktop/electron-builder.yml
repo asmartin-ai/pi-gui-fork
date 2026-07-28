@@ -27,7 +27,6 @@ artifactName: ${productName}-${version}-${arch}.${ext}
 mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
-  gatekeeperAssess: false
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.inherit.plist
   notarize: true
@@ -49,7 +48,7 @@ linux:
 
 win:
   executableName: pi-gui
-  signAndEditExecutable: false
+  signAndEditExecutable: true
   target:
     - target: nsis
       arch:
@@ -57,6 +56,12 @@ win:
     - target: portable
       arch:
         - x64
+
+nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-${arch}-portable.${ext}
 
 toolsets:
   appimage: "1.0.2"
