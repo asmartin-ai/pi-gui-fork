@@ -73,7 +73,12 @@ function validateBuildJob(job, platform) {
   );
 }
 
-function validateWorkflow(workflow, finalizerSource) {
+function validateWorkflow(
+  workflow,
+  finalizerSource,
+  linuxVerifierSource,
+  windowsVerifierSource,
+) {
   const jobs = workflow.jobs ?? {};
   const releaseSteps = Object.entries(jobs).flatMap(([jobName, job]) =>
     (job.steps ?? [])
@@ -123,6 +128,23 @@ function validateWorkflow(workflow, finalizerSource) {
     "macOS metadata refresh must run after stapling and before artifact staging",
   );
 
+  const linuxBuildVerification = stepNamed(jobs["build-linux"], "Verify Linux package");
+  assert(
+    runText(linuxBuildVerification).includes("verify-linux-release.sh"),
+    "Linux build must extract and validate the AppImage",
+  );
+  for (const marker of [
+    "--appimage-extract",
+    '"$extracted/AppRun"',
+    '"$extracted/pi-gui"',
+    "resources/app.asar",
+  ]) {
+    assert(
+      linuxVerifierSource.includes(marker),
+      `Linux package verifier must contain: ${marker}`,
+    );
+  }
+
   const windowsJob = jobs["build-windows"];
   const signingCheck = stepNamed(windowsJob, "Validate Windows signing credentials");
   const packageStep = stepNamed(windowsJob, "Package Windows");
@@ -136,7 +158,29 @@ function validateWorkflow(workflow, finalizerSource) {
       JSON.stringify(packageStep.env).includes("secrets.WINDOWS_CSC_KEY_PASSWORD"),
     "Windows signing secrets must map to electron-builder CSC variables",
   );
-  stepNamed(windowsJob, "Verify Windows signatures and architecture");
+  const windowsBuildVerification = stepNamed(
+    windowsJob,
+    "Verify Windows signatures and architecture",
+  );
+  assert(
+    runText(windowsBuildVerification).includes("-SmokePackages"),
+    "Windows build must smoke-test both downloadable packages",
+  );
+  for (const marker of [
+    "Get-AuthenticodeSignature",
+    'Start-Process `',
+    '"/S"',
+    '"t", $setup',
+    '"t", $portable',
+    '"x", "-y"',
+    "Assert-X64Pe $installedApp",
+    "Assert-X64Pe $portableApp",
+  ]) {
+    assert(
+      windowsVerifierSource.includes(marker),
+      `Windows package verifier must contain: ${marker}`,
+    );
+  }
 
   const stageDraft = jobs["stage-draft"];
   assert(
@@ -175,7 +219,7 @@ function validateWorkflow(workflow, finalizerSource) {
 
   const draftVerifiers = [
     ["verify-draft-macos", "Verify draft macOS trust"],
-    ["verify-draft-linux", "Verify draft Linux architecture"],
+    ["verify-draft-linux", "Verify draft Linux package"],
     ["verify-draft-windows", "Verify draft Windows signatures"],
   ];
   for (const [jobName, trustStep] of draftVerifiers) {
@@ -191,6 +235,18 @@ function validateWorkflow(workflow, finalizerSource) {
     );
     stepNamed(job, trustStep);
   }
+  assert(
+    runText(stepNamed(jobs["verify-draft-linux"], "Verify draft Linux package")).includes(
+      "verify-linux-release.sh",
+    ),
+    "Downloaded draft AppImage must be extracted and validated",
+  );
+  assert(
+    runText(stepNamed(jobs["verify-draft-windows"], "Verify draft Windows signatures")).includes(
+      "-SmokePackages",
+    ),
+    "Downloaded draft Windows packages must be installed and extracted",
+  );
 
   const publish = jobs.publish;
   assert(
@@ -251,15 +307,68 @@ function validateWorkflow(workflow, finalizerSource) {
     JSON.stringify(writeJobs) === JSON.stringify(["stage-draft", "publish"]),
     "Only draft staging and final publication may have release write permission",
   );
-  assert(jobs["sync-homebrew"]?.needs === "publish", "Homebrew sync must wait for publication");
+
+  const publishedVerifiers = [
+    ["verify-published-macos", "Verify published macOS trust"],
+    ["verify-published-linux", "Verify published Linux package"],
+    ["verify-published-windows", "Verify published Windows signatures"],
+  ];
+  for (const [jobName, trustStep] of publishedVerifiers) {
+    const job = jobs[jobName];
+    assert(job?.needs === "publish", `${jobName} must wait for publication`);
+    assert(
+      runText(stepNamed(job, "Download published release")).includes("gh release download"),
+      `${jobName} must redownload the published release`,
+    );
+    assert(
+      runText(stepNamed(job, "Verify published manifests and bytes")).includes("--platform all"),
+      `${jobName} must verify the complete published byte set`,
+    );
+    stepNamed(job, trustStep);
+  }
+  assert(
+    runText(
+      stepNamed(jobs["verify-published-linux"], "Verify published Linux package"),
+    ).includes("verify-linux-release.sh"),
+    "Published AppImage must be extracted and validated",
+  );
+  assert(
+    runText(
+      stepNamed(jobs["verify-published-windows"], "Verify published Windows signatures"),
+    ).includes("-SmokePackages"),
+    "Published Windows packages must be installed and extracted",
+  );
+
+  assert(
+    JSON.stringify(jobs["sync-homebrew"]?.needs) ===
+      JSON.stringify([
+        "verify-published-macos",
+        "verify-published-linux",
+        "verify-published-windows",
+      ]),
+    "Homebrew sync must wait for every post-publication native verification",
+  );
 }
 
-const [builderConfig, workflow, finalizerSource] = await Promise.all([
+const [
+  builderConfig,
+  workflow,
+  finalizerSource,
+  linuxVerifierSource,
+  windowsVerifierSource,
+] = await Promise.all([
   parseYaml("apps/desktop/electron-builder.yml"),
   parseYaml(".github/workflows/release.yml"),
   readFile(path.join(scriptDir, "finalize-macos-release.sh"), "utf8"),
+  readFile(path.join(scriptDir, "verify-linux-release.sh"), "utf8"),
+  readFile(path.join(scriptDir, "verify-windows-release.ps1"), "utf8"),
 ]);
 
 validateBuilderConfig(builderConfig);
-validateWorkflow(workflow, finalizerSource);
+validateWorkflow(
+  workflow,
+  finalizerSource,
+  linuxVerifierSource,
+  windowsVerifierSource,
+);
 console.log("Release package and workflow configuration are valid.");

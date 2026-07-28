@@ -149,10 +149,11 @@ jobs:
       - name: Verify packaged runtime dependencies
         run: pnpm --dir apps/desktop run verify:packaged-runtime-deps:linux
 
-      - name: Verify Linux architecture
+      - name: Verify Linux package
         run: |
-          appimage="apps/desktop/release/pi-gui-${GITHUB_REF_NAME#v}-x86_64.AppImage"
-          readelf -h "$appimage" | grep -F "Advanced Micro Devices X86-64"
+          bash apps/desktop/scripts/verify-linux-release.sh \
+            "$PWD/apps/desktop/release" \
+            "${GITHUB_REF_NAME#v}"
 
       - name: Stage validated Linux artifacts
         run: |
@@ -226,7 +227,8 @@ jobs:
           ./apps/desktop/scripts/verify-windows-release.ps1 `
             -ReleaseDir "$PWD/apps/desktop/release" `
             -Version "$($env:GITHUB_REF_NAME -replace '^v', '')" `
-            -PackagedApp "$PWD/apps/desktop/release/win-unpacked/pi-gui.exe"
+            -PackagedApp "$PWD/apps/desktop/release/win-unpacked/pi-gui.exe" `
+            -SmokePackages
 
       - name: Stage validated Windows artifacts
         shell: bash
@@ -365,10 +367,11 @@ jobs:
             --commit "$GITHUB_SHA" \
             --input draft-release
 
-      - name: Verify draft Linux architecture
+      - name: Verify draft Linux package
         run: |
-          appimage="draft-release/pi-gui-${GITHUB_REF_NAME#v}-x86_64.AppImage"
-          readelf -h "$appimage" | grep -F "Advanced Micro Devices X86-64"
+          bash apps/desktop/scripts/verify-linux-release.sh \
+            "$PWD/draft-release" \
+            "${GITHUB_REF_NAME#v}"
 
   verify-draft-windows:
     needs: stage-draft
@@ -407,7 +410,8 @@ jobs:
         run: |
           ./apps/desktop/scripts/verify-windows-release.ps1 `
             -ReleaseDir "$PWD/draft-release" `
-            -Version "$($env:GITHUB_REF_NAME -replace '^v', '')"
+            -Version "$($env:GITHUB_REF_NAME -replace '^v', '')" `
+            -SmokePackages
 
   publish:
     needs:
@@ -466,8 +470,124 @@ jobs:
             --commit "$GITHUB_SHA" \
             --input published-release
 
-  sync-homebrew:
+  verify-published-macos:
     needs: publish
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Download published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+
+      - name: Verify published manifests and bytes
+        run: |
+          node apps/desktop/scripts/release-artifacts.mjs verify \
+            --platform all \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --input published-release
+
+      - name: Verify published macOS trust
+        run: |
+          bash apps/desktop/scripts/finalize-macos-release.sh \
+            --verify-only \
+            "$PWD/published-release" \
+            "${GITHUB_REF_NAME#v}"
+
+  verify-published-linux:
+    needs: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Download published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+
+      - name: Verify published manifests and bytes
+        run: |
+          node apps/desktop/scripts/release-artifacts.mjs verify \
+            --platform all \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --input published-release
+
+      - name: Verify published Linux package
+        run: |
+          bash apps/desktop/scripts/verify-linux-release.sh \
+            "$PWD/published-release" \
+            "${GITHUB_REF_NAME#v}"
+
+  verify-published-windows:
+    needs: publish
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Download published release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+
+      - name: Verify published manifests and bytes
+        shell: bash
+        run: |
+          node apps/desktop/scripts/release-artifacts.mjs verify \
+            --platform all \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --input published-release
+
+      - name: Verify published Windows signatures
+        shell: pwsh
+        run: |
+          ./apps/desktop/scripts/verify-windows-release.ps1 `
+            -ReleaseDir "$PWD/published-release" `
+            -Version "$($env:GITHUB_REF_NAME -replace '^v', '')" `
+            -SmokePackages
+
+  sync-homebrew:
+    needs:
+      - verify-published-macos
+      - verify-published-linux
+      - verify-published-windows
     runs-on: macos-latest
 
     steps:
