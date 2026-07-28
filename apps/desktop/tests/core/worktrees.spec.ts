@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
+  addWorkspaceViaIpc,
   assertExists,
   createNamedThread,
   createSessionViaIpc,
@@ -37,7 +38,12 @@ async function pathExists(path: string): Promise<boolean> {
 
 function isPathWithin(root: string, candidate: string): boolean {
   const relativePath = relative(root, candidate);
-  return relativePath !== "" && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
 }
 
 test("creates and selects a worktree-backed workspace from the desktop UI", async () => {
@@ -98,6 +104,8 @@ test("scopes worktree creation and startup collection to the active profile", as
   let profileAWorktree: string | undefined;
 
   try {
+    await addLinkedWorktree(workspacePath, legacyWorktree, "pi/legacy");
+    const canonicalLegacyWorktree = await realpath(legacyWorktree);
     const profileAHarness = await launchDesktop(profileA, {
       initialWorkspaces: [workspacePath],
       testMode: "background",
@@ -106,15 +114,20 @@ test("scopes worktree creation and startup collection to the active profile", as
     try {
       const window = await profileAHarness.firstWindow();
       const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
+      await addWorkspaceViaIpc(window, legacyWorktree);
+      const legacyWorkspace = await waitForWorkspaceByPath(window, canonicalLegacyWorktree);
+      expect(legacyWorkspace.kind).toBe("worktree");
+
       await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
       await window.getByRole("button", { name: "Create permanent worktree" }).click();
 
       await expect
         .poll(async () => {
           const state = await getDesktopState(window);
-          return state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId)?.kind;
+          const selected = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+          return selected?.kind === "worktree" && selected.path !== canonicalLegacyWorktree;
         })
-        .toBe("worktree");
+        .toBe(true);
 
       const state = await getDesktopState(window);
       profileAWorktree = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId)?.path;
@@ -127,7 +140,6 @@ test("scopes worktree creation and startup collection to the active profile", as
 
     assertExists(profileAWorktree, "Expected profile A worktree path");
     await addLinkedWorktree(workspacePath, profileBOrphan, "pi/profile-b-orphan");
-    await addLinkedWorktree(workspacePath, legacyWorktree, "pi/legacy");
 
     const profileBHarness = await launchDesktop(profileB, {
       initialWorkspaces: [],
@@ -141,6 +153,25 @@ test("scopes worktree creation and startup collection to the active profile", as
       expect(await pathExists(legacyWorktree)).toBe(true);
     } finally {
       await profileBHarness.close();
+    }
+
+    const profileALegacyHarness = await launchDesktop(profileA, {
+      initialWorkspaces: [],
+      testMode: "background",
+      envOverrides: { HOME: fakeHome },
+    });
+    try {
+      const window = await profileALegacyHarness.firstWindow();
+      const legacyWorkspace = await waitForWorkspaceByPath(window, canonicalLegacyWorktree);
+      expect(legacyWorkspace.kind).toBe("worktree");
+      await window.evaluate(async (workspaceId) => {
+        await window.piApp.selectWorkspace(workspaceId);
+      }, legacyWorkspace.id);
+      const state = await getDesktopState(window);
+      expect(state.selectedWorkspaceId).toBe(legacyWorkspace.id);
+      expect(await pathExists(canonicalLegacyWorktree)).toBe(true);
+    } finally {
+      await profileALegacyHarness.close();
     }
 
     await rm(join(profileA, "catalogs.json"), { force: true });
