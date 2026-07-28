@@ -35,12 +35,28 @@
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
+.main--with-startup-diagnostics {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.main--with-terminal.main--with-startup-diagnostics {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.main--with-side-panel > .startup-diagnostics {
+  grid-column: 1 / -1;
+}
+
 .main--with-side-panel > .terminal-panel {
   grid-column: 1;
 }
 
 .main--with-side-panel.main--terminal-takeover {
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.main--with-side-panel.main--terminal-takeover.main--with-startup-diagnostics {
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .canvas {
@@ -172,6 +188,14 @@
 
 .main--with-side-panel.main--with-terminal > .diff-panel {
   grid-row: 2 / span 3;
+}
+
+.main--with-side-panel.main--with-startup-diagnostics > .diff-panel {
+  grid-row: 3 / -1;
+}
+
+.main--with-side-panel.main--with-terminal.main--with-startup-diagnostics > .diff-panel {
+  grid-row: 3 / span 3;
 }
 
 .file-workbench__mode {
@@ -368,6 +392,13 @@
   gap: 10px;
 }
 
+.file-workbench__viewer-path,
+.diff-panel__file-path {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .file-workbench__viewer-modes {
   display: flex;
   flex-wrap: wrap;
@@ -431,6 +462,10 @@
   font-size: 13px;
 }
 
+.diff-panel__unavailable {
+  color: var(--error-ink);
+}
+
 .diff-panel__file-list {
   border-bottom: 1px solid var(--border);
   max-height: 200px;
@@ -464,6 +499,10 @@
   height: auto;
   max-height: none;
   z-index: 20;
+}
+
+.main--with-startup-diagnostics > .terminal-panel--takeover {
+  grid-row: 3 / -1;
 }
 
 .terminal-panel__resize-handle {
@@ -652,11 +691,13 @@
   flex-shrink: 0;
 }
 
-.diff-panel__status-dot--modified {
+.diff-panel__status-dot--modified,
+.diff-panel__status-dot--renamed {
   background: var(--diff-modified-ink);
 }
 
-.diff-panel__status-dot--added {
+.diff-panel__status-dot--added,
+.diff-panel__status-dot--copied {
   background: var(--diff-added-ink);
 }
 
@@ -783,6 +824,18 @@
   color: var(--text-strong);
   font-size: 13px;
   font-weight: 600;
+}
+
+.startup-diagnostics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--danger-tint-border);
+  background: var(--danger-tint-bg);
+  color: var(--error-ink);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .composer__slash-intent-meta {

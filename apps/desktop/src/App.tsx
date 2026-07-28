@@ -599,6 +599,7 @@ export default function App() {
     sidePanelMode ? "main--with-diff" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
+    snapshot.startupDiagnostics.length > 0 ? "main--with-startup-diagnostics" : "",
   ].filter(Boolean).join(" ");
   const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (
     <TerminalPanel
@@ -807,6 +808,20 @@ export default function App() {
           promptRailVisible={promptRailVisible}
           onTogglePromptRail={togglePromptRail}
         />
+
+        {snapshot.startupDiagnostics.length > 0 ? (
+          <div className="startup-diagnostics" role="status" data-testid="startup-diagnostics">
+            <strong>Some saved workspaces could not be refreshed.</strong>
+            <span>
+              {snapshot.startupDiagnostics
+                .map((diagnostic) => {
+                  const workspaceName = diagnostic.workspacePath?.split(/[\\/]/).filter(Boolean).at(-1);
+                  return workspaceName ? `${workspaceName} is unavailable.` : diagnostic.message;
+                })
+                .join(" ")}
+            </span>
+          </div>
+        ) : null}
 
         {showTerminalTakeover ? (
           terminalPanel

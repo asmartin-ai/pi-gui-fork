@@ -187,20 +187,23 @@ test("writes an oversized terminal paste in chunks instead of dropping it", asyn
     const payload = `${`${"X".repeat(63)}\n`.repeat(lineCount)}ENDMARKER\n`;
     expect(payload.length).toBeGreaterThan(128 * 1024);
 
-    // zsh toggles bracketed-paste mode (DECSET 2004) off before running a command
-    // and back on at each prompt. Under load the renderer's xterm can still read
-    // the mode as "on" when the paste fires, so it wraps the paste in
-    // ESC[200~..ESC[201~; the trailing terminator leaves an unterminated partial
-    // line in cat's canonical input buffer and defeats the following Ctrl+D EOF.
-    // Disable zsh's bracketed paste for this shell so the oversized paste is
-    // delivered raw. The echoed READYMARKER (quotes strip on execution but stay in
-    // the typed command echo) confirms the disable was applied before we paste.
-    await window.keyboard.type('unset zle_bracketed_paste; echo READY""MARKER');
+    // Start a receiver that installs its stdin pipe before announcing readiness.
+    // This keeps the test independent of whether the shell has handed the PTY to
+    // the child by the time Playwright's Enter keypress resolves.
+    const receiverReady = "PI_TERMINAL_RECEIVER_READY";
+    const receiverDone = "PI_TERMINAL_RECEIVER_DONE";
+    const receiverScript = [
+      'const fs = require("node:fs")',
+      'const output = fs.createWriteStream("payload.txt")',
+      "process.stdin.pipe(output)",
+      'process.stdout.write("PI_TERMINAL_RECEIVER_" + "READY\\n")',
+    ].join(";");
+    await window.keyboard.type(
+      `node -e '${receiverScript}'; echo PI_TERMINAL_RECEIVER_""DONE`,
+    );
     await window.keyboard.press("Enter");
-    await expect(terminal.locator(".xterm-rows")).toContainText("READYMARKER", { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).toContainText(receiverReady, { timeout: 15_000 });
 
-    await window.keyboard.type("cat > payload.txt");
-    await window.keyboard.press("Enter");
     await harness.electronApp.evaluate(({ clipboard }, text) => {
       clipboard.writeText(text);
     }, payload);
@@ -208,11 +211,15 @@ test("writes an oversized terminal paste in chunks instead of dropping it", asyn
     await expect(terminal.locator(".xterm-rows")).toContainText("ENDMARKER", { timeout: 30_000 });
 
     await window.keyboard.press("Control+D");
+    await expect(terminal.locator(".xterm-rows")).toContainText(receiverDone, { timeout: 15_000 });
     await window.keyboard.type("wc -l payload.txt");
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText(`${lineCount + 1} payload.txt`, {
       timeout: 15_000,
     });
+    await window.keyboard.type("tail -n 1 payload.txt");
+    await window.keyboard.press("Enter");
+    await expect(terminal.locator(".xterm-rows")).toContainText("ENDMARKER", { timeout: 15_000 });
   } finally {
     await harness.close();
   }
