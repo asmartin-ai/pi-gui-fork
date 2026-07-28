@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { join } from "node:path";
 import {
   desktopShortcut,
@@ -11,6 +11,48 @@ import {
   selectSession,
   waitForSelectedSessionReady,
 } from "../helpers/electron-app";
+
+async function deferAnimationFrames(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    const originalCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    let nextFrameId = -1;
+
+    window.requestAnimationFrame = (callback) => {
+      const frameId = nextFrameId;
+      nextFrameId -= 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    };
+    window.cancelAnimationFrame = (frameId) => {
+      if (!queuedFrames.delete(frameId)) {
+        originalCancelAnimationFrame(frameId);
+      }
+    };
+    Object.assign(window, {
+      __PI_FLUSH_DEFERRED_ANIMATION_FRAMES: () => {
+        window.requestAnimationFrame = originalRequestAnimationFrame;
+        window.cancelAnimationFrame = originalCancelAnimationFrame;
+        const now = performance.now();
+        for (const callback of queuedFrames.values()) {
+          callback(now);
+        }
+        queuedFrames.clear();
+      },
+    });
+  });
+}
+
+async function flushDeferredAnimationFrames(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    (
+      window as typeof window & {
+        __PI_FLUSH_DEFERRED_ANIMATION_FRAMES?: () => void;
+      }
+    ).__PI_FLUSH_DEFERRED_ANIMATION_FRAMES?.();
+  });
+}
 
 test("opens /tree from the composer, navigates branches, and blocks it on the new-thread surface", async () => {
   test.setTimeout(90_000);
@@ -28,6 +70,8 @@ test("opens /tree from the composer, navigates branches, and blocks it on the ne
 
   try {
     const window = await harness.firstWindow();
+    // Hold the session-selection focus restoration until the async tree modal is mounted.
+    await deferAnimationFrames(window);
     await selectSession(window, fixture.title);
     await waitForSelectedSessionReady(window, fixture);
 
@@ -38,6 +82,7 @@ test("opens /tree from the composer, navigates branches, and blocks it on the ne
 
     const treeModal = window.getByTestId("tree-modal");
     await expect(treeModal).toBeVisible();
+    await flushDeferredAnimationFrames(window);
     await expect(window.getByTestId("tree-modal-search")).toBeFocused();
     await expect(treeModal).not.toContainText("Tree fixture session");
     await expect(treeModal).not.toContainText("gpt-5.4");

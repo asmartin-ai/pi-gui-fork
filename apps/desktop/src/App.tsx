@@ -229,6 +229,10 @@ export default function App() {
   );
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
+      // A queued focus restore must not move focus behind a modal that opened meanwhile.
+      if (document.querySelector("[aria-modal='true']")) {
+        return;
+      }
       composerRef.current?.focus();
     });
   };
