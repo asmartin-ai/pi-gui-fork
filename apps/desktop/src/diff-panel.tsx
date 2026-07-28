@@ -505,7 +505,9 @@ export function DiffPanel({
 
       <div className="diff-panel__viewer file-workbench__viewer">
         <div className="diff-panel__viewer-header file-workbench__viewer-header">
-          <span>{selectedFile ? formatPathForDisplay(selectedFile.path) : "Select a file"}</span>
+          <span className="file-workbench__viewer-path">
+            {selectedFile ? formatPathForDisplay(selectedFile.path) : "Select a file"}
+          </span>
           {selectedFile && panelMode === "changes" ? (
             <span className="file-workbench__viewer-modes" role="group" aria-label="Viewer mode">
               <button
@@ -713,8 +715,7 @@ function workspaceIdFromReviewedFileKey(key: string): string | undefined {
 }
 
 function formatPathForDisplay(path: string): string {
-  const hasControlCharacter = /[\u0001-\u001f\u007f]/.test(path);
-  return path.trim() !== path || hasControlCharacter ? JSON.stringify(path) : path;
+  return JSON.stringify(path);
 }
 
 function contextLabel(context: FileWorkbenchContext): string {

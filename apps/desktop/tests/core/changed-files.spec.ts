@@ -23,9 +23,11 @@ test("preserves an exact changed-file path through diff and stage actions", asyn
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("changed-file-path");
   const filePath = " leading\t\"quoted\" -> destination\n.txt ";
+  const displayCollisionPath = JSON.stringify(filePath);
   await initGitRepo(workspacePath);
   await commitAllInGitRepo(workspacePath, "init");
   await writeFile(join(workspacePath, filePath), "exact path contents\n", "utf8");
+  await writeFile(join(workspacePath, displayCollisionPath), "distinct path contents\n", "utf8");
 
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -38,10 +40,17 @@ test("preserves an exact changed-file path through diff and stage actions", asyn
     await window.keyboard.press(desktopShortcut("D"));
 
     const diffPanel = window.locator(".diff-panel");
-    const changedRow = diffPanel.locator(".diff-panel__file");
-    await expect(changedRow).toHaveCount(1);
+    const changedRows = diffPanel.locator(".diff-panel__file");
+    await expect(changedRows).toHaveCount(2);
+    const rowPaths = await changedRows.evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-file-path")),
+    );
+    const changedRow = changedRows.nth(rowPaths.indexOf(filePath));
     await expect(changedRow).toHaveAttribute("data-file-path", filePath);
     expect(await changedRow.locator(".diff-panel__file-path").textContent()).toBe(JSON.stringify(filePath));
+    expect(await changedRows.locator(".diff-panel__file-path").allTextContents()).toEqual(
+      expect.arrayContaining([JSON.stringify(filePath), JSON.stringify(displayCollisionPath)]),
+    );
 
     await changedRow.locator(".diff-panel__file-name").click();
     await expect(diffPanel.locator(".diff-inline")).toContainText("exact path contents");

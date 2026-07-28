@@ -86,18 +86,18 @@ export async function getFileDiff(
   resolveWorkspacePath(workspacePath, filePath);
   const options = { cwd: workspacePath, maxBuffer: 5 * 1024 * 1024 };
 
-  const unstaged = await executeGit(["diff", "--", filePath], options);
+  const unstaged = await executeGit(["--literal-pathspecs", "diff", "--", filePath], options);
   if (!unstaged.error && unstaged.stdout.trim()) {
     return unstaged.stdout;
   }
 
-  const staged = await executeGit(["diff", "--cached", "--", filePath], options);
+  const staged = await executeGit(["--literal-pathspecs", "diff", "--cached", "--", filePath], options);
   if (!staged.error && staged.stdout.trim()) {
     return staged.stdout;
   }
 
   const untracked = await executeGit(
-    ["diff", "--no-index", "--", "/dev/null", filePath],
+    ["--literal-pathspecs", "diff", "--no-index", "--", "/dev/null", filePath],
     options,
   );
   // git diff --no-index exits 1 when files differ, which is expected.
@@ -110,7 +110,7 @@ export async function stageFile(
   executeGit: GitCommandExecutor = executeGitCommand,
 ): Promise<void> {
   resolveWorkspacePath(workspacePath, filePath);
-  const result = await executeGit(["add", "--", filePath], { cwd: workspacePath });
+  const result = await executeGit(["--literal-pathspecs", "add", "--", filePath], { cwd: workspacePath });
   if (result.error) {
     throw result.error;
   }

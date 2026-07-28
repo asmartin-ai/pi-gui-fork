@@ -122,7 +122,7 @@ test("uses machine-safe status arguments and returns typed failures", async () =
 });
 
 test("passes exact paths as isolated argv values for diff and stage", async () => {
-  const exactPath = `${pathologicalPath("$(touch should-not-run); old -> new")}"`;
+  const exactPath = ":(glob)*$(touch should-not-run); old -> new*.txt";
   const calls: string[][] = [];
   const responses = [
     gitResult(),
@@ -142,10 +142,10 @@ test("passes exact paths as isolated argv values for diff and stage", async () =
   await expect(getFileDiff("/workspace", exactPath, executeGit)).resolves.toBe("untracked diff");
   await expect(stageFile("/workspace", exactPath, executeGit)).resolves.toBeUndefined();
   expect(calls).toEqual([
-    ["diff", "--", exactPath],
-    ["diff", "--cached", "--", exactPath],
-    ["diff", "--no-index", "--", "/dev/null", exactPath],
-    ["add", "--", exactPath],
+    ["--literal-pathspecs", "diff", "--", exactPath],
+    ["--literal-pathspecs", "diff", "--cached", "--", exactPath],
+    ["--literal-pathspecs", "diff", "--no-index", "--", "/dev/null", exactPath],
+    ["--literal-pathspecs", "add", "--", exactPath],
   ]);
 });
 
@@ -160,6 +160,8 @@ test("round-trips pathological paths through a real Git repository", async () =>
   const deletedPath = pathologicalPath("deleted");
   const renameSourcePath = pathologicalPath("rename source");
   const renamedPath = pathologicalPath("rename destination");
+  const pathspecMagicPath = ":(glob)*.txt";
+  const pathspecVictimPath = "pathspec-victim.txt";
   const renameBaseContents = "renamed base contents ".repeat(20);
 
   try {
@@ -180,6 +182,8 @@ test("round-trips pathological paths through a real Git repository", async () =>
     await writeFile(join(workspacePath, addedPath), "added index\n", "utf8");
     await runGit(workspacePath, ["add", "--", addedPath]);
     await writeFile(join(workspacePath, untrackedPath), "untracked contents\n", "utf8");
+    await writeFile(join(workspacePath, pathspecMagicPath), "literal pathspec contents\n", "utf8");
+    await writeFile(join(workspacePath, pathspecVictimPath), "must remain untracked\n", "utf8");
     await unlink(join(workspacePath, deletedPath));
     await runGit(workspacePath, ["mv", "--", renameSourcePath, renamedPath]);
     await writeFile(
@@ -195,7 +199,7 @@ test("round-trips pathological paths through a real Git repository", async () =>
     }
 
     const entriesByPath = new Map(result.files.map((entry) => [entry.path, entry]));
-    expect(entriesByPath.size).toBe(6);
+    expect(entriesByPath.size).toBe(8);
     expect(entriesByPath.get(modifiedPath)).toEqual({
       path: modifiedPath,
       status: "modified",
@@ -227,10 +231,24 @@ test("round-trips pathological paths through a real Git repository", async () =>
       status: "renamed",
       staged: false,
     });
+    expect(entriesByPath.get(pathspecMagicPath)).toEqual({
+      path: pathspecMagicPath,
+      status: "untracked",
+      staged: false,
+    });
+    expect(entriesByPath.get(pathspecVictimPath)).toEqual({
+      path: pathspecVictimPath,
+      status: "untracked",
+      staged: false,
+    });
 
     await expect(getFileDiff(workspacePath, untrackedPath)).resolves.toContain("untracked contents");
+    await expect(getFileDiff(workspacePath, pathspecMagicPath)).resolves.toContain(
+      "literal pathspec contents",
+    );
     await stageFile(workspacePath, untrackedPath);
     await stageFile(workspacePath, renamedPath);
+    await stageFile(workspacePath, pathspecMagicPath);
     const stagedNames = await runGit(workspacePath, [
       "diff",
       "--cached",
@@ -249,6 +267,16 @@ test("round-trips pathological paths through a real Git repository", async () =>
         previousPath: renameSourcePath,
         status: "renamed",
         staged: true,
+      });
+      expect(stagedResult.files.find((entry) => entry.path === pathspecMagicPath)).toEqual({
+        path: pathspecMagicPath,
+        status: "added",
+        staged: true,
+      });
+      expect(stagedResult.files.find((entry) => entry.path === pathspecVictimPath)).toEqual({
+        path: pathspecVictimPath,
+        status: "untracked",
+        staged: false,
       });
     }
   } finally {

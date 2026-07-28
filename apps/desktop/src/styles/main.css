@@ -368,6 +368,13 @@
   gap: 10px;
 }
 
+.file-workbench__viewer-path,
+.diff-panel__file-path {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .file-workbench__viewer-modes {
   display: flex;
   flex-wrap: wrap;
