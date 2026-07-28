@@ -13,7 +13,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify release tag and product versions
+        run: node scripts/verify-release-version.mjs --tag "$GITHUB_REF_NAME"
+
   build-macos:
+    needs: release-preflight
     runs-on: macos-latest
 
     steps:
@@ -120,6 +134,7 @@ jobs:
           compression-level: 0
 
   build-linux:
+    needs: release-preflight
     runs-on: ubuntu-latest
 
     steps:
@@ -174,6 +189,7 @@ jobs:
           compression-level: 0
 
   build-windows:
+    needs: release-preflight
     runs-on: windows-latest
 
     steps:

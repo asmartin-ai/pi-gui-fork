@@ -39,6 +39,9 @@ jobs:
       - name: Test release artifact helpers
         run: pnpm test:release-helpers
 
+      - name: Verify release version consistency
+        run: pnpm verify:release-version
+
       - name: Verify release configuration
         run: pnpm verify:release-config
 

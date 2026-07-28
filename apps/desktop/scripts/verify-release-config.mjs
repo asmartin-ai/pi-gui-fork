@@ -33,6 +33,17 @@ function runText(step) {
   return typeof step.run === "string" ? step.run : "";
 }
 
+function validateCiWorkflow(workflow) {
+  const versionCheck = stepNamed(
+    workflow.jobs?.typecheck,
+    "Verify release version consistency",
+  );
+  assert(
+    runText(versionCheck).includes("pnpm verify:release-version"),
+    "CI must reject drift between product package versions",
+  );
+}
+
 function validateBuilderConfig(config) {
   assert(config.mac?.notarize === true, "electron-builder must notarize the macOS app");
   assert(
@@ -80,6 +91,23 @@ function validateWorkflow(
   windowsVerifierSource,
 ) {
   const jobs = workflow.jobs ?? {};
+  const releasePreflight = jobs["release-preflight"];
+  const versionCheck = stepNamed(
+    releasePreflight,
+    "Verify release tag and product versions",
+  );
+  assert(
+    runText(versionCheck).includes("verify-release-version.mjs") &&
+      runText(versionCheck).includes('--tag "$GITHUB_REF_NAME"'),
+    "Release preflight must require the exact tag across product package versions",
+  );
+  for (const jobName of ["build-macos", "build-linux", "build-windows"]) {
+    assert(
+      jobs[jobName]?.needs === "release-preflight",
+      `${jobName} must wait for release version preflight`,
+    );
+  }
+
   const releaseSteps = Object.entries(jobs).flatMap(([jobName, job]) =>
     (job.steps ?? [])
       .filter(({ uses }) => uses === "softprops/action-gh-release@v2")
@@ -352,12 +380,14 @@ function validateWorkflow(
 
 const [
   builderConfig,
+  ciWorkflow,
   workflow,
   finalizerSource,
   linuxVerifierSource,
   windowsVerifierSource,
 ] = await Promise.all([
   parseYaml("apps/desktop/electron-builder.yml"),
+  parseYaml(".github/workflows/ci.yml"),
   parseYaml(".github/workflows/release.yml"),
   readFile(path.join(scriptDir, "finalize-macos-release.sh"), "utf8"),
   readFile(path.join(scriptDir, "verify-linux-release.sh"), "utf8"),
@@ -365,6 +395,7 @@ const [
 ]);
 
 validateBuilderConfig(builderConfig);
+validateCiWorkflow(ciWorkflow);
 validateWorkflow(
   workflow,
   finalizerSource,
