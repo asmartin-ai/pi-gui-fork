@@ -7,6 +7,7 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  waitForSelectedSessionReady,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 import { appendMessagesToSessionFile, sessionFilePathFromCatalog } from "../helpers/session-file";
@@ -58,6 +59,7 @@ test("context rail lists prompts and scrolls to a turn; timing markers render", 
     const state = await getDesktopState(window);
     workspaceId = state.selectedWorkspaceId;
     sessionId = state.selectedSessionId;
+    await waitForSelectedSessionReady(window, { workspaceId, sessionId });
   } finally {
     await firstRun.close();
   }
@@ -83,6 +85,7 @@ test("context rail lists prompts and scrolls to a turn; timing markers render", 
       BrowserWindow.getAllWindows()[0]?.setBounds({ x: 40, y: 40, width: 1500, height: 950 });
     });
     await waitForWorkspaceByPath(window, workspacePath);
+    await waitForSelectedSessionReady(window, { workspaceId, sessionId });
     await expect(window.getByTestId("transcript")).toBeVisible({ timeout: 15_000 });
 
     // Timing markers derived from the 8s prompt->answer spans.
@@ -159,6 +162,7 @@ test("context rail lists prompts and scrolls to a turn; timing markers render", 
       BrowserWindow.getAllWindows()[0]?.setBounds({ x: 40, y: 40, width: 1500, height: 950 });
     });
     await waitForWorkspaceByPath(window, workspacePath);
+    await waitForSelectedSessionReady(window, { workspaceId, sessionId });
     await expect(window.getByTestId("transcript")).toBeVisible({ timeout: 15_000 });
     await expect(window.getByTestId("timeline-context-rail")).toBeHidden();
 
