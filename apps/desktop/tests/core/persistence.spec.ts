@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  createSessionViaIpc,
   getDesktopState,
   getSelectedTranscript,
   launchDesktop,
@@ -10,9 +11,12 @@ import {
   makeWorkspace,
   pasteTinyPng,
   persistedSessionDataPaths,
+  selectSession,
   stubNextOpenDialog,
+  writeProjectExtension,
   writeTextFile,
 } from "../helpers/electron-app";
+import { appendMessagesToSessionFile, sessionFilePathFromCatalog } from "../helpers/session-file";
 
 test("clears mixed attachment chips on submit after paste and file attach", async () => {
   test.setTimeout(30_000);
@@ -201,6 +205,24 @@ test("recovers from parseable malformed nested state without overwriting valid f
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("malformed-nested-state-workspace");
   const uiStatePath = join(userDataDir, "ui-state.json");
+  const extensionPath = await writeProjectExtension(
+    workspacePath,
+    "persisted-compatibility.ts",
+    `export default function persistedCompatibility(pi) {
+      pi.registerCommand("persisted-safe", {
+        description: "Persisted compatibility fixture",
+        handler: async () => {},
+      });
+    }\n`,
+  );
+  const validCompatibility = {
+    commandName: "persisted-safe",
+    extensionPath,
+    status: "supported",
+    message: "GUI-compatible command",
+    capability: "host-ui",
+    updatedAt: "2026-07-27T00:00:00.000Z",
+  } as const;
 
   const firstRun = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -208,19 +230,32 @@ test("recovers from parseable malformed nested state without overwriting valid f
   });
   let workspaceId = "";
   let sessionId = "";
+  let childSessionId = "";
   try {
     const window = await firstRun.firstWindow();
     await createNamedThread(window, "Malformed nested state session");
-    await window.getByTestId("composer").fill("valid draft survives malformed nested state");
     const state = await getDesktopState(window);
     workspaceId = state.selectedWorkspaceId;
     sessionId = state.selectedSessionId;
+    await createSessionViaIpc(window, workspaceId, "Supervised child session");
+    childSessionId = (await getDesktopState(window)).workspaces
+      .find((entry) => entry.id === workspaceId)
+      ?.sessions.find((entry) => entry.title === "Supervised child session")
+      ?.id ?? "";
+    expect(childSessionId).toBeTruthy();
+    await selectSession(window, "Malformed nested state session");
+    await window.getByTestId("composer").fill("valid draft survives malformed nested state");
     await expect.poll(async () => readFile(uiStatePath, "utf8")).toContain(
       "valid draft survives malformed nested state",
     );
   } finally {
     await firstRun.close();
   }
+
+  const sessionFilePath = await sessionFilePathFromCatalog(userDataDir, { workspaceId, sessionId });
+  await appendMessagesToSessionFile(sessionFilePath, [
+    { role: "user", text: "valid catalog transcript survives malformed nested state" },
+  ]);
 
   const persisted = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
   const malformedSnapshot = `${JSON.stringify(
@@ -233,38 +268,110 @@ test("recovers from parseable malformed nested state without overwriting valid f
         [`${workspaceId}:${sessionId}`]: "valid draft survives malformed nested state",
       },
       extensionCommandCompatibilityByWorkspace: {
-        [workspaceId]: {
+        [workspaceId]: [
+          validCompatibility,
+          {
+            commandName: "missing-required-fields",
+          },
+        ],
+        "malformed-workspace": {
           commandName: "not-an-array",
         },
       },
+      composerAttachmentsBySession: {
+        [`${workspaceId}:${sessionId}`]: {
+          kind: "image",
+        },
+      },
+      orchestrationChildren: [
+        {
+          id: "persisted-supervised-child",
+          parentWorkspaceId: workspaceId,
+          parentSessionId: sessionId,
+          childWorkspaceId: workspaceId,
+          childSessionId,
+          title: "Supervised child session",
+          goal: "Prove startup supervision continues after malformed persistence.",
+          status: "queued",
+          latestTranscript: "Waiting for supervision.",
+          transcript: [],
+          evidence: [],
+          supervisionLoop: {
+            id: "persisted-supervision-loop",
+            status: "monitoring",
+            gate: "continue",
+            intervalMs: 250,
+            iterationCount: 7,
+            lastCheckedAt: "2000-01-01T00:00:00.000Z",
+            nextRunAt: "2000-01-01T00:00:00.000Z",
+            reason: "Waiting for the child to start.",
+            lastChildStatus: "queued",
+          },
+          createdAt: "2026-07-27T00:00:00.000Z",
+          updatedAt: "2026-07-27T00:00:00.000Z",
+        },
+      ],
     },
     null,
     2,
   )}\n`;
   await writeFile(uiStatePath, malformedSnapshot, "utf8");
 
-  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  const secondRun = await launchDesktop(userDataDir, {
+    testMode: "background",
+    envOverrides: {
+      PI_APP_ORCHESTRATION_SUPERVISION_INTERVAL_MS: "250",
+    },
+  });
   try {
     const window = await secondRun.firstWindow();
+    await expect(window.getByTestId("workspace-list")).toContainText("malformed-nested-state-workspace");
+    await expect(window.locator(".session-row--active")).toContainText("Malformed nested state session");
+    await expect(window.getByTestId("composer")).toHaveValue("valid draft survives malformed nested state");
+    await expect(window.getByTestId("transcript")).toContainText(
+      "valid catalog transcript survives malformed nested state",
+    );
+
     const state = await getDesktopState(window);
-    expect(state.lastError).toContain("records is not iterable");
-    expect(state.startupDiagnostics).toEqual([
-      expect.objectContaining({
-        scope: "application",
-      }),
-    ]);
-    await expect(window.getByTestId("startup-diagnostics")).toBeVisible();
+    const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+    expect(workspace?.sessions.some((entry) => entry.id === sessionId)).toBe(true);
+    expect(state.selectedWorkspaceId).toBe(workspaceId);
+    expect(state.selectedSessionId).toBe(sessionId);
+    expect(state.lastError).toBeUndefined();
+    expect(state.startupDiagnostics).toEqual([]);
+    expect(state.extensionCommandCompatibilityByWorkspace[workspaceId]).toEqual([validCompatibility]);
+    await expect
+      .poll(async () => {
+        const child = (await getDesktopState(window)).orchestrationChildren.find(
+          (entry) => entry.id === "persisted-supervised-child",
+        );
+        return child?.supervisionLoop?.iterationCount ?? 0;
+      }, { timeout: 10_000 })
+      .toBeGreaterThan(7);
+
+    const recovered = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
+    expect(recovered.selectedWorkspaceId).toBe(workspaceId);
+    expect(recovered.selectedSessionId).toBe(sessionId);
+    expect(recovered.composerDraft).toBe("valid draft survives malformed nested state");
+    expect(recovered.composerDraftsBySession).toEqual({
+      [`${workspaceId}:${sessionId}`]: "valid draft survives malformed nested state",
+    });
+    expect(recovered.extensionCommandCompatibilityByWorkspace).toEqual({
+      [workspaceId]: [validCompatibility],
+    });
+    expect(recovered.composerAttachmentsBySession).toBeUndefined();
+
+    const transcriptBefore = await getSelectedTranscript(window);
+    const transcriptLengthBefore = transcriptBefore?.transcript.length ?? 0;
+    const composer = window.getByTestId("composer");
+    await composer.fill("/status");
+    await composer.press("Enter");
+    await expect
+      .poll(async () => (await getSelectedTranscript(window))?.transcript.length ?? 0)
+      .toBeGreaterThan(transcriptLengthBefore);
   } finally {
     await secondRun.close();
   }
-
-  const recovered = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
-  expect(recovered.selectedWorkspaceId).toBe(workspaceId);
-  expect(recovered.selectedSessionId).toBe(sessionId);
-  expect(recovered.composerDraft).toBe("valid draft survives malformed nested state");
-  expect(recovered.composerDraftsBySession).toEqual({
-    [`${workspaceId}:${sessionId}`]: "valid draft survives malformed nested state",
-  });
 });
 
 test("preserves durable ui state when one startup workspace is unavailable", async () => {

@@ -1120,7 +1120,26 @@ export class DesktopAppStore implements AppStoreInternals {
     const startupDiagnostics: StartupDiagnostic[] = [];
     try {
       this.restorePersistedUiState(persisted);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[app-store] ignoring malformed persisted UI state", error);
+      startupDiagnostics.push({
+        scope: "application",
+        message: `Persisted UI state could not be fully restored: ${message}`,
+      });
+    }
+    try {
       await this.migrateLegacyPersistence(persisted);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[app-store] ignoring malformed legacy UI state", error);
+      startupDiagnostics.push({
+        scope: "application",
+        message: `Legacy UI state could not be fully migrated: ${message}`,
+      });
+    }
+
+    try {
       const initialWorkspacePaths = this.initialWorkspacePaths.map((path) => path.trim()).filter(Boolean);
       const knownWorkspaces = await this.driver.listWorkspaces();
       const workspacesToSync = new Map<string, string | undefined>();
