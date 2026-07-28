@@ -1176,6 +1176,87 @@ export async function getSelectedTranscript(window: Page): Promise<SelectedTrans
   });
 }
 
+export async function waitForSelectedSessionReady(
+  window: Page,
+  target: {
+    readonly sessionId: string;
+    readonly workspaceId?: string;
+  },
+  timeout = 15_000,
+): Promise<void> {
+  let expectedComposerDraft = "";
+  let expectedTitle = "";
+
+  await expect
+    .poll(
+      async () => {
+        const [state, selectedTranscript] = await Promise.all([
+          getDesktopState(window),
+          getSelectedTranscript(window),
+        ]);
+        const workspace = state.workspaces.find(
+          (entry) =>
+            (!target.workspaceId || entry.id === target.workspaceId) &&
+            entry.sessions.some((session) => session.id === target.sessionId),
+        );
+        const session = workspace?.sessions.find((entry) => entry.id === target.sessionId);
+        if (
+          !workspace ||
+          !session ||
+          !state.runtimeByWorkspace[workspace.id] ||
+          state.selectedWorkspaceId !== workspace.id ||
+          state.selectedSessionId !== session.id ||
+          selectedTranscript?.workspaceId !== workspace.id ||
+          selectedTranscript.sessionId !== session.id
+        ) {
+          return false;
+        }
+        expectedComposerDraft = state.composerDraft;
+        expectedTitle = session.title;
+        return true;
+      },
+      {
+        intervals: [50, 100, 250, 500],
+        message: `wait for selected session ${target.sessionId} to finish hydrating`,
+        timeout,
+      },
+    )
+    .toBe(true);
+
+  await expect(window.locator(".topbar__session")).toHaveText(expectedTitle, { timeout });
+  await expect(window.getByTestId("transcript-skeleton")).toHaveCount(0, { timeout });
+  await expect(window.getByTestId("composer")).toHaveValue(expectedComposerDraft, { timeout });
+
+  let previousLayout = "";
+  await expect
+    .poll(
+      async () => {
+        const layout = await window.evaluate(() => {
+          const composer = document.querySelector<HTMLElement>('[data-testid="composer-surface"]');
+          const timeline = document.querySelector<HTMLElement>('[data-testid="timeline-pane"]');
+          if (!composer || !timeline) {
+            return "";
+          }
+          return [
+            composer.getBoundingClientRect().height,
+            timeline.getBoundingClientRect().height,
+            timeline.clientHeight,
+            timeline.scrollHeight,
+          ].join(":");
+        });
+        const stable = Boolean(layout) && layout === previousLayout;
+        previousLayout = layout;
+        return stable;
+      },
+      {
+        intervals: [50, 100, 250],
+        message: `wait for selected session ${target.sessionId} layout to settle`,
+        timeout,
+      },
+    )
+    .toBe(true);
+}
+
 export interface TimelineScrollMetrics {
   readonly scrollTop: number;
   readonly scrollHeight: number;
