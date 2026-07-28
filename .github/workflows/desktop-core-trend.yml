@@ -44,6 +44,13 @@ jobs:
           --retries=0
           --reporter=line,json
 
+      - name: Group trend results by spec
+        if: always()
+        run: >-
+          node .github/scripts/summarize-playwright-trend.mjs
+          apps/desktop/test-results/desktop-core-trend.json
+          apps/desktop/test-results/desktop-core-trend-summary.json
+
       - name: Upload desktop core trend artifact
         if: always()
         uses: actions/upload-artifact@v4
