@@ -247,13 +247,12 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  publish:
+  stage-draft:
     needs:
       - build-macos
       - build-linux
       - build-windows
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
 
@@ -299,25 +298,8 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
-      - name: Verify uploaded draft bytes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir draft-download
-          gh release download "$GITHUB_REF_NAME" --dir draft-download
-          node apps/desktop/scripts/release-artifacts.mjs verify \
-            --platform all \
-            --version "${GITHUB_REF_NAME#v}" \
-            --commit "$GITHUB_SHA" \
-            --input draft-download
-
-      - name: Publish validated release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
-
-  verify-published-macos:
-    needs: publish
+  verify-draft-macos:
+    needs: stage-draft
     runs-on: macos-latest
 
     steps:
@@ -333,28 +315,28 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Download published release
+      - name: Download draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+        run: gh release download "$GITHUB_REF_NAME" --dir draft-release
 
-      - name: Verify published macOS manifest and bytes
+      - name: Verify draft manifests and bytes
         run: |
           node apps/desktop/scripts/release-artifacts.mjs verify \
-            --platform macos \
+            --platform all \
             --version "${GITHUB_REF_NAME#v}" \
             --commit "$GITHUB_SHA" \
-            --input published-release
+            --input draft-release
 
-      - name: Verify published macOS trust
+      - name: Verify draft macOS trust
         run: |
           bash apps/desktop/scripts/finalize-macos-release.sh \
             --verify-only \
-            "$PWD/published-release" \
+            "$PWD/draft-release" \
             "${GITHUB_REF_NAME#v}"
 
-  verify-published-linux:
-    needs: publish
+  verify-draft-linux:
+    needs: stage-draft
     runs-on: ubuntu-latest
 
     steps:
@@ -370,26 +352,26 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Download published release
+      - name: Download draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+        run: gh release download "$GITHUB_REF_NAME" --dir draft-release
 
-      - name: Verify published Linux manifest and bytes
+      - name: Verify draft manifests and bytes
         run: |
           node apps/desktop/scripts/release-artifacts.mjs verify \
-            --platform linux \
+            --platform all \
             --version "${GITHUB_REF_NAME#v}" \
             --commit "$GITHUB_SHA" \
-            --input published-release
+            --input draft-release
 
-      - name: Verify published Linux architecture
+      - name: Verify draft Linux architecture
         run: |
-          appimage="published-release/pi-gui-${GITHUB_REF_NAME#v}-x86_64.AppImage"
+          appimage="draft-release/pi-gui-${GITHUB_REF_NAME#v}-x86_64.AppImage"
           readelf -h "$appimage" | grep -F "Advanced Micro Devices X86-64"
 
-  verify-published-windows:
-    needs: publish
+  verify-draft-windows:
+    needs: stage-draft
     runs-on: windows-latest
 
     steps:
@@ -405,33 +387,87 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Download published release
+      - name: Download draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --dir published-release
+        run: gh release download "$GITHUB_REF_NAME" --dir draft-release
 
-      - name: Verify published Windows manifest and bytes
+      - name: Verify draft manifests and bytes
         shell: bash
         run: |
           node apps/desktop/scripts/release-artifacts.mjs verify \
-            --platform windows \
+            --platform all \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --input draft-release
+
+      - name: Verify draft Windows signatures
+        shell: pwsh
+        run: |
+          ./apps/desktop/scripts/verify-windows-release.ps1 `
+            -ReleaseDir "$PWD/draft-release" `
+            -Version "$($env:GITHUB_REF_NAME -replace '^v', '')"
+
+  publish:
+    needs:
+      - verify-draft-macos
+      - verify-draft-linux
+      - verify-draft-windows
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Require the validated draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node apps/desktop/scripts/github-release-state.mjs --require-draft
+
+      - name: Revalidate draft bytes before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir final-draft-check
+          gh release download "$GITHUB_REF_NAME" --dir final-draft-check
+          node apps/desktop/scripts/release-artifacts.mjs verify \
+            --platform all \
+            --version "${GITHUB_REF_NAME#v}" \
+            --commit "$GITHUB_SHA" \
+            --input final-draft-check
+
+      - name: Publish validated draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+      - name: Verify published release bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir published-release
+          gh release download "$GITHUB_REF_NAME" --dir published-release
+          node apps/desktop/scripts/release-artifacts.mjs verify \
+            --platform all \
             --version "${GITHUB_REF_NAME#v}" \
             --commit "$GITHUB_SHA" \
             --input published-release
 
-      - name: Verify published Windows signatures
-        shell: pwsh
-        run: |
-          ./apps/desktop/scripts/verify-windows-release.ps1 `
-            -ReleaseDir "$PWD/published-release" `
-            -Version "$($env:GITHUB_REF_NAME -replace '^v', '')"
-
   sync-homebrew:
-    needs:
-      - verify-published-macos
-      - verify-published-linux
-      - verify-published-windows
+    needs: publish
     runs-on: macos-latest
 
     steps:

@@ -81,7 +81,11 @@ function validateWorkflow(workflow, finalizerSource) {
       .map((step) => ({ jobName, step })),
   );
   assert(releaseSteps.length === 1, "Release workflow must have exactly one GitHub release action");
-  assert(releaseSteps[0].jobName === "publish", "Only the publish job may mutate a release");
+  assert(
+    releaseSteps[0].jobName === "stage-draft",
+    "Only the draft staging job may upload release assets",
+  );
+  assert(workflow.permissions?.contents === "read", "Release workflow must default to read access");
 
   validateBuildJob(jobs["build-macos"], "macOS");
   validateBuildJob(jobs["build-linux"], "Linux");
@@ -134,27 +138,27 @@ function validateWorkflow(workflow, finalizerSource) {
   );
   stepNamed(windowsJob, "Verify Windows signatures and architecture");
 
-  const publish = jobs.publish;
+  const stageDraft = jobs["stage-draft"];
   assert(
-    JSON.stringify(publish.needs) ===
+    JSON.stringify(stageDraft.needs) ===
       JSON.stringify(["build-macos", "build-linux", "build-windows"]),
-    "Publish job must wait for every platform candidate",
+    "Draft staging must wait for every platform candidate",
   );
-  assert(publish.environment === "release", "Publish job must use the release environment gate");
-  assert(publish.permissions?.contents === "write", "Only publish needs release write permission");
+  assert(
+    stageDraft.permissions?.contents === "write",
+    "Draft staging needs release write permission",
+  );
 
-  const steps = publish.steps ?? [];
+  const steps = stageDraft.steps ?? [];
   const candidateIndex = steps.findIndex(({ name }) => name === "Validate combined release candidate");
-  const stateCheck = stepNamed(publish, "Check existing release state");
+  const stateCheck = stepNamed(stageDraft, "Check existing release state");
+  const stateCheckIndex = steps.indexOf(stateCheck);
   const uploadIndex = steps.findIndex(({ uses }) => uses === "softprops/action-gh-release@v2");
-  const draftVerifyIndex = steps.findIndex(({ name }) => name === "Verify uploaded draft bytes");
-  const publishIndex = steps.findIndex(({ name }) => name === "Publish validated release");
   assert(
     candidateIndex >= 0 &&
-      candidateIndex < uploadIndex &&
-      uploadIndex < draftVerifyIndex &&
-      draftVerifyIndex < publishIndex,
-    "Candidate, draft upload, remote byte validation, and publication must remain ordered",
+      candidateIndex < stateCheckIndex &&
+      stateCheckIndex < uploadIndex,
+    "Candidate validation and fail-closed state lookup must precede draft upload",
   );
   assert(
     runText(stateCheck).includes("github-release-state.mjs") &&
@@ -168,18 +172,86 @@ function validateWorkflow(workflow, finalizerSource) {
     release.with?.fail_on_unmatched_files === true,
     "Draft upload must fail on unmatched artifact paths",
   );
+
+  const draftVerifiers = [
+    ["verify-draft-macos", "Verify draft macOS trust"],
+    ["verify-draft-linux", "Verify draft Linux architecture"],
+    ["verify-draft-windows", "Verify draft Windows signatures"],
+  ];
+  for (const [jobName, trustStep] of draftVerifiers) {
+    const job = jobs[jobName];
+    assert(job?.needs === "stage-draft", `${jobName} must wait for draft staging`);
+    assert(
+      runText(stepNamed(job, "Download draft release")).includes("gh release download"),
+      `${jobName} must download the draft release`,
+    );
+    assert(
+      runText(stepNamed(job, "Verify draft manifests and bytes")).includes("--platform all"),
+      `${jobName} must verify the complete draft byte set`,
+    );
+    stepNamed(job, trustStep);
+  }
+
+  const publish = jobs.publish;
   assert(
-    runText(steps[publishIndex]).includes("--draft=false"),
-    "The final gated step must publish the validated draft",
+    JSON.stringify(publish.needs) ===
+      JSON.stringify(["verify-draft-macos", "verify-draft-linux", "verify-draft-windows"]),
+    "Final publication must wait for all native draft trust checks",
+  );
+  assert(publish.environment === "release", "Final publication must use the release environment gate");
+  assert(publish.permissions?.contents === "write", "Final publication needs release write permission");
+
+  const publishSteps = publish.steps ?? [];
+  const requireIndex = publishSteps.findIndex(({ name }) => name === "Require the validated draft");
+  const revalidateIndex = publishSteps.findIndex(
+    ({ name }) => name === "Revalidate draft bytes before publication",
+  );
+  const publishIndex = publishSteps.findIndex(({ name }) => name === "Publish validated draft");
+  const publishedVerifyIndex = publishSteps.findIndex(
+    ({ name }) => name === "Verify published release bytes",
+  );
+  assert(
+    requireIndex >= 0 &&
+      requireIndex < revalidateIndex &&
+      revalidateIndex < publishIndex &&
+      publishIndex < publishedVerifyIndex,
+    "Draft state, bytes, publication, and public-byte verification must remain ordered",
+  );
+  assert(
+    runText(publishSteps[requireIndex]).includes("github-release-state.mjs --require-draft"),
+    "Final publication must fail closed unless the validated draft still exists",
+  );
+  assert(
+    runText(publishSteps[revalidateIndex]).includes("--platform all"),
+    "Final publication must revalidate unchanged draft bytes",
+  );
+  assert(
+    runText(publishSteps[publishIndex]).includes("--draft=false"),
+    "Only the final gated job may publish the validated draft",
+  );
+  assert(
+    runText(publishSteps[publishedVerifyIndex]).includes("--platform all"),
+    "Published release bytes must be redownloaded and verified",
   );
 
-  for (const jobName of [
-    "verify-published-macos",
-    "verify-published-linux",
-    "verify-published-windows",
-  ]) {
-    assert(jobs[jobName]?.needs === "publish", `${jobName} must validate the published release`);
-  }
+  const draftClears = Object.entries(jobs).flatMap(([jobName, job]) =>
+    (job.steps ?? [])
+      .filter((step) => runText(step).includes("--draft=false"))
+      .map(() => jobName),
+  );
+  assert(
+    JSON.stringify(draftClears) === JSON.stringify(["publish"]),
+    "Exactly one final job may clear the draft flag",
+  );
+
+  const writeJobs = Object.entries(jobs)
+    .filter(([, job]) => job.permissions?.contents === "write")
+    .map(([jobName]) => jobName);
+  assert(
+    JSON.stringify(writeJobs) === JSON.stringify(["stage-draft", "publish"]),
+    "Only draft staging and final publication may have release write permission",
+  );
+  assert(jobs["sync-homebrew"]?.needs === "publish", "Homebrew sync must wait for publication");
 }
 
 const [builderConfig, workflow, finalizerSource] = await Promise.all([
