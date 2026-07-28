@@ -155,14 +155,17 @@ test("scopes worktree creation and startup collection to the active profile", as
       await profileBHarness.close();
     }
 
-    const profileALegacyHarness = await launchDesktop(profileA, {
+    const profileACompatibilityHarness = await launchDesktop(profileA, {
       initialWorkspaces: [],
       testMode: "background",
       envOverrides: { HOME: fakeHome },
     });
     try {
-      const window = await profileALegacyHarness.firstWindow();
+      const window = await profileACompatibilityHarness.firstWindow();
+      const rememberedProfileAWorktree = await waitForWorkspaceByPath(window, profileAWorktree);
       const legacyWorkspace = await waitForWorkspaceByPath(window, canonicalLegacyWorktree);
+      expect(rememberedProfileAWorktree.kind).toBe("worktree");
+      expect(await pathExists(rememberedProfileAWorktree.path)).toBe(true);
       expect(legacyWorkspace.kind).toBe("worktree");
       await window.evaluate(async (workspaceId) => {
         await window.piApp.selectWorkspace(workspaceId);
@@ -171,7 +174,7 @@ test("scopes worktree creation and startup collection to the active profile", as
       expect(state.selectedWorkspaceId).toBe(legacyWorkspace.id);
       expect(await pathExists(canonicalLegacyWorktree)).toBe(true);
     } finally {
-      await profileALegacyHarness.close();
+      await profileACompatibilityHarness.close();
     }
 
     await rm(join(profileA, "catalogs.json"), { force: true });
