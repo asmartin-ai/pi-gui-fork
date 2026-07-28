@@ -77,8 +77,11 @@ export function TreeModal({
     setAutoScrollRequest((value) => value + 1);
   }, [tree]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (step === "select") {
+      if (loading || !tree) {
+        return;
+      }
       searchRef.current?.focus();
       return;
     }
@@ -87,7 +90,7 @@ export function TreeModal({
       return;
     }
     dialogRef.current?.querySelector<HTMLButtonElement>("[data-tree-summary-confirm='true']")?.focus();
-  }, [step, summaryMode]);
+  }, [loading, step, summaryMode, tree]);
 
   const displayRows = useMemo(
     () => (tree ? buildVisibleRows(tree.roots, expandedIds, search, tree.leafId) : []),
