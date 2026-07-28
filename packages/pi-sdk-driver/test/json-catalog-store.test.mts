@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -107,6 +107,72 @@ test("same-path stores serialize concurrent workspace, session, and worktree mut
     assert.equal((await reopened.workspaces.listWorkspaces()).workspaces.length, 12);
     assert.equal((await reopened.sessions.listSessions()).sessions.length, 12);
     assert.equal((await reopened.worktrees.listWorktrees()).worktrees.length, 12);
+  });
+});
+
+test("new stores reload an externally replaced catalog and preserve it on mutation", async () => {
+  await withTempDir(async (dir) => {
+    const catalogFilePath = join(dir, "catalogs.json");
+    const firstStore = new JsonCatalogStore({ catalogFilePath });
+    await firstStore.workspaces.upsertWorkspace({
+      workspaceId: "stale-workspace",
+      path: join(dir, "stale-workspace"),
+      displayName: "Stale workspace",
+      lastOpenedAt: timestamp,
+      sortOrder: 0,
+    });
+
+    const replacementPath = `${catalogFilePath}.external-replacement`;
+    await writeFile(
+      replacementPath,
+      `${JSON.stringify(
+        {
+          version: 2,
+          workspaces: [
+            {
+              workspaceId: "repaired-workspace",
+              path: join(dir, "repaired-workspace"),
+              displayName: "Repaired workspace",
+              lastOpenedAt: timestamp,
+              sortOrder: 0,
+            },
+          ],
+          sessions: [],
+          worktrees: [],
+          sessionFiles: {},
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await rename(replacementPath, catalogFilePath);
+
+    const reopened = new JsonCatalogStore({ catalogFilePath });
+    assert.deepEqual(
+      (await reopened.workspaces.listWorkspaces()).workspaces.map((entry) => entry.workspaceId),
+      ["repaired-workspace"],
+    );
+
+    await reopened.workspaces.upsertWorkspace({
+      workspaceId: "new-workspace",
+      path: join(dir, "new-workspace"),
+      displayName: "New workspace",
+      lastOpenedAt: timestamp,
+      sortOrder: 1,
+    });
+
+    const persisted = JSON.parse(await readFile(catalogFilePath, "utf8")) as {
+      workspaces: Array<{ workspaceId: string }>;
+    };
+    assert.deepEqual(
+      persisted.workspaces.map((entry) => entry.workspaceId).sort(),
+      ["new-workspace", "repaired-workspace"],
+    );
+    assert.deepEqual(
+      (await firstStore.workspaces.listWorkspaces()).workspaces.map((entry) => entry.workspaceId).sort(),
+      ["new-workspace", "repaired-workspace"],
+    );
   });
 });
 

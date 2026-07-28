@@ -29,9 +29,8 @@ type ParsedCatalogFileState = Partial<Omit<CatalogFileState, "version">> & {
 };
 
 interface CatalogFileCoordinator {
-  state: CatalogFileState | undefined;
-  loadPromise: Promise<CatalogFileState> | undefined;
   mutationQueue: Promise<void>;
+  generation: number;
 }
 
 const coordinatorsByPath = new Map<string, CatalogFileCoordinator>();
@@ -54,6 +53,10 @@ export interface SessionFileCatalogStorage extends CatalogStorage {
 export class JsonCatalogStore implements SessionFileCatalogStorage {
   private readonly filePath: string;
   private readonly coordinator: CatalogFileCoordinator;
+  private state: CatalogFileState | undefined;
+  private stateGeneration = -1;
+  private loadPromise: Promise<CatalogFileState> | undefined;
+  private loadGeneration = -1;
 
   constructor(options: JsonCatalogStoreOptions = {}) {
     this.filePath = options.catalogFilePath ? resolve(options.catalogFilePath) : defaultCatalogFilePath();
@@ -226,20 +229,24 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
   }
 
   private async getState(): Promise<CatalogFileState> {
-    if (this.coordinator.state) {
-      return this.coordinator.state;
+    const generation = this.coordinator.generation;
+    if (this.state && this.stateGeneration === generation) {
+      return this.state;
     }
-    if (!this.coordinator.loadPromise) {
-      this.coordinator.loadPromise = this.loadState();
+    if (!this.loadPromise || this.loadGeneration !== generation) {
+      this.loadPromise = this.loadState();
+      this.loadGeneration = generation;
     }
-    const loadPromise = this.coordinator.loadPromise;
+    const loadPromise = this.loadPromise;
     try {
       const state = await loadPromise;
-      this.coordinator.state = state;
+      if (this.loadPromise === loadPromise && this.coordinator.generation === generation) {
+        this.cacheState(state, generation);
+      }
       return state;
     } catch (error) {
-      if (this.coordinator.loadPromise === loadPromise) {
-        this.coordinator.loadPromise = undefined;
+      if (this.loadPromise === loadPromise) {
+        this.clearStateCache();
       }
       throw error;
     }
@@ -259,12 +266,15 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
 
   private async mutateState(mutator: (state: CatalogFileState) => void | false): Promise<void> {
     const operation = this.coordinator.mutationQueue.then(async () => {
-      const nextState = cloneCatalogState(await this.getState());
+      this.clearStateCache();
+      const nextState = await this.loadState();
       if (mutator(nextState) === false) {
+        this.cacheState(nextState, this.coordinator.generation);
         return;
       }
       await writeJsonFileAtomic(this.filePath, nextState);
-      this.coordinator.state = nextState;
+      this.coordinator.generation += 1;
+      this.cacheState(nextState, this.coordinator.generation);
     });
 
     this.coordinator.mutationQueue = operation.then(
@@ -274,6 +284,20 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
 
     await operation;
   }
+
+  private cacheState(state: CatalogFileState, generation: number): void {
+    this.state = state;
+    this.stateGeneration = generation;
+    this.loadPromise = undefined;
+    this.loadGeneration = -1;
+  }
+
+  private clearStateCache(): void {
+    this.state = undefined;
+    this.stateGeneration = -1;
+    this.loadPromise = undefined;
+    this.loadGeneration = -1;
+  }
 }
 
 function coordinatorForPath(filePath: string): CatalogFileCoordinator {
@@ -282,9 +306,8 @@ function coordinatorForPath(filePath: string): CatalogFileCoordinator {
     return existing;
   }
   const coordinator: CatalogFileCoordinator = {
-    state: undefined,
-    loadPromise: undefined,
     mutationQueue: Promise.resolve(),
+    generation: 0,
   };
   coordinatorsByPath.set(filePath, coordinator);
   return coordinator;
@@ -301,16 +324,6 @@ function createEmptyState(): CatalogFileState {
     sessions: [],
     worktrees: [],
     sessionFiles: {},
-  };
-}
-
-function cloneCatalogState(state: CatalogFileState): CatalogFileState {
-  return {
-    version: 2,
-    workspaces: state.workspaces.map(cloneWorkspaceEntry),
-    sessions: state.sessions.map(cloneSessionEntry),
-    worktrees: state.worktrees.map(cloneWorktreeEntry),
-    sessionFiles: { ...state.sessionFiles },
   };
 }
 
