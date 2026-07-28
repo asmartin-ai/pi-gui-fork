@@ -108,7 +108,11 @@ export async function checkGithubReleaseState({
       throw new Error(`GitHub returned multiple releases for tag ${tag}`);
     }
     if (matches.length === 1) {
-      return validateDraft(matches[0], tag);
+      const draft = validateDraft(matches[0], tag);
+      if (!requireDraft) {
+        throw new Error(`Draft release ${tag} already exists; refusing to replace its assets`);
+      }
+      return draft;
     }
     if (releases.length < 100) {
       if (requireDraft) {
