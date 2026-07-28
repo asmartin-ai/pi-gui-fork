@@ -883,7 +883,7 @@ async function runManualUpdateCheck(): Promise<void> {
         cancelId: 1,
       });
       if (choice.response === 0) {
-        await openReleasesPage();
+        await openReleasesPage(result.releaseUrl);
       }
       return;
     }

@@ -39,6 +39,15 @@ jobs:
       - name: Verify dev launcher argv/PATH contract
         run: pnpm --dir apps/desktop run verify:launcher-contract
 
+      - name: Test release artifact helpers
+        run: pnpm test:release-helpers
+
+      - name: Verify release version consistency
+        run: pnpm verify:release-version
+
+      - name: Verify release configuration
+        run: pnpm verify:release-config
+
   website-build:
     runs-on: ubuntu-latest
 
