@@ -209,22 +209,7 @@ verify_deb_archive() {
       | tee -a "$proof_dir/native-node-pty-files.txt"
   done
 
-  local spawn_helper
-  spawn_helper="$(
-    find -L "$extracted/opt/pi-gui/resources/app.asar.unpacked/node_modules" \
-      -type f \
-      \( \
-        -path '*/node-pty/build/Release/spawn-helper' -o \
-        -path '*/node-pty/prebuilds/linux-x64/spawn-helper' \
-      \) \
-      -print -quit
-  )"
-  if [[ -z "$spawn_helper" || ! -x "$spawn_helper" ]]; then
-    echo "Extracted Debian package is missing executable node-pty spawn-helper." >&2
-    exit 1
-  fi
-  readelf -h "$spawn_helper" | tee "$proof_dir/native-node-pty-spawn-helper.txt"
-  grep -F "Advanced Micro Devices X86-64" "$proof_dir/native-node-pty-spawn-helper.txt"
+  # node-pty builds spawn-helper only on macOS; the installed Linux runtime smoke exercises pty.node.
 }
 
 verify_install_upgrade_launch_remove() {
