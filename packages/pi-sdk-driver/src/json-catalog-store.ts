@@ -28,6 +28,14 @@ type ParsedCatalogFileState = Partial<Omit<CatalogFileState, "version">> & {
   version?: 1 | 2;
 };
 
+interface CatalogFileCoordinator {
+  state: CatalogFileState | undefined;
+  loadPromise: Promise<CatalogFileState> | undefined;
+  mutationQueue: Promise<void>;
+}
+
+const coordinatorsByPath = new Map<string, CatalogFileCoordinator>();
+
 export interface JsonCatalogStoreOptions {
   readonly catalogFilePath?: string;
 }
@@ -45,12 +53,11 @@ export interface SessionFileCatalogStorage extends CatalogStorage {
 
 export class JsonCatalogStore implements SessionFileCatalogStorage {
   private readonly filePath: string;
-  private state: CatalogFileState | undefined;
-  private loadPromise: Promise<void> | undefined;
-  private writeQueue: Promise<void> = Promise.resolve();
+  private readonly coordinator: CatalogFileCoordinator;
 
   constructor(options: JsonCatalogStoreOptions = {}) {
     this.filePath = options.catalogFilePath ? resolve(options.catalogFilePath) : defaultCatalogFilePath();
+    this.coordinator = coordinatorForPath(this.filePath);
   }
 
   readonly workspaces = {
@@ -219,52 +226,68 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
   }
 
   private async getState(): Promise<CatalogFileState> {
-    if (this.state) {
-      return this.state;
+    if (this.coordinator.state) {
+      return this.coordinator.state;
     }
-    if (!this.loadPromise) {
-      this.loadPromise = this.loadState();
+    if (!this.coordinator.loadPromise) {
+      this.coordinator.loadPromise = this.loadState();
     }
-    await this.loadPromise;
-    if (!this.state) {
-      this.state = createEmptyState();
+    const loadPromise = this.coordinator.loadPromise;
+    try {
+      const state = await loadPromise;
+      this.coordinator.state = state;
+      return state;
+    } catch (error) {
+      if (this.coordinator.loadPromise === loadPromise) {
+        this.coordinator.loadPromise = undefined;
+      }
+      throw error;
     }
-    return this.state;
   }
 
-  private async loadState(): Promise<void> {
+  private async loadState(): Promise<CatalogFileState> {
     try {
       const raw = await readFile(this.filePath, "utf8");
-      this.state = parseState(raw, this.filePath);
+      return parseState(raw, this.filePath);
     } catch (error) {
       if (isMissingFileError(error)) {
-        this.state = createEmptyState();
-        return;
+        return createEmptyState();
       }
       throw error;
     }
   }
 
   private async mutateState(mutator: (state: CatalogFileState) => void | false): Promise<void> {
-    const state = await this.getState();
-    if (mutator(state) === false) {
-      return;
-    }
-    await this.persistState(state);
-  }
-
-  private async persistState(state: CatalogFileState): Promise<void> {
-    const operation = this.writeQueue.then(async () => {
-      await writeJsonFileAtomic(this.filePath, state);
+    const operation = this.coordinator.mutationQueue.then(async () => {
+      const nextState = cloneCatalogState(await this.getState());
+      if (mutator(nextState) === false) {
+        return;
+      }
+      await writeJsonFileAtomic(this.filePath, nextState);
+      this.coordinator.state = nextState;
     });
 
-    this.writeQueue = operation.then(
+    this.coordinator.mutationQueue = operation.then(
       () => undefined,
       () => undefined,
     );
 
     await operation;
   }
+}
+
+function coordinatorForPath(filePath: string): CatalogFileCoordinator {
+  const existing = coordinatorsByPath.get(filePath);
+  if (existing) {
+    return existing;
+  }
+  const coordinator: CatalogFileCoordinator = {
+    state: undefined,
+    loadPromise: undefined,
+    mutationQueue: Promise.resolve(),
+  };
+  coordinatorsByPath.set(filePath, coordinator);
+  return coordinator;
 }
 
 function defaultCatalogFilePath(): string {
@@ -278,6 +301,16 @@ function createEmptyState(): CatalogFileState {
     sessions: [],
     worktrees: [],
     sessionFiles: {},
+  };
+}
+
+function cloneCatalogState(state: CatalogFileState): CatalogFileState {
+  return {
+    version: 2,
+    workspaces: state.workspaces.map(cloneWorkspaceEntry),
+    sessions: state.sessions.map(cloneSessionEntry),
+    worktrees: state.worktrees.map(cloneWorktreeEntry),
+    sessionFiles: { ...state.sessionFiles },
   };
 }
 
