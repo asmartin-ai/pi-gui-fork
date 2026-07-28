@@ -428,6 +428,10 @@
   font-size: 13px;
 }
 
+.diff-panel__unavailable {
+  color: var(--error-ink);
+}
+
 .diff-panel__file-list {
   border-bottom: 1px solid var(--border);
   max-height: 200px;
@@ -649,11 +653,13 @@
   flex-shrink: 0;
 }
 
-.diff-panel__status-dot--modified {
+.diff-panel__status-dot--modified,
+.diff-panel__status-dot--renamed {
   background: var(--diff-modified-ink);
 }
 
-.diff-panel__status-dot--added {
+.diff-panel__status-dot--added,
+.diff-panel__status-dot--copied {
   background: var(--diff-added-ink);
 }
 

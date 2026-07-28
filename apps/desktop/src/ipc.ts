@@ -166,11 +166,31 @@ export type PiDesktopStateListener = (state: DesktopAppState) => void;
 export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 export type PiDesktopCommand = (typeof desktopCommands)[keyof typeof desktopCommands];
 
+export type ChangedFileStatus = "added" | "copied" | "deleted" | "modified" | "renamed" | "untracked";
+
 export interface ChangedFileEntry {
   readonly path: string;
-  readonly status: "added" | "modified" | "deleted" | "untracked";
+  readonly previousPath?: string;
+  readonly status: ChangedFileStatus;
   readonly staged: boolean;
 }
+
+export type ChangedFilesErrorCode = "git-status-failed" | "git-status-invalid" | "workspace-unavailable";
+
+export interface ChangedFilesError {
+  readonly code: ChangedFilesErrorCode;
+  readonly message: string;
+}
+
+export type ChangedFilesResult =
+  | {
+      readonly state: "available";
+      readonly files: readonly ChangedFileEntry[];
+    }
+  | {
+      readonly state: "unavailable";
+      readonly error: ChangedFilesError;
+    };
 
 export interface WorkspaceFilePreview {
   readonly path: string;
@@ -388,7 +408,7 @@ export interface PiDesktopApi {
   ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
   listWorkspaceFiles(workspaceId: string, options?: { readonly force?: boolean }): Promise<string[]>;
   readWorkspaceFile(workspaceId: string, filePath: string): Promise<WorkspaceFilePreview>;
-  getChangedFiles(workspaceId: string): Promise<ChangedFileEntry[]>;
+  getChangedFiles(workspaceId: string): Promise<ChangedFilesResult>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
   stageFile(workspaceId: string, filePath: string): Promise<void>;
   toggleWindowMaximize(): Promise<void>;

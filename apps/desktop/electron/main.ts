@@ -39,6 +39,7 @@ import type { AppView, DesktopAppState, ThemeMode, ThemePresetId } from "../src/
 import {
   desktopIpc,
   getDesktopCommandFromShortcut,
+  type ChangedFilesResult,
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
@@ -1439,7 +1440,13 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {
-      return [];
+      return {
+        state: "unavailable",
+        error: {
+          code: "workspace-unavailable",
+          message: "Changed files are unavailable because this workspace could not be found.",
+        },
+      } satisfies ChangedFilesResult;
     }
     return getChangedFiles(workspacePath);
   });
