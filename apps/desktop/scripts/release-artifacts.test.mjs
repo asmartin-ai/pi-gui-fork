@@ -58,7 +58,14 @@ async function createFixture(root, platform, override = {}) {
   const files = [];
   for (const name of updateAssets(platform)) {
     const digest = await hashFile(path.join(source, name));
-    files.push({ url: name, sha512: digest.sha512, size: digest.size });
+    const entry = { url: name, sha512: digest.sha512, size: digest.size };
+    const blockmapName = `${name}.blockmap`;
+    if (expectedFiles(platform, VERSION).includes(blockmapName)) {
+      entry.blockMapSize = (await hashFile(path.join(source, blockmapName))).size;
+    } else if (platform === "linux") {
+      entry.blockMapSize = Math.min(8, digest.size);
+    }
+    files.push(entry);
   }
   const primary = override.primary ?? primaryUpdateAsset(platform);
   const primaryDigest = await hashFile(path.join(source, primary));

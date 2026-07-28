@@ -162,11 +162,20 @@ async function verifyUpdateManifest(inputDir, platform, version) {
 
     if (entry.blockMapSize !== undefined) {
       const blockmapName = `${entry.url}.blockmap`;
-      const blockmap = await hashFile(path.join(inputDir, blockmapName));
-      if (entry.blockMapSize !== blockmap.size) {
-        throw new Error(
-          `${spec.updateManifest} blockmap size mismatch for ${entry.url}: expected ${blockmap.size}, got ${String(entry.blockMapSize)}`,
-        );
+      if (spec.files.some(({ name }) => name === blockmapName)) {
+        const blockmap = await hashFile(path.join(inputDir, blockmapName));
+        if (entry.blockMapSize !== blockmap.size) {
+          throw new Error(
+            `${spec.updateManifest} blockmap size mismatch for ${entry.url}: expected ${blockmap.size}, got ${String(entry.blockMapSize)}`,
+          );
+        }
+      } else if (
+        platform !== "linux" ||
+        !Number.isSafeInteger(entry.blockMapSize) ||
+        entry.blockMapSize <= 0 ||
+        entry.blockMapSize > digest.size
+      ) {
+        throw new Error(`${spec.updateManifest} has an invalid embedded blockmap size for ${entry.url}`);
       }
     }
   }
