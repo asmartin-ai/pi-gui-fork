@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { compareSemver } from "../../electron/update-checker";
+import { compareSemver, releaseUrlFor } from "../../electron/update-checker";
 
 /**
  * Unit coverage for the version comparison that gates update notifications.
@@ -32,4 +32,25 @@ test("compareSemver does not flag a newer-local build as an update", () => {
 test("compareSemver returns equal for unparseable input so no update is claimed", () => {
   expect(compareSemver("weird", "0.80.3")).toBe(0);
   expect(compareSemver("0.80.3", "also-weird")).toBe(0);
+});
+
+test("releaseUrlFor keeps the selected repository release URL", () => {
+  expect(
+    releaseUrlFor({
+      tag_name: "v0.1.0-beta.34",
+      html_url: "https://github.com/minghinmatthewlam/pi-gui/releases/tag/v0.1.0-beta.34",
+    }),
+  ).toBe("https://github.com/minghinmatthewlam/pi-gui/releases/tag/v0.1.0-beta.34");
+});
+
+test("releaseUrlFor falls back to the exact tag instead of the generic latest route", () => {
+  expect(releaseUrlFor({ tag_name: "v0.1.0-beta.34" })).toBe(
+    "https://github.com/minghinmatthewlam/pi-gui/releases/tag/v0.1.0-beta.34",
+  );
+  expect(
+    releaseUrlFor({
+      tag_name: "v0.1.0-beta.34",
+      html_url: "https://example.com/releases/tag/v0.1.0-beta.34",
+    }),
+  ).toBe("https://github.com/minghinmatthewlam/pi-gui/releases/tag/v0.1.0-beta.34");
 });
