@@ -38,9 +38,13 @@ function platformSpec(platform, version) {
         manifestName: "release-manifest-linux.json",
         updateManifest: "latest-linux.yml",
         primaryUpdateAsset: `${base}-x86_64.AppImage`,
-        updateAssets: [`${base}-x86_64.AppImage`],
+        updateAssets: [
+          `${base}-x86_64.AppImage`,
+          `${PRODUCT_NAME}_${version}_amd64.deb`,
+        ],
         files: [
           { name: `${base}-x86_64.AppImage`, role: "appimage" },
+          { name: `${PRODUCT_NAME}_${version}_amd64.deb`, role: "debian-package" },
           { name: "latest-linux.yml", role: "update-manifest" },
         ],
       };
@@ -171,6 +175,7 @@ async function verifyUpdateManifest(inputDir, platform, version) {
         }
       } else if (
         platform !== "linux" ||
+        entry.url !== spec.primaryUpdateAsset ||
         !Number.isSafeInteger(entry.blockMapSize) ||
         entry.blockMapSize <= 0 ||
         entry.blockMapSize > digest.size
