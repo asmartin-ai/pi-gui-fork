@@ -1,6 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
+normalize_debian_version() {
+  printf '%s\n' "$1" | tr '-' '~'
+}
+
+if [[ "${1:-}" == "--normalize-debian-version" ]]; then
+  if [[ "$#" -ne 2 ]]; then
+    echo "Usage: verify-linux-release.sh --normalize-debian-version <version>" >&2
+    exit 2
+  fi
+  normalize_debian_version "$2"
+  exit 0
+fi
+
 install_package=false
 if [[ "${1:-}" == "--install" ]]; then
   install_package=true
@@ -30,7 +43,7 @@ proof_dir="$(cd "$proof_dir" && pwd)"
 
 appimage="$release_dir/pi-gui-$version-x86_64.AppImage"
 deb="$release_dir/pi-gui_${version}_amd64.deb"
-debian_version="${version//-/~}"
+debian_version="$(normalize_debian_version "$version")"
 required_dependencies=(
   "libgtk-3-0 | libgtk-3-0t64"
   libnotify4
