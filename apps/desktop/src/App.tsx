@@ -11,6 +11,7 @@ import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app/app-shell-
 import { useRunningLabel } from "./hooks/use-running-label";
 import { useTimelineScroll, type SidePanelMode } from "./hooks/use-timeline-scroll";
 import { formatRelativeTime } from "./string-utils";
+import { restoreTopmostDialogFocus } from "./dialog-focus";
 import { ComposerPanel } from "./composer-panel";
 import { DiffPanel } from "./diff-panel";
 import type { DiffPanelFileRequest } from "./diff-panel-types";
@@ -229,6 +230,9 @@ export default function App() {
   );
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
+      if (restoreTopmostDialogFocus()) {
+        return;
+      }
       composerRef.current?.focus();
     });
   };
