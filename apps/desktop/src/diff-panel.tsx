@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import type { DiffPanelFileRequest, FileWorkbenchContext } from "./diff-panel-types";
-import type { ChangedFileEntry, PiDesktopApi, WorkspaceFilePreview } from "./ipc";
+import type { ChangedFileEntry, ChangedFilesResult, PiDesktopApi, WorkspaceFilePreview } from "./ipc";
 import { InlineDiff } from "./diff-inline";
 import { FileIcon, FolderIcon, RefreshIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
@@ -46,7 +46,7 @@ export function DiffPanel({
 }: DiffPanelProps) {
   const [filesByWorkspace, setFilesByWorkspace] = useState<Readonly<Record<string, readonly string[]>>>({});
   const [changedByWorkspace, setChangedByWorkspace] =
-    useState<Readonly<Record<string, readonly ChangedFileEntry[]>>>({});
+    useState<Readonly<Record<string, ChangedFilesResult>>>({});
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(workspaceId);
   const [selectedFile, setSelectedFile] = useState<FileSelection | null>(null);
   const [viewerMode, setViewerMode] = useState<"preview" | "diff">("preview");
@@ -69,15 +69,34 @@ export function DiffPanel({
   const activeTree = useMemo(() => buildFileTree(activeFiles), [activeFiles]);
   const changedGroups = useMemo(
     () =>
-      contexts.map((context) => ({
-        context,
-        files: (changedByWorkspace[context.workspace.id] ?? []).map((file) =>
-          toWorkbenchChangedFile(context, file),
-        ),
-      })),
+      contexts.map((context) => {
+        const result = changedByWorkspace[context.workspace.id];
+        return {
+          context,
+          error: result?.state === "unavailable" ? result.error : undefined,
+          pending: result === undefined,
+          files:
+            result?.state === "available"
+              ? result.files.map((file) => toWorkbenchChangedFile(context, file))
+              : [],
+        };
+      }),
     [changedByWorkspace, contexts],
   );
   const changedRows = useMemo(() => changedGroups.flatMap((group) => group.files), [changedGroups]);
+  const unavailableChangedGroupCount = useMemo(
+    () => changedGroups.reduce((count, group) => count + (group.error ? 1 : 0), 0),
+    [changedGroups],
+  );
+  const pendingChangedGroupCount = useMemo(
+    () => changedGroups.reduce((count, group) => count + (group.pending ? 1 : 0), 0),
+    [changedGroups],
+  );
+  const changedFilesSummary = buildChangedFilesSummary(
+    changedRows.length,
+    unavailableChangedGroupCount,
+    pendingChangedGroupCount,
+  );
   const changedRowsRef = useRef(changedRows);
   changedRowsRef.current = changedRows;
   const filesByWorkspaceRef = useRef(filesByWorkspace);
@@ -125,7 +144,7 @@ export function DiffPanel({
           return;
         }
         const nextFilesByWorkspace: Record<string, readonly string[]> = {};
-        const nextChangedByWorkspace: Record<string, readonly ChangedFileEntry[]> = {};
+        const nextChangedByWorkspace: Record<string, ChangedFilesResult> = {};
         for (const result of results) {
           nextFilesByWorkspace[result.workspaceId] = result.workspaceFiles;
           nextChangedByWorkspace[result.workspaceId] = result.changedFiles;
@@ -136,18 +155,34 @@ export function DiffPanel({
           if (!current) {
             return null;
           }
+          const changedResult = nextChangedByWorkspace[current.workspaceId];
+          const changedFiles = changedResult?.state === "available" ? changedResult.files : [];
           const availableFiles = new Set([
             ...(nextFilesByWorkspace[current.workspaceId] ?? []),
-            ...(nextChangedByWorkspace[current.workspaceId] ?? []).map((file) => file.path),
+            ...changedFiles.map((file) => file.path),
           ]);
           return availableFiles.has(current.path) ? current : null;
         });
         setReviewed((current) => {
+          const unavailableWorkspaceIds = new Set(
+            results
+              .filter((result) => result.changedFiles.state === "unavailable")
+              .map((result) => result.workspaceId),
+          );
+          const retainedUnavailableKeys = [...current].filter((key) => {
+            const reviewedWorkspaceId = workspaceIdFromReviewedFileKey(key);
+            return reviewedWorkspaceId !== undefined && unavailableWorkspaceIds.has(reviewedWorkspaceId);
+          });
           const pruned = pruneReviewed(
             current,
-            results.flatMap((result) =>
-              result.changedFiles.map((file) => reviewedFileKey(result.workspaceId, file.path)),
-            ),
+            [
+              ...results.flatMap((result) =>
+                result.changedFiles.state === "available"
+                  ? result.changedFiles.files.map((file) => reviewedFileKey(result.workspaceId, file.path))
+                  : [],
+              ),
+              ...retainedUnavailableKeys,
+            ],
           );
           if (pruned !== current) {
             saveReviewed(workspaceId, sessionId, pruned);
@@ -271,7 +306,7 @@ export function DiffPanel({
   }, [selectedFile, changedRows]);
 
   const handleStage = (file: WorkbenchChangedFile) => {
-    void api.stageFile(file.workspaceId, file.path).then(() => refresh());
+    void api.stageFile(file.workspaceId, file.path, file.stagingSourcePath).then(() => refresh());
   };
 
   const toggleReviewed = useCallback(
@@ -331,7 +366,8 @@ export function DiffPanel({
         <div className="file-workbench__context-strip" aria-label="File scopes">
           {contexts.map((context) => {
             const isActive = activeContext?.workspace.id === context.workspace.id;
-            const changeCount = changedByWorkspace[context.workspace.id]?.length ?? 0;
+            const changedResult = changedByWorkspace[context.workspace.id];
+            const changeCount = changedResult?.state === "available" ? changedResult.files.length : 0;
             return (
               <button
                 className={`file-workbench__context ${isActive ? "file-workbench__context--active" : ""}`}
@@ -340,7 +376,13 @@ export function DiffPanel({
                 onClick={() => setActiveWorkspaceId(context.workspace.id)}
               >
                 <span>{contextLabel(context)}</span>
-                <strong>{changeCount}</strong>
+                <strong>
+                  {changedResult === undefined
+                    ? "Loading"
+                    : changedResult.state === "unavailable"
+                      ? "Unavailable"
+                      : changeCount}
+                </strong>
               </button>
             );
           })}
@@ -379,22 +421,32 @@ export function DiffPanel({
           <section className="file-workbench__section file-workbench__section--changes" aria-label="Changed files">
             <div className="file-workbench__section-header">
               <span>Changed files</span>
-              <span>{changedRows.length}</span>
+              <span>{changedFilesSummary}</span>
             </div>
-            {changedRows.length === 0 ? (
-              <div className="diff-panel__empty">No changes</div>
+            {changedRows.length === 0 && unavailableChangedGroupCount === 0 ? (
+              <div className="diff-panel__empty">
+                {pendingChangedGroupCount > 0 ? "Loading changes..." : "No changes"}
+              </div>
             ) : (
               <div className="diff-panel__file-list" ref={fileListRef}>
                 {changedGroups.map((group) =>
-                  group.files.length === 0 ? null : (
+                  group.files.length === 0 && !group.error ? null : (
                     <div className="file-workbench__change-group" key={group.context.workspace.id}>
                       {showContextStrip ? (
                         <div className="file-workbench__change-heading">
                           <span>{contextLabel(group.context)}</span>
-                          <span>{group.files.length}</span>
+                          <span>{group.error ? "Unavailable" : group.files.length}</span>
                         </div>
                       ) : null}
-                      {group.files.map((file) => {
+                      {group.error ? (
+                        <div
+                          className="diff-panel__empty diff-panel__unavailable"
+                          data-testid="changed-files-unavailable"
+                          role="status"
+                        >
+                          {group.error.message}
+                        </div>
+                      ) : group.files.map((file) => {
                         const isReviewed = reviewed.has(reviewedFileKey(file.workspaceId, file.path));
                         const isSelected =
                           viewerMode === "diff" &&
@@ -428,7 +480,7 @@ export function DiffPanel({
                               }}
                             >
                               <span className={`diff-panel__status-dot diff-panel__status-dot--${file.status}`} />
-                              <span>{file.path}</span>
+                              <span className="diff-panel__file-path">{formatPathForDisplay(file.path)}</span>
                               <span className="file-workbench__status-label">{statusLabel(file)}</span>
                             </button>
                             <button
@@ -453,7 +505,9 @@ export function DiffPanel({
 
       <div className="diff-panel__viewer file-workbench__viewer">
         <div className="diff-panel__viewer-header file-workbench__viewer-header">
-          <span>{selectedFile?.path ?? "Select a file"}</span>
+          <span className="file-workbench__viewer-path">
+            {selectedFile ? formatPathForDisplay(selectedFile.path) : "Select a file"}
+          </span>
           {selectedFile && panelMode === "changes" ? (
             <span className="file-workbench__viewer-modes" role="group" aria-label="Viewer mode">
               <button
@@ -649,6 +703,21 @@ function reviewedFileKey(workspaceId: string, filePath: string): string {
   return JSON.stringify([workspaceId, filePath]);
 }
 
+function workspaceIdFromReviewedFileKey(key: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(key);
+    return Array.isArray(value) && value.length === 2 && typeof value[0] === "string"
+      ? value[0]
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatPathForDisplay(path: string): string {
+  return JSON.stringify(path);
+}
+
 function contextLabel(context: FileWorkbenchContext): string {
   if (context.role === "thread") {
     return "Current thread";
@@ -672,4 +741,17 @@ function buildSubtitle(context: FileWorkbenchContext | undefined): string {
 function statusLabel(file: WorkbenchChangedFile): string {
   const branch = file.branchName ? ` · ${file.branchName}` : "";
   return `${file.status}${branch}`;
+}
+
+function buildChangedFilesSummary(
+  changedCount: number,
+  unavailableCount: number,
+  pendingCount: number,
+): string {
+  const parts = [
+    changedCount > 0 ? String(changedCount) : "",
+    unavailableCount > 0 ? `${unavailableCount} unavailable` : "",
+    pendingCount > 0 ? `${pendingCount} loading` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "0";
 }
