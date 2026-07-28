@@ -18,6 +18,7 @@ import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-codin
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore, type DesktopAppViewState } from "./app-store";
 import {
   createOrchestrationRuntimeExtension,
@@ -976,17 +977,12 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Ensure npm (and other Homebrew/npm-global binaries) are available
-// even when pi-gui is launched via Finder/Dock (which has a minimal PATH).
-const extraBinPaths = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  `${process.env.HOME}/.npm-global/bin`,
-].filter((p) => p);
-const currentPath = process.env.PATH ?? "";
-const missingPaths = extraBinPaths.filter((p) => !currentPath.split(":").includes(p));
-if (missingPaths.length > 0) {
-  process.env.PATH = [...missingPaths, currentPath].join(":");
+// Ensure npm (and other Homebrew/npm-global binaries) are available even when
+// pi-gui is launched via Finder/Dock (which hands the process a minimal PATH).
+// POSIX-only; on Windows the PATH is left untouched (see augmentPosixPath).
+const augmentedPath = augmentPosixPath();
+if (augmentedPath.changed) {
+  process.env.PATH = augmentedPath.path;
 }
 
 app.setName("pi");
