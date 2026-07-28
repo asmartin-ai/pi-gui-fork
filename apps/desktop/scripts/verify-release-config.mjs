@@ -88,6 +88,8 @@ function validateWorkflow(workflow, finalizerSource) {
   validateBuildJob(jobs["build-windows"], "Windows");
 
   const macFinalize = stepNamed(jobs["build-macos"], "Notarize and verify final macOS artifacts");
+  const macRefresh = stepNamed(jobs["build-macos"], "Refresh update metadata from final DMG");
+  const macStage = stepNamed(jobs["build-macos"], "Stage validated macOS artifacts");
   assert(
     runText(macFinalize).includes("finalize-macos-release.sh"),
     "macOS build must run final DMG notarization and trust validation",
@@ -105,6 +107,17 @@ function validateWorkflow(workflow, finalizerSource) {
   ]) {
     assert(finalizerSource.includes(command), `macOS finalizer must contain: ${command}`);
   }
+  assert(
+    runText(macRefresh).includes("refresh-macos-update-metadata.mjs"),
+    "macOS build must regenerate update metadata from the stapled DMG",
+  );
+  assert(
+    jobs["build-macos"].steps.indexOf(macFinalize) <
+      jobs["build-macos"].steps.indexOf(macRefresh) &&
+      jobs["build-macos"].steps.indexOf(macRefresh) <
+        jobs["build-macos"].steps.indexOf(macStage),
+    "macOS metadata refresh must run after stapling and before artifact staging",
+  );
 
   const windowsJob = jobs["build-windows"];
   const signingCheck = stepNamed(windowsJob, "Validate Windows signing credentials");

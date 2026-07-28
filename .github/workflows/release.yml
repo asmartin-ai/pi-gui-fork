@@ -95,6 +95,12 @@ jobs:
             "$PWD/apps/desktop/release" \
             "${GITHUB_REF_NAME#v}"
 
+      - name: Refresh update metadata from final DMG
+        run: |
+          node apps/desktop/scripts/refresh-macos-update-metadata.mjs \
+            "$PWD/apps/desktop/release" \
+            "${GITHUB_REF_NAME#v}"
+
       - name: Stage validated macOS artifacts
         run: |
           node apps/desktop/scripts/release-artifacts.mjs stage \

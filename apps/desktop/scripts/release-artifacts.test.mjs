@@ -10,6 +10,7 @@ import {
   stageArtifacts,
   verifyArtifacts,
 } from "./release-artifacts.mjs";
+import { refreshMacUpdateMetadata } from "./refresh-macos-update-metadata.mjs";
 
 const VERSION = "0.1.0-beta.34";
 const COMMIT = "a".repeat(40);
@@ -172,4 +173,31 @@ test("rejects undeclared files in the combined release candidate", async () => {
     }),
     /file set mismatch/,
   );
+});
+
+test("refreshes macOS metadata and blockmap from final DMG bytes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-gui-release-final-dmg-"));
+  const source = await createFixture(root, "macos");
+  const manifestPath = path.join(source, "latest-mac.yml");
+  const manifest = parse(await readFile(manifestPath, "utf8"));
+  const dmgEntry = manifest.files.find(({ url }) => url.endsWith(".dmg"));
+  dmgEntry.size = 1;
+  dmgEntry.sha512 = "stale-before-stapling";
+  dmgEntry.blockMapSize = 1;
+  await writeFile(manifestPath, stringify(manifest), "utf8");
+
+  const refreshed = await refreshMacUpdateMetadata({ releaseDir: source, version: VERSION });
+  const finalManifest = parse(await readFile(manifestPath, "utf8"));
+  const finalDmg = finalManifest.files.find(({ url }) => url === refreshed.dmg);
+  assert.equal(finalDmg.size, refreshed.size);
+  assert.equal(finalDmg.sha512, refreshed.sha512);
+  assert.equal(finalDmg.blockMapSize, refreshed.blockMapSize);
+
+  await stageArtifacts({
+    platform: "macos",
+    version: VERSION,
+    commit: COMMIT,
+    inputDir: source,
+    outputDir: path.join(root, "staged"),
+  });
 });
