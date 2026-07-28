@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { run, start } from "./launcher.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(__dirname, "..");
@@ -19,40 +19,6 @@ const packagePaths = [
 ];
 
 const isBun = process.versions.bun || process.env.npm_config_user_agent?.includes("bun");
-
-// On Windows, `pnpm`/`bun` resolve to `.cmd`/`.exe` shims that cannot be spawned
-// directly by CreateProcess, so route through the shell.
-const useShell = process.platform === "win32";
-
-async function run(cmd, args, cwd) {
-  await new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
-      cwd,
-      stdio: "inherit",
-      env: process.env,
-      shell: useShell,
-    });
-
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${cmd} ${args.join(" ")} exited with ${signal ?? code}`));
-    });
-  });
-}
-
-function start(cmd, args, cwd) {
-  return spawn(cmd, args, {
-    cwd,
-    stdio: "inherit",
-    env: process.env,
-    shell: useShell,
-  });
-}
 
 async function main() {
   if (isBun) {
