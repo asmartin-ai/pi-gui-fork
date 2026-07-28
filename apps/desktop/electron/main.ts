@@ -18,6 +18,7 @@ import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-codin
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore, type DesktopAppViewState } from "./app-store";
 import {
   createOrchestrationRuntimeExtension,
@@ -39,6 +40,7 @@ import type { AppView, DesktopAppState, ThemeMode, ThemePresetId } from "../src/
 import {
   desktopIpc,
   getDesktopCommandFromShortcut,
+  type ChangedFilesResult,
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
@@ -976,17 +978,12 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Ensure npm (and other Homebrew/npm-global binaries) are available
-// even when pi-gui is launched via Finder/Dock (which has a minimal PATH).
-const extraBinPaths = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  `${process.env.HOME}/.npm-global/bin`,
-].filter((p) => p);
-const currentPath = process.env.PATH ?? "";
-const missingPaths = extraBinPaths.filter((p) => !currentPath.split(":").includes(p));
-if (missingPaths.length > 0) {
-  process.env.PATH = [...missingPaths, currentPath].join(":");
+// Ensure npm (and other Homebrew/npm-global binaries) are available even when
+// pi-gui is launched via Finder/Dock (which hands the process a minimal PATH).
+// POSIX-only; on Windows the PATH is left untouched (see augmentPosixPath).
+const augmentedPath = augmentPosixPath();
+if (augmentedPath.changed) {
+  process.env.PATH = augmentedPath.path;
 }
 
 app.setName("pi");
@@ -1439,7 +1436,13 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {
-      return [];
+      return {
+        state: "unavailable",
+        error: {
+          code: "workspace-unavailable",
+          message: "Changed files are unavailable because this workspace could not be found.",
+        },
+      } satisfies ChangedFilesResult;
     }
     return getChangedFiles(workspacePath);
   });
@@ -1450,13 +1453,16 @@ app.whenReady().then(async () => {
     }
     return getFileDiff(workspacePath, filePath);
   });
-  ipcMain.handle(desktopIpc.stageFile, async (_event, workspaceId: string, filePath: string) => {
-    const workspacePath = store.getWorkspacePath(workspaceId);
-    if (!workspacePath) {
-      throw new Error(`Unknown workspace: ${workspaceId}`);
-    }
-    await stageFile(workspacePath, filePath);
-  });
+  ipcMain.handle(
+    desktopIpc.stageFile,
+    async (_event, workspaceId: string, filePath: string, stagingSourcePath?: string) => {
+      const workspacePath = store.getWorkspacePath(workspaceId);
+      if (!workspacePath) {
+        throw new Error(`Unknown workspace: ${workspaceId}`);
+      }
+      await stageFile(workspacePath, filePath, { sourcePath: stagingSourcePath });
+    },
+  );
   ipcMain.handle(desktopIpc.toggleWindowMaximize, (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) {

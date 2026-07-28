@@ -392,6 +392,13 @@
   gap: 10px;
 }
 
+.file-workbench__viewer-path,
+.diff-panel__file-path {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .file-workbench__viewer-modes {
   display: flex;
   flex-wrap: wrap;
@@ -453,6 +460,10 @@
   text-align: center;
   color: var(--muted-soft);
   font-size: 13px;
+}
+
+.diff-panel__unavailable {
+  color: var(--error-ink);
 }
 
 .diff-panel__file-list {
@@ -680,11 +691,13 @@
   flex-shrink: 0;
 }
 
-.diff-panel__status-dot--modified {
+.diff-panel__status-dot--modified,
+.diff-panel__status-dot--renamed {
   background: var(--diff-modified-ink);
 }
 
-.diff-panel__status-dot--added {
+.diff-panel__status-dot--added,
+.diff-panel__status-dot--copied {
   background: var(--diff-added-ink);
 }
 
