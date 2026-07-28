@@ -153,22 +153,24 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Package Linux AppImage
+      - name: Package Linux AppImage and deb
         run: |
           cd apps/desktop
           pnpm run build
-          pnpm exec electron-builder --linux AppImage \
+          pnpm exec electron-builder --linux \
             --publish never \
             "-c.extraMetadata.version=${GITHUB_REF_NAME#v}"
 
       - name: Verify packaged runtime dependencies
         run: pnpm --dir apps/desktop run verify:packaged-runtime-deps:linux
 
-      - name: Verify Linux package
+      - name: Verify Linux packages
         run: |
           bash apps/desktop/scripts/verify-linux-release.sh \
+            --install \
             "$PWD/apps/desktop/release" \
-            "${GITHUB_REF_NAME#v}"
+            "${GITHUB_REF_NAME#v}" \
+            "$PWD/apps/desktop/release-proof/linux-build"
 
       - name: Stage validated Linux artifacts
         run: |
@@ -187,6 +189,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+      - name: Upload Linux package proof
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-package-proof-${{ github.sha }}
+          path: apps/desktop/release-proof/linux-build/
+          if-no-files-found: warn
+          retention-days: 14
 
   build-windows:
     needs: release-preflight
@@ -383,11 +394,13 @@ jobs:
             --commit "$GITHUB_SHA" \
             --input draft-release
 
-      - name: Verify draft Linux package
+      - name: Verify draft Linux packages
         run: |
           bash apps/desktop/scripts/verify-linux-release.sh \
+            --install \
             "$PWD/draft-release" \
-            "${GITHUB_REF_NAME#v}"
+            "${GITHUB_REF_NAME#v}" \
+            "$RUNNER_TEMP/draft-linux-proof"
 
   verify-draft-windows:
     needs: stage-draft
@@ -553,11 +566,13 @@ jobs:
             --commit "$GITHUB_SHA" \
             --input published-release
 
-      - name: Verify published Linux package
+      - name: Verify published Linux packages
         run: |
           bash apps/desktop/scripts/verify-linux-release.sh \
+            --install \
             "$PWD/published-release" \
-            "${GITHUB_REF_NAME#v}"
+            "${GITHUB_REF_NAME#v}" \
+            "$RUNNER_TEMP/published-linux-proof"
 
   verify-published-windows:
     needs: publish

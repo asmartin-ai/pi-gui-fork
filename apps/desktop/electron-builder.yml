@@ -43,8 +43,35 @@ mac:
 linux:
   category: Development
   executableName: pi-gui
+  maintainer: Matthew Lam <minghinmatthew.lam@gmail.com>
+  vendor: pi-gui
+  synopsis: Codex-style desktop app for the pi coding agent
+  description: A native desktop interface for pi coding agent sessions, workspaces, and tools.
   target:
     - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+
+deb:
+  artifactName: ${productName}_${version}_${arch}.${ext}
+  packageName: pi-gui
+  packageCategory: devel
+  priority: optional
+  afterRemove: resources/linux/after-remove.sh
+  depends:
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
 
 win:
   executableName: pi-gui
