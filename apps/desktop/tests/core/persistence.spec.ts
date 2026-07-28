@@ -413,6 +413,9 @@ test("preserves durable ui state when one startup workspace is unavailable", asy
 
       await app.selectSession({ workspaceId: unavailable.id, sessionId: session.id });
       await app.updateComposerDraft("draft survives unavailable workspace");
+      // Let the renderer's draft debounce settle before unrelated durable writes.
+      // A stale local snapshot must not enqueue a later write that clears this draft.
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
       await app.setSessionPinned({ workspaceId: unavailable.id, sessionId: session.id }, true);
       await app.reorderWorkspaces([unavailable.id, healthy.id]);
       await app.setNotificationPreferences({
