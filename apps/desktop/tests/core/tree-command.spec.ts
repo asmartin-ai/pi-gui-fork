@@ -9,6 +9,7 @@ import {
   seedBranchedTreeSessionFixture,
   seedToolResultTreeSessionFixture,
   selectSession,
+  waitForSelectedSessionReady,
 } from "../helpers/electron-app";
 
 test("opens /tree from the composer, navigates branches, and blocks it on the new-thread surface", async () => {
@@ -17,7 +18,7 @@ test("opens /tree from the composer, navigates branches, and blocks it on the ne
   const agentDir = join(userDataDir, "agent");
   const workspacePath = await makeWorkspace("tree-command-workspace");
   await seedAgentDir(agentDir);
-  await seedBranchedTreeSessionFixture(agentDir, workspacePath);
+  const fixture = await seedBranchedTreeSessionFixture(agentDir, workspacePath);
 
   const harness = await launchDesktop(userDataDir, {
     agentDir,
@@ -27,7 +28,8 @@ test("opens /tree from the composer, navigates branches, and blocks it on the ne
 
   try {
     const window = await harness.firstWindow();
-    await selectSession(window, "Tree fixture session");
+    await selectSession(window, fixture.title);
+    await waitForSelectedSessionReady(window, fixture);
 
     const composer = window.getByTestId("composer");
     await composer.fill("/tre");
@@ -109,7 +111,7 @@ test("renders tool results with compact previews in the tree modal", async () =>
   const agentDir = join(userDataDir, "agent");
   const workspacePath = await makeWorkspace("tree-tool-command-workspace");
   await seedAgentDir(agentDir);
-  await seedToolResultTreeSessionFixture(agentDir, workspacePath);
+  const fixture = await seedToolResultTreeSessionFixture(agentDir, workspacePath);
 
   const harness = await launchDesktop(userDataDir, {
     agentDir,
@@ -119,7 +121,8 @@ test("renders tool results with compact previews in the tree modal", async () =>
 
   try {
     const window = await harness.firstWindow();
-    await selectSession(window, "Tree tool fixture session");
+    await selectSession(window, fixture.title);
+    await waitForSelectedSessionReady(window, fixture);
 
     const composer = window.getByTestId("composer");
     await composer.fill("/tree");

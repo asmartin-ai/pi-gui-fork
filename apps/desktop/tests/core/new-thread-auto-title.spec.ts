@@ -14,6 +14,7 @@ import {
   setDeferredThreadTitleMode,
   startThreadViaIpc,
   waitForDeferredThreadTitleRequest,
+  waitForSelectedSessionReady,
   waitForSessionByTitle,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
@@ -68,11 +69,20 @@ test("auto-titles a brand-new worktree thread after showing the placeholder firs
       prompt: "Fix the worktree rename race before shipping",
     });
 
+    const startedState = await getDesktopState(window);
+    const startedSession = {
+      workspaceId: startedState.selectedWorkspaceId,
+      sessionId: startedState.selectedSessionId,
+    };
+    await waitForDeferredThreadTitleRequest(harness);
+    await waitForSelectedSessionReady(window, startedSession);
+
     const placeholderRow = window.locator(".session-row__select", { hasText: "New thread" }).first();
     await expect(window.locator(".topbar__session")).toHaveText("New thread");
     await expect(placeholderRow).toBeVisible();
 
-    await resolveDeferredThreadTitleEventually(harness, "Fix worktree rename");
+    await resolveDeferredThreadTitle(harness, "Fix worktree rename");
+    await waitForSessionByTitle(window, startedSession.workspaceId, "Fix worktree rename");
 
     await expect(window.locator(".topbar__session")).toHaveText("Fix worktree rename");
     await expect(window.locator(".session-row__select", { hasText: "Fix worktree rename" }).first()).toBeVisible();
