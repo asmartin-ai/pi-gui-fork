@@ -27,8 +27,7 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
   const handledComposerSyncNonceRef = useRef(0);
   const localEditGenerationRef = useRef(0);
   const acknowledgedLocalEditGenerationRef = useRef(0);
-  const nextComposerDraftWriteIdRef = useRef(0);
-  const inFlightComposerDraftWritesRef = useRef(new Map<number, PendingComposerDraftWrite>());
+  const inFlightComposerDraftWritesRef = useRef(new Set<PendingComposerDraftWrite>());
   const pendingComposerDraftRef = useRef<PendingComposerDraftWrite | null>(null);
   const composerDraftWriteTimerRef = useRef<number | null>(null);
   const flushComposerDraftRef = useRef<() => void>(() => {});
@@ -88,11 +87,10 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     if (!api) {
       return;
     }
-    const writeId = ++nextComposerDraftWriteIdRef.current;
-    inFlightComposerDraftWritesRef.current.set(writeId, write);
+    inFlightComposerDraftWritesRef.current.add(write);
     void api.updateComposerDraft(write.draft).then(
       (state) => {
-        inFlightComposerDraftWritesRef.current.delete(writeId);
+        inFlightComposerDraftWritesRef.current.delete(write);
         const hasOtherWriteForSession = [...inFlightComposerDraftWritesRef.current.values()].some(
           (candidate) => candidate.sessionKey === write.sessionKey,
         );
@@ -106,7 +104,7 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
         }
       },
       () => {
-        inFlightComposerDraftWritesRef.current.delete(writeId);
+        inFlightComposerDraftWritesRef.current.delete(write);
       },
     );
   };

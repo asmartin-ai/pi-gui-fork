@@ -11,6 +11,11 @@ import {
 } from "../helpers/electron-app";
 import { desktopIpc } from "../../src/ipc";
 
+interface TestDraftWriteControl {
+  readonly drafts: string[];
+  releaseFirstWrite(): void;
+}
+
 test("ignores stale persisted draft acknowledgements while typing", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
@@ -107,10 +112,6 @@ test("does not resurrect a cleared draft while an older write is in flight", asy
     await createNamedThread(window, "In-flight composer clear");
     await harness.electronApp.evaluate(({ ipcMain }, channel) => {
       type InvokeHandler = (...args: unknown[]) => unknown;
-      interface DraftWriteControl {
-        readonly drafts: string[];
-        releaseFirstWrite(): void;
-      }
       const invokeHandlers = (
         ipcMain as typeof ipcMain & { readonly _invokeHandlers?: Map<string, InvokeHandler> }
       )._invokeHandlers;
@@ -123,13 +124,13 @@ test("does not resurrect a cleared draft while an older write is in flight", asy
       const firstWriteGate = new Promise<void>((resolve) => {
         releaseFirstWrite = resolve;
       });
-      const control: DraftWriteControl = {
+      const control: TestDraftWriteControl = {
         drafts: [],
         releaseFirstWrite,
       };
       (
         globalThis as typeof globalThis & {
-          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: DraftWriteControl;
+          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: TestDraftWriteControl;
         }
       ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL = control;
 
@@ -146,40 +147,27 @@ test("does not resurrect a cleared draft while an older write is in flight", asy
         return originalHandler(...args);
       });
     }, desktopIpc.updateComposerDraft);
+    const readDraftWrites = () =>
+      harness.electronApp.evaluate(() => {
+        const control = (
+          globalThis as typeof globalThis & {
+            __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: TestDraftWriteControl;
+          }
+        ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
+        return control?.drafts ?? [];
+      });
 
     const composer = window.getByTestId("composer");
     await composer.fill("obsolete in-flight draft");
-    await expect
-      .poll(() =>
-        harness.electronApp.evaluate(() => {
-          const control = (
-            globalThis as typeof globalThis & {
-              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
-            }
-          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
-          return control?.drafts ?? [];
-        }),
-      )
-      .toEqual(["obsolete in-flight draft"]);
+    await expect.poll(readDraftWrites).toEqual(["obsolete in-flight draft"]);
 
     await composer.fill("");
-    await expect
-      .poll(() =>
-        harness.electronApp.evaluate(() => {
-          const control = (
-            globalThis as typeof globalThis & {
-              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
-            }
-          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
-          return control?.drafts ?? [];
-        }),
-      )
-      .toEqual(["obsolete in-flight draft", ""]);
+    await expect.poll(readDraftWrites).toEqual(["obsolete in-flight draft", ""]);
 
     await harness.electronApp.evaluate(() => {
       const control = (
         globalThis as typeof globalThis & {
-          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { releaseFirstWrite(): void };
+          __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: TestDraftWriteControl;
         }
       ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
       if (!control) {
@@ -188,18 +176,7 @@ test("does not resurrect a cleared draft while an older write is in flight", asy
       control.releaseFirstWrite();
     });
 
-    await expect
-      .poll(() =>
-        harness.electronApp.evaluate(() => {
-          const control = (
-            globalThis as typeof globalThis & {
-              __PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL?: { readonly drafts: string[] };
-            }
-          ).__PI_TEST_COMPOSER_DRAFT_WRITE_CONTROL;
-          return control?.drafts ?? [];
-        }),
-      )
-      .toEqual(["obsolete in-flight draft", "", ""]);
+    await expect.poll(readDraftWrites).toEqual(["obsolete in-flight draft", "", ""]);
     await expect(composer).toHaveValue("");
     await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe("");
   } finally {
