@@ -60,6 +60,38 @@ test("ignores stale persisted draft acknowledgements while typing", async () => 
   }
 });
 
+test("adopts a persisted draft when no local edit is pending", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-draft-clean-sync");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Clean composer draft sync");
+
+    const persistedDraft = "persisted outside the local debounce";
+    await window.evaluate(async (draft) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.updateComposerDraft(draft);
+    }, persistedDraft);
+
+    const composer = window.getByTestId("composer");
+    await expect(composer).toHaveValue(persistedDraft);
+    await window.waitForTimeout(600);
+    await expect(composer).toHaveValue(persistedDraft);
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(persistedDraft);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("preserves a composer draft across a fast session switch", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();

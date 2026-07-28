@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type { DesktopAppState } from "../desktop-state";
 import type { PiDesktopApi } from "../ipc";
 
@@ -15,16 +15,26 @@ interface UseComposerDraftSyncParams {
  */
 export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
   const { api, snapshot, selectedSessionKey } = params;
-  const [composerDraft, setComposerDraft] = useState("");
+  const [composerDraft, setComposerDraftState] = useState("");
   const composerDraftRef = useRef("");
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
+  const hasPendingLocalEditRef = useRef(false);
   const pendingComposerDraftRef = useRef<string | null>(null);
   const composerDraftWriteTimerRef = useRef<number | null>(null);
   const flushComposerDraftRef = useRef<() => void>(() => {});
 
   composerDraftRef.current = composerDraft;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
+  const setComposerDraft = useCallback((nextDraft: SetStateAction<string>) => {
+    setComposerDraftState((currentDraft) => {
+      const resolvedDraft = typeof nextDraft === "function" ? nextDraft(currentDraft) : nextDraft;
+      if (resolvedDraft !== currentDraft) {
+        hasPendingLocalEditRef.current = true;
+      }
+      return resolvedDraft;
+    });
+  }, []);
 
   useEffect(() => {
     if (!snapshot) {
@@ -34,7 +44,9 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     if (hydratedComposerSessionKeyRef.current !== selectedSessionKey) {
       hydratedComposerSessionKeyRef.current = selectedSessionKey;
       handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-      setComposerDraft(snapshot.composerDraft);
+      hasPendingLocalEditRef.current = false;
+      pendingComposerDraftRef.current = null;
+      setComposerDraftState(snapshot.composerDraft);
       return;
     }
 
@@ -43,11 +55,16 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
     }
 
     handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-    if (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state") {
+    if (
+      hasPendingLocalEditRef.current &&
+      (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state")
+    ) {
       return;
     }
 
-    setComposerDraft(snapshot.composerDraft);
+    hasPendingLocalEditRef.current = false;
+    pendingComposerDraftRef.current = null;
+    setComposerDraftState(snapshot.composerDraft);
   }, [
     selectedSessionKey,
     snapshot?.composerDraft,
@@ -56,8 +73,12 @@ export function useComposerDraftSync(params: UseComposerDraftSyncParams) {
   ]);
 
   useEffect(() => {
-    if (!api || composerDraft === persistedComposerDraft) {
+    if (composerDraft === persistedComposerDraft) {
+      hasPendingLocalEditRef.current = false;
       pendingComposerDraftRef.current = null;
+      return undefined;
+    }
+    if (!api || !hasPendingLocalEditRef.current) {
       return undefined;
     }
 
