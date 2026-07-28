@@ -285,16 +285,10 @@ jobs:
             --commit "$GITHUB_SHA" \
             --input release-candidate
 
-      - name: Refuse to replace an already-published release
+      - name: Check existing release state
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)"; then
-            if [[ "$state" != "true" ]]; then
-              echo "Release $GITHUB_REF_NAME is already published; refusing to replace its assets." >&2
-              exit 1
-            fi
-          fi
+        run: node apps/desktop/scripts/github-release-state.mjs
 
       - name: Upload validated draft
         uses: softprops/action-gh-release@v2

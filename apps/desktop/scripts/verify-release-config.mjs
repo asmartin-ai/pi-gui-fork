@@ -145,6 +145,7 @@ function validateWorkflow(workflow, finalizerSource) {
 
   const steps = publish.steps ?? [];
   const candidateIndex = steps.findIndex(({ name }) => name === "Validate combined release candidate");
+  const stateCheck = stepNamed(publish, "Check existing release state");
   const uploadIndex = steps.findIndex(({ uses }) => uses === "softprops/action-gh-release@v2");
   const draftVerifyIndex = steps.findIndex(({ name }) => name === "Verify uploaded draft bytes");
   const publishIndex = steps.findIndex(({ name }) => name === "Publish validated release");
@@ -154,6 +155,11 @@ function validateWorkflow(workflow, finalizerSource) {
       uploadIndex < draftVerifyIndex &&
       draftVerifyIndex < publishIndex,
     "Candidate, draft upload, remote byte validation, and publication must remain ordered",
+  );
+  assert(
+    runText(stateCheck).includes("github-release-state.mjs") &&
+      !runText(stateCheck).includes("gh release view"),
+    "Existing release lookup must use the fail-closed API state checker",
   );
 
   const release = releaseSteps[0].step;
