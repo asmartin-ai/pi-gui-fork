@@ -379,26 +379,33 @@ test("keeps sender dialog actions scoped without blocking another window", async
     });
     await waitForDelayedOpenDialog(harness);
 
-    const secondWindowIndex = await browserWindowIndexForPage(harness, secondWindow);
-    await harness.electronApp.evaluate(({ BrowserWindow }, index) => {
-      const targetWindow = BrowserWindow.getAllWindows()[index];
-      targetWindow?.show();
-      targetWindow?.focus();
-      targetWindow?.emit("focus");
-    }, secondWindowIndex);
+    const settlePick = async () => {
+      await resolveDelayedOpenDialog(harness);
+      await pickPromise;
+    };
+    try {
+      await Promise.race([
+        selectSessionViaIpc(secondWindow, "Attachment sender thread"),
+        secondWindow.waitForTimeout(2_000).then(() => {
+          throw new Error("Second window selection was blocked by the first window attachment dialog.");
+        }),
+      ]);
+      await expectSelected(secondWindow, workspacePath, "Attachment sender thread");
+      await selectSessionViaIpc(secondWindow, "Attachment focused thread");
+      await expectSelected(secondWindow, workspacePath, "Attachment focused thread");
 
-    await Promise.race([
-      selectSessionViaIpc(secondWindow, "Attachment sender thread"),
-      secondWindow.waitForTimeout(2_000).then(() => {
-        throw new Error("Second window selection was blocked by the first window attachment dialog.");
-      }),
-    ]);
-    await expectSelected(secondWindow, workspacePath, "Attachment sender thread");
-    await selectSessionViaIpc(secondWindow, "Attachment focused thread");
-    await expectSelected(secondWindow, workspacePath, "Attachment focused thread");
-
-    await resolveDelayedOpenDialog(harness);
-    await pickPromise;
+      const secondWindowIndex = await browserWindowIndexForPage(harness, secondWindow);
+      await harness.electronApp.evaluate(({ BrowserWindow }, index) => {
+        const targetWindow = BrowserWindow.getAllWindows()[index];
+        targetWindow?.show();
+        targetWindow?.focus();
+        targetWindow?.emit("focus");
+      }, secondWindowIndex);
+    } catch (error) {
+      await settlePick().catch(() => undefined);
+      throw error;
+    }
+    await settlePick();
 
     await expect.poll(async () => (await getDesktopState(firstWindow)).composerAttachments.map((entry) => entry.name)).toEqual([
       "sender-attachment.txt",
