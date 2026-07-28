@@ -149,7 +149,7 @@ test("removeWorktree deletes the merged pi/* branch but keeps unmerged work", as
   }
 });
 
-test("pruneOrphanedWorktrees removes clean orphans, keeps referenced and dirty ones", async () => {
+test("pruneOrphanedWorktrees removes clean merged orphans and keeps protected worktrees", async () => {
   const root = await mkdtemp(join(tmpdir(), "wt-prune-"));
   try {
     const repo = await makeRepo(root);
@@ -173,6 +173,14 @@ test("pruneOrphanedWorktrees removes clean orphans, keeps referenced and dirty o
       startPoint: "HEAD",
     });
     await writeFile(join(dirty.path, "scratch.txt"), "uncommitted\n");
+    const unmerged = await manager.createWorktree(workspace, {
+      path: join(worktreeRoot, "repo", "unmerged"),
+      branchName: "pi/unmerged",
+      startPoint: "HEAD",
+    });
+    await writeFile(join(unmerged.path, "work.txt"), "committed but unmerged\n");
+    await git(unmerged.path, "add", "work.txt");
+    await git(unmerged.path, "commit", "-qm", "unmerged work");
 
     const result = await manager.pruneOrphanedWorktrees({
       worktreeRoot,
@@ -187,6 +195,10 @@ test("pruneOrphanedWorktrees removes clean orphans, keeps referenced and dirty o
     expect(await pathExists(dirty.path)).toBe(true);
     expect(await branchExists(repo, "pi/dirty")).toBe(true);
     expect(result.skipped).toContain(dirty.worktreeId);
+
+    expect(await pathExists(unmerged.path)).toBe(true);
+    expect(await branchExists(repo, "pi/unmerged")).toBe(true);
+    expect(result.skipped).toContain(unmerged.worktreeId);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

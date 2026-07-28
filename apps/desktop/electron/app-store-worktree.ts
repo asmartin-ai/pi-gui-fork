@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { homedir } from "node:os";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { WorktreeCatalogEntry } from "@pi-gui/catalogs";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
@@ -379,7 +378,7 @@ export function buildWorktreeOptions(
   const repoName = clampSlug(slugify(basename(workspace.path) || "repo"), 20);
   const displayName = preferredTitle || `Worktree ${suffix}`;
   return {
-    path: join(homedir(), ".pi", "worktrees", repoName, folderName),
+    path: join(store.worktreeRoot, repoName, folderName),
     displayName,
     branchName: `pi/${folderName}`,
     startPoint: "HEAD",
@@ -387,13 +386,14 @@ export function buildWorktreeOptions(
 }
 
 /**
- * Startup reconcile pass (fix: worktree/branch GC). Removes git worktrees under
- * the app's worktree root that no longer have a catalog or session reference,
- * skipping any that are dirty. Safe to call fire-and-forget on store init.
+ * Startup reconcile pass (fix: worktree/branch GC). Only the active profile's
+ * user-data-namespaced root is eligible for automatic collection. Cataloged
+ * worktrees under the legacy shared ~/.pi/worktrees root remain usable, but are
+ * intentionally never adopted or pruned because their profile ownership is
+ * ambiguous.
  */
 export async function reconcileWorktrees(store: AppStoreInternals): Promise<void> {
   try {
-    const worktreeRoot = join(homedir(), ".pi", "worktrees");
     const referencedPaths = new Set<string>();
     const catalog = await store.catalogStore.worktrees.listWorktrees();
     for (const worktree of catalog.worktrees) {
@@ -404,7 +404,10 @@ export async function reconcileWorktrees(store: AppStoreInternals): Promise<void
     for (const workspace of store.state.workspaces) {
       referencedPaths.add(await canonicalWorktreePath(workspace.path));
     }
-    await store.worktreeManager.pruneOrphanedWorktrees({ worktreeRoot, referencedPaths });
+    await store.worktreeManager.pruneOrphanedWorktrees({
+      worktreeRoot: store.worktreeRoot,
+      referencedPaths,
+    });
   } catch (error) {
     console.warn(`pi-gui: worktree reconcile skipped: ${error instanceof Error ? error.message : String(error)}`);
   }

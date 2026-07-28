@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import { mkdir, realpath, rm, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
   assertExists,
@@ -9,6 +13,32 @@ import {
   makeUserDataDir,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
+
+const execFileAsync = promisify(execFile);
+
+async function git(repoPath: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", repoPath, ...args]);
+  return stdout.trim();
+}
+
+async function addLinkedWorktree(repoPath: string, worktreePath: string, branchName: string): Promise<void> {
+  await mkdir(dirname(worktreePath), { recursive: true });
+  await git(repoPath, "worktree", "add", "-b", branchName, worktreePath, "HEAD");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const relativePath = relative(root, candidate);
+  return relativePath !== "" && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+}
 
 test("creates and selects a worktree-backed workspace from the desktop UI", async () => {
   test.setTimeout(90_000);
@@ -53,6 +83,89 @@ test("creates and selects a worktree-backed workspace from the desktop UI", asyn
     await expect(window.getByRole("button", { name: "Worktree", exact: true })).toBeVisible();
   } finally {
     await harness.close();
+  }
+});
+
+test("scopes worktree creation and startup collection to the active profile", async () => {
+  test.setTimeout(180_000);
+  const profileA = await makeUserDataDir("pi-gui-profile-a-");
+  const profileB = await makeUserDataDir("pi-gui-profile-b-");
+  const fakeHome = await makeUserDataDir("pi-gui-fake-home-");
+  const workspacePath = await makeGitWorkspace("worktree-profile-isolation");
+  const profileARoot = join(profileA, "worktrees");
+  const profileBOrphan = join(profileB, "worktrees", "repo", "profile-b-orphan");
+  const legacyWorktree = join(fakeHome, ".pi", "worktrees", "repo", "legacy");
+  let profileAWorktree: string | undefined;
+
+  try {
+    const profileAHarness = await launchDesktop(profileA, {
+      initialWorkspaces: [workspacePath],
+      testMode: "background",
+      envOverrides: { HOME: fakeHome },
+    });
+    try {
+      const window = await profileAHarness.firstWindow();
+      const rootWorkspace = await waitForWorkspaceByPath(window, workspacePath);
+      await window.getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` }).click();
+      await window.getByRole("button", { name: "Create permanent worktree" }).click();
+
+      await expect
+        .poll(async () => {
+          const state = await getDesktopState(window);
+          return state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId)?.kind;
+        })
+        .toBe("worktree");
+
+      const state = await getDesktopState(window);
+      profileAWorktree = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId)?.path;
+      assertExists(profileAWorktree, "Expected profile A to create a worktree");
+      expect(isPathWithin(await realpath(profileARoot), profileAWorktree)).toBe(true);
+      expect(await pathExists(profileAWorktree)).toBe(true);
+    } finally {
+      await profileAHarness.close();
+    }
+
+    assertExists(profileAWorktree, "Expected profile A worktree path");
+    await addLinkedWorktree(workspacePath, profileBOrphan, "pi/profile-b-orphan");
+    await addLinkedWorktree(workspacePath, legacyWorktree, "pi/legacy");
+
+    const profileBHarness = await launchDesktop(profileB, {
+      initialWorkspaces: [],
+      testMode: "background",
+      envOverrides: { HOME: fakeHome },
+    });
+    try {
+      await profileBHarness.firstWindow();
+      await expect.poll(() => pathExists(profileBOrphan)).toBe(false);
+      expect(await pathExists(profileAWorktree)).toBe(true);
+      expect(await pathExists(legacyWorktree)).toBe(true);
+    } finally {
+      await profileBHarness.close();
+    }
+
+    await rm(join(profileA, "catalogs.json"), { force: true });
+    const profileAReconcileHarness = await launchDesktop(profileA, {
+      initialWorkspaces: [],
+      testMode: "background",
+      envOverrides: { HOME: fakeHome },
+    });
+    try {
+      await profileAReconcileHarness.firstWindow();
+      await expect.poll(() => pathExists(profileAWorktree)).toBe(false);
+      expect(await pathExists(legacyWorktree)).toBe(true);
+    } finally {
+      await profileAReconcileHarness.close();
+    }
+  } finally {
+    for (const worktreePath of [profileAWorktree, profileBOrphan, legacyWorktree]) {
+      if (worktreePath) {
+        await git(workspacePath, "worktree", "remove", "--force", worktreePath).catch(() => undefined);
+      }
+    }
+    await rm(profileA, { recursive: true, force: true });
+    await rm(profileB, { recursive: true, force: true });
+    await rm(fakeHome, { recursive: true, force: true });
+    await rm(dirname(workspacePath), { recursive: true, force: true });
   }
 });
 
