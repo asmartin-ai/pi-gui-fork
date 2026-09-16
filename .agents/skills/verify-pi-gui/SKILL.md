@@ -1,6 +1,6 @@
 ---
 name: verify-pi-gui
-description: Drive pi-gui's real Electron desktop with the existing Playwright harness, capture durable evidence, and verify mapped user flows. Use for desktop feature verification or a repeatable isolated settings smoke; use the general verify skill to select package-wide checks.
+description: Drive pi-gui's real Electron desktop with the existing Playwright harness, capture durable evidence, and verify mapped user flows. Use for desktop feature verification or a visible user-surface smoke; use the general verify skill to select package-wide checks.
 ---
 
 # Verify pi-gui
@@ -15,7 +15,7 @@ Run from the repository root with installed dependencies (Node >=22.19.0 <26, pn
 .agents/skills/verify-pi-gui/scripts/prove.sh
 ```
 
-This builds through the desktop package command, allocates a unique `.artifacts/verify-pi-gui/run-XXXXXX/`, launches Electron, proves settings persistence, and closes both app instances. It requires no provider login or dev server port. On macOS, if the selected full Xcode installation blocks `git`/`swiftc` on its license, an already working Command Line Tools installation can be selected for this invocation:
+This builds through the desktop package command, allocates a unique `.artifacts/verify-pi-gui/run-XXXXXX/`, launches and focuses a visible Electron window with `PI_APP_TEST_MODE` removed, clicks through Settings, Skills, and New thread, proves settings persistence, and closes both app instances. It requires no provider login or dev server port. On macOS, if the selected full Xcode installation blocks `git`/`swiftc` on its license, an already working Command Line Tools installation can be selected for this invocation:
 
 ```sh
 DEVELOPER_DIR=/Library/Developer/CommandLineTools .agents/skills/verify-pi-gui/scripts/prove.sh
@@ -29,25 +29,25 @@ For other mapped flows, use the canonical source-bound runner:
 pnpm verify --spec apps/desktop/tests/core/skills-settings.spec.ts
 ```
 
-It builds first. Substitute only a mapped spec; `--spec` cannot combine with `--scope`. For desktop product changes, follow `.agents/skills/verify/SKILL.md` for the owning lane: core/in-window, live/provider, native/OS. The bundled skill smoke is one feature proof, not full regression coverage.
+It builds first. Substitute only a mapped spec; `--spec` cannot combine with `--scope`. For desktop product changes, follow `.agents/skills/verify/SKILL.md` for the owning lane: core/in-window, live/provider, native/OS. The bundled smoke proves navigation to the named surfaces, an unsent new-thread draft, and settings persistence; it does not prove all behavior on those surfaces. Existing core specs use hidden windows and can use fixtures/test hooks. Keep them as regression checks, but do not substitute them for a requested visible user-surface proof.
 
-`launchDesktop(userDataDir, {initialWorkspaces: [workspace], testMode: 'background', scrubProviderEnv: true})` starts an isolated profile, agent directory, and historical catalog. `firstWindow()` waits for DOM load and the preload bridge; require a visible Settings or Back to app button before driving. A profile must belong to this run. Separate profiles permit side-by-side processes, but serialize desktop proofs because build output is shared; native flows need exclusive foreground input. Do not drive the user's installed instance.
+`launchDesktop(userDataDir, {agentDir, initialWorkspaces: [workspace], scrubProviderEnv: true, envOverrides: {PI_APP_TEST_MODE: undefined}})` starts an isolated profile, agent directory, and historical catalog. `firstWindow()` waits for DOM load and the preload bridge; require a visible Settings or Back to app button before driving. A profile must belong to this run. The proof brings Electron to the front and needs exclusive foreground input. Serialize desktop proofs because build output is also shared. Do not drive the user's installed instance.
 
 ## Doctor
 
-The bundled smoke performs one read-only identity/readiness check on each launch: Electron's `app.getAppPath()` must resolve to `apps/desktop`, `app.getPath('userData')` must equal this run's profile, and either Settings or Back to app must be visible (the settings view itself can survive a restart). It writes `doctor-1.json` and `doctor-2.json` with the actual PID and paths. Reuse this check whenever an instance looks wrong. Build success immediately before launch ties it to the current checkout; do not infer that an arbitrary installed app is current.
+After focusing the app, the bundled smoke performs one read-only identity/readiness check on each launch: Electron's `app.getAppPath()` must resolve to `apps/desktop`, `app.getPath('userData')` must equal this run's profile, and either Settings or Back to app must be visible (the settings view itself can survive a restart). It also requires Electron to report a visible, focused native window, no `PI_APP_TEST_MODE`, and no main-process test hooks. It writes `doctor-1.json` and `doctor-2.json` with the actual PID and paths. Reuse this check whenever an instance looks wrong. Build success immediately before launch ties it to the current checkout; do not infer that an arbitrary installed app is current.
 
 If launch aborts before the bridge, preserve the launch error and inspect the owned child process; there is no UI proof. Do not repeatedly retry identical host crashes.
 
 ## Drive
 
-Use the actual `Page` returned by `harness.firstWindow()`, Playwright roles/test IDs, and existing helpers. The executable recipe in `scripts/proof.spec.ts` clicks Settings, changes `getByRole('checkbox', {name: 'Enable skill slash commands'})`, leaves and reopens Settings, then closes/relaunches and asserts the saved value. This tests visible actions and disk-backed persistence without submitting a provider request.
+Use the actual `Page` returned by `harness.firstWindow()`, Playwright roles/test IDs, and existing helpers. The executable recipe in `scripts/proof.spec.ts` clicks each Settings section (Appearance, Providers, Models, Notifications, General), opens Skills, opens New thread and types an unsent draft. It changes `getByRole('checkbox', {name: 'Enable skill slash commands'})`, leaves and reopens Settings, then closes/relaunches and asserts the saved value. This tests visible actions and disk-backed persistence without submitting a provider request. Playwright sends mouse/keyboard input to the real renderer; it does not move the OS pointer. For native pickers, clipboard, permissions, or application switching, add a focused native/Computer Use proof. Do not replace UI actions with IPC setters. The scratch workspace is a launch fixture, so this does not prove opening a folder through the native picker. This is the development Electron binary using freshly built app code, not a packaged installer test.
 
 For restart proofs, seed the agent directory once and pass the same explicit `agentDir` on each launch: the default launch helper re-seeds settings on every launch. Read helpers before using them: `createNamedThread()` creates fixtures through IPC, and transcript delta helpers inject events. They can prepare unrelated state but do not prove thread creation or real agent execution. Prove visible mutations with UI actions; read-only IPC may corroborate the UI. Follow the map for each entry point: proving a sidebar button does not prove a keyboard shortcut or native picker.
 
 ## Evidence
 
-The helper prints its unique evidence directory. It retains build/run logs, exit code, identity checks, before/change/restart screenshots, ARIA snapshots, action traces (`change.zip`, `restart.zip`), a structured result, and cleanup status. Open a trace with:
+The helper prints its unique evidence directory. It retains build/run logs, exit code, identity checks, before/change/restart and per-surface screenshots, ARIA snapshots, videos (`videos/*.webm`), action traces (`change.zip`, `restart.zip`), a structured result, and cleanup status. Open a trace with:
 
 ```sh
 pnpm exec playwright show-trace .artifacts/verify-pi-gui/run-XXXXXX/restart.zip
@@ -63,7 +63,7 @@ After cleanup require `result.json`, `cleanup.json`, screenshots, and traces sti
 
 ## Helpers
 
-- `scripts/prove.sh`: executable, rebuilds and runs the isolated settings proof; invocation above. Nonzero exit means blocked/failed, including missing evidence.
+- `scripts/prove.sh`: executable, rebuilds and runs the visible app proof; invocation above. Nonzero exit means blocked/failed, including missing evidence.
 - `scripts/proof.spec.ts`: Playwright recipe with launch, doctor, UI drive, restart, evidence, and teardown; invoked by `prove.sh`.
 - `scripts/playwright.config.ts`: inherits the repo's Playwright defaults and selects only this smoke; no automatic retries.
 

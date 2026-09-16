@@ -12,7 +12,7 @@ else
   exit 1
 fi
 set +e
-PI_APP_TEST_MODE=background pnpm exec playwright test -c .agents/skills/verify-pi-gui/scripts/playwright.config.ts --output "$PI_GUI_PROOF_DIR/playwright" --reporter=line >"$PI_GUI_PROOF_DIR/run.log" 2>&1
+pnpm exec playwright test -c .agents/skills/verify-pi-gui/scripts/playwright.config.ts --output "$PI_GUI_PROOF_DIR/playwright" --reporter=line >"$PI_GUI_PROOF_DIR/run.log" 2>&1
 result=$?
 set -e
 cat "$PI_GUI_PROOF_DIR/run.log"
