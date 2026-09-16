@@ -51,7 +51,7 @@ The default `conversation.spec.ts` drives [conversations](features/conversations
 
 Playwright sends input to the real renderer; it does not move the desktop pointer. Native pickers, clipboard, permissions and OS switching need a native/Computer Use journey. The launcher uses the development Electron binary with freshly built app code, not a packaged installation. Read the feature map for other required entry points. [Queued follow-ups](features/follow-ups.md), worktrees, and native/package paths have separate coverage; do not imply they passed with the default proof.
 
-For product changes, use `.agents/skills/verify/SKILL.md` to choose additional regression lanes. Existing core/live specs may contain IPC fixtures or injected events; inspect them before treating them as real conversation proof.
+For product changes, use `apps/desktop/tests/AGENTS.md` and the current package scripts to choose additional regression lanes. Existing core/live specs may contain IPC fixtures or injected events; inspect them before treating them as real conversation proof.
 
 ## Evidence
 
