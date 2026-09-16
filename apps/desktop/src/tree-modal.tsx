@@ -77,8 +77,11 @@ export function TreeModal({
     setAutoScrollRequest((value) => value + 1);
   }, [tree]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (step === "select") {
+      if (loading || !tree) {
+        return;
+      }
       searchRef.current?.focus();
       return;
     }
@@ -87,7 +90,36 @@ export function TreeModal({
       return;
     }
     dialogRef.current?.querySelector<HTMLButtonElement>("[data-tree-summary-confirm='true']")?.focus();
-  }, [step, summaryMode]);
+  }, [loading, step, summaryMode, tree]);
+
+  useLayoutEffect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      const dialog = dialogRef.current;
+      const target = event.target;
+      if (!dialog || !(target instanceof Node) || dialog.contains(target)) {
+        return;
+      }
+
+      // Tab handling keeps keyboard navigation inside; this also contains delayed programmatic focus.
+      if (step === "select" && !loading && tree && searchRef.current) {
+        searchRef.current.focus();
+        return;
+      }
+      if (step === "summary" && summaryMode === "custom" && customInstructionsRef.current) {
+        customInstructionsRef.current.focus();
+        return;
+      }
+      dialog.querySelector<HTMLButtonElement>("[data-tree-summary-confirm='true']")?.focus();
+      if (!dialog.contains(document.activeElement)) {
+        dialog.focus();
+      }
+    };
+
+    document.addEventListener("focusin", handleFocusIn);
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn);
+    };
+  }, [loading, step, summaryMode, tree]);
 
   const displayRows = useMemo(
     () => (tree ? buildVisibleRows(tree.roots, expandedIds, search, tree.leafId) : []),

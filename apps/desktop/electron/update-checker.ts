@@ -2,8 +2,7 @@ import { app, net, Notification, shell } from "electron";
 
 const RELEASES_URL =
   "https://api.github.com/repos/minghinmatthewlam/pi-gui/releases?per_page=1";
-const RELEASES_PAGE =
-  "https://github.com/minghinmatthewlam/pi-gui/releases/latest";
+const RELEASES_PAGE = "https://github.com/minghinmatthewlam/pi-gui/releases";
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const INITIAL_DELAY_MS = 15_000; // 15 seconds after launch
@@ -11,14 +10,28 @@ const FETCH_TIMEOUT_MS = 10_000; // give up on a hung request
 
 export type UpdateCheckResult =
   | { status: "up-to-date"; currentVersion: string; latestVersion: string }
-  | { status: "update-available"; currentVersion: string; latestVersion: string }
+  | {
+      status: "update-available";
+      currentVersion: string;
+      latestVersion: string;
+      releaseUrl: string;
+    }
   | { status: "error"; message: string };
 
-export function openReleasesPage(): Promise<void> {
-  return shell.openExternal(RELEASES_PAGE);
+export type GitHubRelease = {
+  tag_name?: string;
+  html_url?: string;
+};
+
+export function openReleasesPage(releaseUrl = RELEASES_PAGE): Promise<void> {
+  return shell.openExternal(releaseUrl);
 }
 
-export function showUpdateNotification(currentVersion: string, latestVersion: string): void {
+export function showUpdateNotification(
+  currentVersion: string,
+  latestVersion: string,
+  releaseUrl: string,
+): void {
   if (!Notification.isSupported()) {
     return;
   }
@@ -27,7 +40,7 @@ export function showUpdateNotification(currentVersion: string, latestVersion: st
     body: `Version ${latestVersion} is available (you have ${currentVersion}). Click to view the release.`,
   });
   notification.on("click", () => {
-    void shell.openExternal(RELEASES_PAGE);
+    void openReleasesPage(releaseUrl);
   });
   notification.show();
 }
@@ -65,9 +78,9 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
     };
   }
 
-  let releases: Array<{ tag_name?: string }>;
+  let releases: GitHubRelease[];
   try {
-    releases = (await res.json()) as Array<{ tag_name?: string }>;
+    releases = (await res.json()) as GitHubRelease[];
   } catch {
     return { status: "error", message: "GitHub Releases returned an unreadable response." };
   }
@@ -90,6 +103,7 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
       status: "update-available",
       currentVersion: current,
       latestVersion: latest,
+      releaseUrl: releaseUrlFor(release),
     };
   }
 
@@ -112,7 +126,7 @@ export function initUpdateChecker(): () => void {
     }
     if (result.status === "update-available" && result.latestVersion !== lastNotifiedVersion) {
       lastNotifiedVersion = result.latestVersion;
-      showUpdateNotification(result.currentVersion, result.latestVersion);
+      showUpdateNotification(result.currentVersion, result.latestVersion, result.releaseUrl);
     }
   };
 
@@ -123,6 +137,37 @@ export function initUpdateChecker(): () => void {
     clearTimeout(timeout);
     clearInterval(interval);
   };
+}
+
+export function releaseUrlFor(release: GitHubRelease): string {
+  const tag = release.tag_name;
+  if (!tag) {
+    return RELEASES_PAGE;
+  }
+
+  const canonicalUrl = `${RELEASES_PAGE}/tag/${encodeURIComponent(tag)}`;
+  if (!release.html_url) {
+    return canonicalUrl;
+  }
+
+  try {
+    const candidate = new URL(release.html_url);
+    const canonical = new URL(canonicalUrl);
+    if (
+      candidate.protocol === canonical.protocol &&
+      candidate.host === canonical.host &&
+      candidate.pathname === canonical.pathname &&
+      candidate.username === "" &&
+      candidate.password === "" &&
+      candidate.search === "" &&
+      candidate.hash === ""
+    ) {
+      return candidate.toString();
+    }
+  } catch {
+    // Fall through to the repository's canonical URL for this exact tag.
+  }
+  return canonicalUrl;
 }
 
 /**

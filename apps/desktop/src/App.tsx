@@ -11,6 +11,7 @@ import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app/app-shell-
 import { useRunningLabel } from "./hooks/use-running-label";
 import { useTimelineScroll, type SidePanelMode } from "./hooks/use-timeline-scroll";
 import { formatRelativeTime } from "./string-utils";
+import { restoreTopmostDialogFocus } from "./dialog-focus";
 import { ComposerPanel } from "./composer-panel";
 import { DiffPanel } from "./diff-panel";
 import type { DiffPanelFileRequest } from "./diff-panel-types";
@@ -229,6 +230,9 @@ export default function App() {
   );
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
+      if (restoreTopmostDialogFocus()) {
+        return;
+      }
       composerRef.current?.focus();
     });
   };
@@ -599,6 +603,7 @@ export default function App() {
     sidePanelMode ? "main--with-diff" : "",
     isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
+    snapshot.startupDiagnostics.length > 0 ? "main--with-startup-diagnostics" : "",
   ].filter(Boolean).join(" ");
   const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (
     <TerminalPanel
@@ -807,6 +812,20 @@ export default function App() {
           promptRailVisible={promptRailVisible}
           onTogglePromptRail={togglePromptRail}
         />
+
+        {snapshot.startupDiagnostics.length > 0 ? (
+          <div className="startup-diagnostics" role="status" data-testid="startup-diagnostics">
+            <strong>Some saved workspaces could not be refreshed.</strong>
+            <span>
+              {snapshot.startupDiagnostics
+                .map((diagnostic) => {
+                  const workspaceName = diagnostic.workspacePath?.split(/[\\/]/).filter(Boolean).at(-1);
+                  return workspaceName ? `${workspaceName} is unavailable.` : diagnostic.message;
+                })
+                .join(" ")}
+            </span>
+          </div>
+        ) : null}
 
         {showTerminalTakeover ? (
           terminalPanel

@@ -40,6 +40,7 @@ export interface AppStoreInternals {
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
+  readonly worktreeRoot: string;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
 
   /* ── Shared helpers (called by extracted method groups) ── */
