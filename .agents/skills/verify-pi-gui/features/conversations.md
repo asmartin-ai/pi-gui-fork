@@ -1,0 +1,36 @@
+# Conversations: send, stream, and stop
+
+The primary product flow is to send a prompt, watch an assistant response grow, and finish or stop the run. A successful settings smoke is not a substitute for this flow.
+
+## Sub-features
+
+- `conversation-send`: create a real thread by filling New thread prompt and clicking Start thread.
+- `conversation-stream`: observe at least two increasing assistant text lengths while the thread shows running.
+- `conversation-complete`: observe the final assistant marker and the running indicator clearing without an error.
+- `conversation-tool`: execute a real tool, inspect its output, and corroborate a file written in the scratch workspace.
+- `conversation-stop`: send a follow-up, observe its assistant output starting, then click Stop run and verify the run ends.
+
+## How to get to it (user POV)
+
+- Sidebar New thread → enter a prompt → Start thread.
+- Existing thread → composer → Send message (the primary proof uses the button).
+- During a run, an empty composer shows Stop run.
+- Click a tool header to expand/collapse its output.
+- Enter is a separate send entry point; queued Enter and steering shortcuts are mapped in `follow-ups.md`.
+
+## Driving it with Playwright
+
+Preconditions: a built app, an explicitly selected working provider/model, and the real-auth environment described in the parent skill. Run `scripts/prove.sh` from the skill directory path shown there; conversation proof is the default.
+
+- **Send:** the recipe clicks New thread, fills `getByLabel('New thread prompt')`, then clicks Start thread. Require a real sidebar session ID and Stop run. No session creation IPC or injected events are allowed.
+- **Stream:** sample `.timeline-item--assistant .message__content` while the active row has `data-sidebar-indicator="running"`. Retain timestamped lengths in `stream-samples.json` and a partial screenshot. Looking for text in the entire transcript can falsely match the user's prompt; assertions must target assistant messages.
+- **Complete:** require `ALPHA_DONE` in the assistant response and a cleared running indicator. Failed/auth-error states are failures, not completion.
+- **Tool:** Bravo runs a short shell command in the scratch folder to write `verification-tool.txt`. Check `BRAVO_TOOL_OK` in both the file and the expanded `.timeline-tool__body`, then collapse the header.
+- **Stop:** submit a longer follow-up; after `CANCEL_BEGIN` appears in assistant text, click the button named Stop run. Require the thread to stop running and the button to return to Send message.
+
+## Gotchas
+
+- Uses real provider requests and can consume usage. Keep prompts and scratch tool commands bounded.
+- Missing/expired authentication is BLOCKED; do not replace the run with mocked responses or silently pass a skip.
+- A final answer alone does not prove streaming. Require observed growth while running.
+- The initial scratch folder is a fixture; native folder selection is a separate proof.
