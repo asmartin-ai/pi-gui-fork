@@ -9,7 +9,7 @@ Read [features/README.md](features/README.md) before choosing coverage. Conversa
 
 ## Launch
 
-Run from the repository root with dependencies installed (Node >=22.19.0 <26, pnpm 10.25.0; setup is `pnpm bootstrap`). The default command is the real-provider conversation proof:
+Run from the repository root with dependencies installed (Node >=22.19.0 <26, pnpm 10.25.0; setup is `pnpm install --frozen-lockfile`). The default command is the real-provider conversation proof:
 
 ```sh
 PI_APP_REAL_AUTH=1 \

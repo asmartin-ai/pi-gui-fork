@@ -17,7 +17,7 @@ Users create a separate Git workspace or choose a worktree environment for a new
 
 Preconditions: isolated profile and disposable Git repository with an initial commit; working Git executable. Never use the user's checkout as the worktree fixture.
 
-- **Run:** `pnpm verify --spec apps/desktop/tests/core/worktrees.spec.ts`.
+- **Run:** `pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/worktrees.spec.ts`.
 - **Create:** click the button named `Workspace actions for ${rootWorkspace.name}`, then `Create permanent worktree`. Assert the selected workspace represents the created worktree and inspect its actual Git worktree record on disk.
 - **Environment:** click New thread within the complementary sidebar. Require `new-thread-composer` plus exact Local and Worktree buttons.
 - **Proof:** capture menu action, selected workspace, filesystem/Git result, and environment choices. Run the profile-isolation case when changing discovery or ownership.
