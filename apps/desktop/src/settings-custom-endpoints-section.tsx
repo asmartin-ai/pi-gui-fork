@@ -178,7 +178,9 @@ function CustomEndpointDialog({ mode, existingProviderIds, onClose, onSave }: Cu
   useEffect(() => {
     if (!probePending && restoreProbeFocusRef.current) {
       restoreProbeFocusRef.current = false;
-      probeButtonRef.current?.focus();
+      if (document.activeElement === document.body || document.activeElement === probeButtonRef.current) {
+        probeButtonRef.current?.focus();
+      }
     }
   }, [probePending]);
 

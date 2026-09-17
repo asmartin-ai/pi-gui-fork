@@ -19,14 +19,15 @@ async function readModelsJson(agentDir: string): Promise<Record<string, unknown>
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
-async function startModelListServer(modelCount: number): Promise<{
+async function startModelListServer(modelCount: number, beforeResponse?: () => Promise<void>): Promise<{
   readonly baseUrl: string;
   readonly authorization: () => string | undefined;
   readonly close: () => Promise<void>;
 }> {
   let authorization: string | undefined;
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
     authorization = request.headers.authorization;
+    await beforeResponse?.();
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({
       data: Array.from({ length: modelCount }, (_, index) => ({ id: `detected-model-${index + 1}` })),
@@ -67,6 +68,44 @@ async function saveCustomEndpointVideo(video: Video | null, proofDir: string | u
     await video.saveAs(join(proofDir, "custom-endpoint-keyboard-flow.webm"));
   }
 }
+
+test("custom endpoint detection preserves focus moved to manual model entry", async () => {
+  let releaseResponse!: () => void;
+  const responseReady = new Promise<void>((resolve) => { releaseResponse = resolve; });
+  const modelServer = await startModelListServer(2, () => responseReady);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("custom-endpoints-focus-workspace");
+  await seedAgentDir(agentDir, { enabledModels: [] });
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    scrubProviderEnv: true,
+    testMode: "background",
+  });
+  try {
+    const window = await harness.firstWindow();
+    await openProvidersSettings(window);
+    await window.getByRole("button", { name: "Add endpoint", exact: true }).click();
+    const dialog = window.getByTestId("custom-endpoint-dialog");
+    await dialog.getByLabel("Provider ID").fill("delayed-models");
+    await dialog.getByLabel("Base URL").fill(modelServer.baseUrl);
+    await dialog.getByRole("button", { name: "Detect models", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Detecting…", exact: true })).toBeDisabled();
+    const manualModel = dialog.getByLabel("Add model ID manually");
+    await manualModel.fill("manual-model");
+    releaseResponse();
+    await expect(dialog.getByLabel("Enable detected-model-1", { exact: true })).toBeVisible();
+    await expect(manualModel).toBeFocused();
+    await manualModel.press("Enter");
+    await expect(dialog.getByLabel("Enable manual-model", { exact: true })).toBeChecked();
+    await saveCustomEndpointProof(window, process.env.PI_APP_CUSTOM_ENDPOINT_PROOF_DIR, "delayed-detection-focus.png");
+  } finally {
+    releaseResponse();
+    await harness.close();
+    await modelServer.close();
+  }
+});
 
 test("settings lets the user add, edit, and delete an OpenAI-compatible custom endpoint", async () => {
   test.setTimeout(60_000);
