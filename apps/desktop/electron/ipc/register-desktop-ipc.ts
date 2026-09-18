@@ -302,7 +302,8 @@ export function registerDesktopIpc({
   ipcMain.handle(desktopIpc.setSessionPinned, (event, rawTarget: unknown, rawPinned: unknown) => {
     const target = expectSessionTarget(rawTarget);
     const pinned = expectBoolean(rawPinned, "pinned");
-    return run(event, () => owners.conversation.setSessionPinned(target, pinned));
+    // Pin metadata has an explicit target and must not wait for an active prompt to finish.
+    return immediate(event, () => owners.conversation.setSessionPinned(target, pinned));
   });
   ipcMain.handle(desktopIpc.setActiveView, (event, rawView: unknown) => {
     const view = expectAppView(rawView);

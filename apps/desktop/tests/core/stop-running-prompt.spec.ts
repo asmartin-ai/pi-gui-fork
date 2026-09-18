@@ -10,7 +10,7 @@ import {
   makeWorkspace,
 } from "../helpers/electron-app";
 
-test("Stop interrupts a pending composer prompt before its window action completes", async () => {
+test("Pin controls and Stop respond before a pending composer prompt completes", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("stop-pending-prompt");
   const harness = await launchDesktop(userDataDir, {
@@ -20,6 +20,10 @@ test("Stop interrupts a pending composer prompt before its window action complet
   try {
     const page = await harness.firstWindow();
     await createNamedThread(page, "Pending prompt");
+    await page.locator(".session-row", { hasText: "Pending prompt" }).hover();
+    await page.getByRole("button", { name: /^Pin Pending prompt/ }).click();
+    const pinnedSection = page.getByRole("region", { name: "Pinned threads" });
+    await expect(pinnedSection).toBeVisible();
     const state = await getDesktopState(page);
     const target = {
       workspaceId: state.selectedWorkspaceId!,
@@ -78,6 +82,14 @@ test("Stop interrupts a pending composer prompt before its window action complet
     await page.getByTestId("composer").fill("Keep this prompt pending until Stop");
     await page.getByTestId("send").click();
     await expect(page.getByRole("button", { name: "Stop run", exact: true })).toBeVisible();
+    await pinnedSection.getByRole("button", { name: /^Unpin Pending prompt/ }).click();
+    await expect(pinnedSection).toHaveCount(0);
+    const row = page.locator(`.session-row[data-session-id="${target.sessionId}"]`);
+    await expect(row).toHaveAttribute("data-sidebar-indicator", "running");
+    await row.hover();
+    await row.getByRole("button", { name: /^Pin Pending prompt/ }).click();
+    await expect(pinnedSection).toBeVisible();
+    await expect(row).toHaveAttribute("data-sidebar-indicator", "running");
     await page.getByRole("button", { name: "Stop run", exact: true }).click();
     await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Send message", {
       timeout: 5_000,
