@@ -17,7 +17,7 @@ await test("requested abort emits only idle state, without completion or failure
   // Exercise the runtime-event translation directly; no live session, provider,
   // disk state or credentials are needed to prove the emitted event contract.
   const supervisor = new SessionSupervisor() as unknown as {
-    mapAgentEvent(record: typeof record, event: unknown): SessionDriverEvent[];
+    mapAgentEvent(input: typeof record, event: unknown): SessionDriverEvent[];
   };
   const events = supervisor.mapAgentEvent(record, {
     type: "agent_end",

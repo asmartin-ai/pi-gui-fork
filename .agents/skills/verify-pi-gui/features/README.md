@@ -29,7 +29,12 @@ Record exact feature/entry point, command, result and evidence directory. `compl
 
 Packaged-app launch, native dialogs/clipboard, model/account onboarding, attachments, file/diff/terminal interaction, and broader extension behavior require separate mapped journeys as those features are changed. Do not claim full-app coverage from this initial map.
 
-## Latest observed proof (2026-09-16)
+## Latest observed proof (2026-09-18)
+
+- `run-mKBpsN`: the complete real openai-codex/gpt-5.6-luna conversation recipe passed on `d73837ae`: streaming, tool output and file side effect, switching during a run, Stop, draft isolation, archive/restore, and both conversations after restart. No assertion failures; both owned Electron processes exited. This uses the development Electron binary, not the packaged app.
+- Earlier runs `run-yJgXkz` and `run-IZZnQJ` exposed draft loss on New thread, Stop blocked behind the active prompt, and requested cancellation reported as failure. The fixes now have deterministic regressions; preserve those failed-run artifacts alongside the successful proof.
+
+## Earlier observed proof (2026-09-16)
 
 - `run-jT6s7v`: a real openai-codex/gpt-5.6-luna request sent, assistant text grew while running, and the response completed. The run then failed because Alpha's draft was empty after creating Bravo and switching back. Both the draft expectation and the nonzero result remain.
 - The revised recipe continues after draft assertion failures so it can collect later coverage. That revision has not yet completed a real run; tool completion, stop, archive/restore, and restart in this new recipe remain unverified.
