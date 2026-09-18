@@ -209,3 +209,124 @@ await test("an interrupted temp write leaves the last committed catalog readable
     assert.equal(persisted.workspaces.length, 1);
   });
 });
+
+const validWorkspace = {
+  workspaceId: "workspace",
+  path: "/workspace",
+  displayName: "Workspace",
+  lastOpenedAt: timestamp,
+  sortOrder: 0,
+};
+const validSession = {
+  workspaceId: "workspace",
+  sessionRef: { workspaceId: "workspace", sessionId: "session" },
+  title: "Session",
+  updatedAt: timestamp,
+  status: "idle",
+};
+const validWorktree = {
+  worktreeId: "worktree",
+  workspaceId: "workspace",
+  path: "/worktree",
+  displayName: "Worktree",
+  kind: "linked",
+  status: "ready",
+  createdAt: timestamp,
+  updatedAt: timestamp,
+};
+const validCatalog = {
+  version: 2,
+  workspaces: [validWorkspace],
+  sessions: [validSession],
+  worktrees: [validWorktree],
+  sessionFiles: { "workspace:session": "/session.jsonl" },
+};
+
+await test("invalid catalog data rejects reads and writes without dropping any saved records", async (t) => {
+  const cases: Record<string, unknown> = {
+    "future version": { ...validCatalog, version: 3 },
+    "null document": null,
+    "array document": [],
+    "missing v2 collection": { ...validCatalog, sessions: undefined },
+    "wrong collection shape": { ...validCatalog, workspaces: {} },
+    "null workspace among valid records": { ...validCatalog, workspaces: [validWorkspace, null] },
+    "workspace timestamp": {
+      ...validCatalog,
+      workspaces: [{ ...validWorkspace, lastOpenedAt: 12 }],
+    },
+    "workspace sort order": {
+      ...validCatalog,
+      workspaces: [{ ...validWorkspace, sortOrder: "0" }],
+    },
+    "workspace pinned": { ...validCatalog, workspaces: [{ ...validWorkspace, pinned: "yes" }] },
+    "session reference": { ...validCatalog, sessions: [{ ...validSession, sessionRef: {} }] },
+    "session workspace mismatch": {
+      ...validCatalog,
+      sessions: [{ ...validSession, workspaceId: "other" }],
+    },
+    "session status": { ...validCatalog, sessions: [{ ...validSession, status: "unknown" }] },
+    "session optional field": {
+      ...validCatalog,
+      sessions: [{ ...validSession, archivedAt: false }],
+    },
+    "worktree kind": { ...validCatalog, worktrees: [{ ...validWorktree, kind: "unknown" }] },
+    "worktree status": { ...validCatalog, worktrees: [{ ...validWorktree, status: "unknown" }] },
+    "worktree optional field": {
+      ...validCatalog,
+      worktrees: [{ ...validWorktree, branchName: [] }],
+    },
+    "file map array": { ...validCatalog, sessionFiles: [] },
+    "file map value": { ...validCatalog, sessionFiles: { "workspace:session": null } },
+    "legacy malformed collection": { version: 1, sessions: null },
+  };
+  for (const [name, contents] of Object.entries(cases)) {
+    await t.test(name, async () => {
+      await withTempDir(async (dir) => {
+        const catalogFilePath = join(dir, "catalogs.json");
+        const original = `${JSON.stringify(contents, null, 2)}\n`;
+        await writeFile(catalogFilePath, original);
+        const store = new JsonCatalogStore({ catalogFilePath });
+        const error = /(?:Invalid catalog file contents|Unsupported catalog file format)/;
+        await assert.rejects(store.workspaces.listWorkspaces(), error);
+        await assert.rejects(store.sessions.listSessions(), error);
+        await assert.rejects(store.worktrees.listWorktrees(), error);
+        await assert.rejects(store.workspaces.deleteWorkspace("workspace"), error);
+        await assert.rejects(store.setSessionFile(validSession.sessionRef, "/new.jsonl"), error);
+        assert.equal(await readFile(catalogFilePath, "utf8"), original);
+      });
+    });
+  }
+});
+
+await test("legacy catalogs retain records and upgrade only when a mutation succeeds", async () => {
+  await withTempDir(async (dir) => {
+    const catalogFilePath = join(dir, "catalogs.json");
+    const original = JSON.stringify({
+      version: 1,
+      workspaces: [validWorkspace],
+      sessions: [validSession],
+    });
+    await writeFile(catalogFilePath, original);
+    const store = new JsonCatalogStore({ catalogFilePath });
+    assert.deepEqual((await store.sessions.listSessions()).sessions, [validSession]);
+    assert.deepEqual((await store.worktrees.listWorktrees()).worktrees, []);
+    assert.equal(await store.getSessionFile(validSession.sessionRef), undefined);
+    assert.equal(await readFile(catalogFilePath, "utf8"), original);
+    await store.setSessionFile(validSession.sessionRef, "/session.jsonl");
+    const reopened = new JsonCatalogStore({ catalogFilePath });
+    assert.deepEqual((await reopened.workspaces.listWorkspaces()).workspaces, [validWorkspace]);
+    assert.deepEqual((await reopened.sessions.listSessions()).sessions, [validSession]);
+    assert.equal(await reopened.getSessionFile(validSession.sessionRef), "/session.jsonl");
+  });
+});
+
+await test("a failed load can be retried after the original catalog is repaired", async () => {
+  await withTempDir(async (dir) => {
+    const catalogFilePath = join(dir, "catalogs.json");
+    await writeFile(catalogFilePath, JSON.stringify({ ...validCatalog, sessions: [null] }));
+    const store = new JsonCatalogStore({ catalogFilePath });
+    await assert.rejects(store.sessions.listSessions(), /Invalid catalog file contents/);
+    await writeFile(catalogFilePath, JSON.stringify(validCatalog));
+    assert.deepEqual((await store.sessions.listSessions()).sessions, [validSession]);
+  });
+});
