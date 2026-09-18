@@ -90,7 +90,6 @@ import {
   buildWorkspaceRecords,
   cloneComposerAttachment,
   cloneComposerAttachments,
-  cloneTranscriptMessage,
   latestSessionActivityAt,
   mergeQueuedComposerMessages,
   mapToRecord,
@@ -304,8 +303,13 @@ export class DesktopAppStore implements AppStoreInternals {
     const activeView = view.activeView ?? state.activeView;
     const sidebarCollapsed = view.sidebarCollapsed ?? state.sidebarCollapsed;
 
+    // No structuredClone: state is written immutably everywhere (every mutation
+    // path rebuilds the objects it touches), so a shallow spread is already a
+    // stable snapshot, and every consumer either only reads it or ships it over
+    // IPC, which structured-clones the payload itself. Deep-cloning here ran
+    // twice per publish and dominated main-process CPU while a thread streamed.
     return {
-      ...structuredClone(state),
+      ...state,
       selectedWorkspaceId,
       selectedSessionId,
       activeView,
@@ -3019,12 +3023,13 @@ export class DesktopAppStore implements AppStoreInternals {
   private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
     this.ensureSessionSchemaInfo(sessionRef);
     const schemaInfo = this.sessionSchemaInfoCache.get(sessionKey(sessionRef));
+    // No defensive clone here: every consumer ships this record over IPC, which
+    // structured-clones the payload anyway. Cloning 400+ messages per publish
+    // just doubled main-process allocations during streaming.
     return {
       workspaceId: sessionRef.workspaceId,
       sessionId: sessionRef.sessionId,
-      transcript: (this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? []).map(
-        cloneTranscriptMessage,
-      ),
+      transcript: this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [],
       ...(schemaInfo ? { schemaInfo } : {}),
     };
   }
@@ -3069,7 +3074,9 @@ export class DesktopAppStore implements AppStoreInternals {
     // revision at the publish point instead of trusting the mutation sites.
     this.publishRevision = Math.max(this.publishRevision, this.state.revision) + 1;
     this.state = { ...this.state, revision: this.publishRevision };
-    const snapshot = structuredClone(this.state);
+    // Same reasoning as projectStateForView: listeners only read the snapshot or
+    // send it over IPC, so it does not need a defensive deep copy.
+    const snapshot = this.state;
     for (const listener of this.listeners) {
       listener(snapshot);
     }
@@ -3540,9 +3547,10 @@ export class DesktopAppStore implements AppStoreInternals {
     runtimeByWorkspace?: Record<string, RuntimeSnapshot>,
   ): DesktopAppState {
     const key = sessionKey(sessionRef);
-    const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(
-      cloneTranscriptMessage,
-    );
+    // No clone: the cache follows immutable-write discipline (every mutation
+    // replaces the array), so this reference is a stable snapshot. Cloning the
+    // whole transcript here cost O(thread) allocations per session state sync.
+    const transcript = this.sessionState.transcriptCache.get(key) ?? [];
     const preview = previewFromTranscript(transcript);
     const lastViewedAt = this.sessionState.lastViewedAtBySession.get(key);
     const nextState = {

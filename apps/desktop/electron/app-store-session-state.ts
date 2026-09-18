@@ -1,22 +1,21 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionSnapshot } from "@pi-gui/session-driver";
 import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
-import {
-  cloneTranscriptMessage,
-  hasUnseenSessionUpdate,
-  previewFromTranscript,
-} from "./app-store-utils";
+import { hasUnseenSessionUpdate, previewFromTranscript } from "./app-store-utils";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";
 
 export function applySessionEventState(
   state: DesktopAppState,
   event: SessionDriverEvent,
-  transcriptCache: Map<string, TranscriptMessage[]>,
+  transcriptCache: Map<string, readonly TranscriptMessage[]>,
   runningSinceBySession: Map<string, string>,
   lastViewedAtBySession: Map<string, string>,
 ): DesktopAppState {
   const key = sessionKey(event.sessionRef);
-  const transcript = (transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
+  // No clone: the cache follows immutable-write discipline (every mutation
+  // replaces the array), so this reference is a stable snapshot. Cloning the
+  // whole transcript here cost O(thread) allocations per session event.
+  const transcript = transcriptCache.get(key) ?? [];
   const preview = previewFromTranscript(transcript);
   const lastViewedAt = lastViewedAtBySession.get(key);
 
