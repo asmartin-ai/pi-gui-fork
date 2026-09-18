@@ -2,11 +2,6 @@ name: Windows release diagnostic
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing draft release tag to diagnose
-        required: true
-        default: v0.1.0-beta.38
   push:
     branches: [main]
     paths:
@@ -16,37 +11,55 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-installer:
+  build-candidate:
     runs-on: windows-latest
-    timeout-minutes: 15
-    # Draft assets require push access. This job never publishes or uploads release assets.
-    permissions:
-      contents: write
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Download existing Windows packages
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/desktop run package:win
+      - run: pnpm --dir apps/desktop run verify:packaged-runtime-deps:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-installers
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  diagnose-installer:
+    needs: build-candidate
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: diagnostic-installers
+          path: draft-release
+      - name: Record package hashes
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || 'v0.1.0-beta.38' }}
         run: |
-          gh release download $env:RELEASE_TAG --dir draft-release
-          if ($LASTEXITCODE -ne 0) { throw "Draft download failed" }
           New-Item -ItemType Directory -Force -Path diagnostic-proof | Out-Null
           Get-ChildItem draft-release -Filter '*.exe' | Get-FileHash -Algorithm SHA256 |
             Format-List | Out-String | Tee-Object -FilePath diagnostic-proof/package-hashes.txt
       - name: Reproduce native package verification
         shell: pwsh
-        env:
-          RELEASE_TAG: ${{ inputs.tag || 'v0.1.0-beta.38' }}
         run: |
+          $version = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
           $started = Get-Date
           try {
             ./apps/desktop/scripts/verify-windows-release.ps1 `
               -ReleaseDir "$PWD/draft-release" `
-              -Version ($env:RELEASE_TAG -replace '^v', '') `
+              -Version $version `
               -SmokePackages
           }
           finally {
