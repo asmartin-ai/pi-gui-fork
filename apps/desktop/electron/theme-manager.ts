@@ -1,6 +1,6 @@
 import { nativeTheme, type BrowserWindow } from "electron";
-import { desktopIpc } from "../src/ipc";
-import type { ThemeMode } from "../src/desktop-state";
+import { desktopIpc } from "../contracts/ipc";
+import type { ThemeMode } from "../contracts/desktop-state";
 
 export class ThemeManager {
   private mode: ThemeMode = "system";

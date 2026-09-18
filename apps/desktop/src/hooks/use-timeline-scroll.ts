@@ -7,7 +7,7 @@ import {
   type RefObject,
   type MutableRefObject,
 } from "react";
-import type { AppView, SelectedTranscriptRecord } from "../desktop-state";
+import type { AppView, SelectedTranscriptRecord } from "../../contracts/desktop-state";
 import { VIRTUALIZATION_THRESHOLD } from "../conversation-timeline";
 
 export type SidePanelMode = "changes" | "files";

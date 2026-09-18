@@ -1,4 +1,4 @@
-import type { ComposerAttachment, QueuedComposerMessage } from "./desktop-state";
+import type { ComposerAttachment, QueuedComposerMessage } from "../contracts/desktop-state";
 import { FileIcon } from "./icons";
 
 interface QueuedComposerMessagesProps {

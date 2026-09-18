@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { WorkspaceRecord } from "./desktop-state";
+import type { WorkspaceRecord } from "../contracts/desktop-state";
 import { RefreshIcon } from "./icons";
 import { titleCase } from "./string-utils";
 

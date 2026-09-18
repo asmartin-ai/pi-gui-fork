@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { DesktopAppState, SelectedTranscriptRecord } from "../desktop-state";
+import type { DesktopAppState, SelectedTranscriptRecord } from "../../contracts/desktop-state";
 
 export function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);

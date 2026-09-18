@@ -1,7 +1,12 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import type {
+  AppView,
+  SessionRecord,
+  WorkspaceRecord,
+  WorktreeRecord,
+} from "../contracts/desktop-state";
 import { DiffIcon, FileIcon, PromptRailIcon, TerminalIcon } from "./icons";
-import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
+import { getDesktopShortcutLabel, type PiDesktopApi } from "../contracts/ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
 interface TopbarProps {

@@ -11,10 +11,14 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import type { WorkspaceRecord } from "./desktop-state";
+import type { WorkspaceRecord } from "../contracts/desktop-state";
 import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RefreshIcon } from "./icons";
-import type { TerminalPanelSnapshot, TerminalSessionSnapshot, TerminalSize } from "./ipc";
-import { appendTerminalReplay } from "./terminal-model";
+import type {
+  TerminalPanelSnapshot,
+  TerminalSessionSnapshot,
+  TerminalSize,
+} from "../contracts/ipc";
+import { appendTerminalReplay } from "../contracts/terminal-model";
 
 const MIN_TERMINAL_HEIGHT = 220;
 const DEFAULT_TERMINAL_HEIGHT = 340;

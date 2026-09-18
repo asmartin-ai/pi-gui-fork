@@ -1,6 +1,6 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionSnapshot } from "@pi-gui/session-driver";
-import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../src/desktop-state";
+import type { DesktopAppState, SessionRecord, TranscriptMessage } from "../contracts/desktop-state";
 import {
   cloneTranscriptMessage,
   hasUnseenSessionUpdate,

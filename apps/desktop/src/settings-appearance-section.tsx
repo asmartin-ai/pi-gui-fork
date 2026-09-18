@@ -1,4 +1,4 @@
-import type { ThemeMode, ThemePresetId } from "./desktop-state";
+import type { ThemeMode, ThemePresetId } from "../contracts/desktop-state";
 import { SettingsGroup, SettingsRow } from "./settings-utils";
 import { themePresets } from "./theme-presets";
 

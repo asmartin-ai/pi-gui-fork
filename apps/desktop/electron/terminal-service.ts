@@ -7,9 +7,9 @@ import type {
   TerminalSessionSnapshot,
   TerminalSessionStatus,
   TerminalSize,
-} from "../src/ipc";
-import { desktopIpc } from "../src/ipc";
-import { appendTerminalReplay } from "../src/terminal-model";
+} from "../contracts/ipc";
+import { desktopIpc } from "../contracts/ipc";
+import { appendTerminalReplay } from "../contracts/terminal-model";
 
 type NodePty = typeof import("node-pty");
 type IPty = import("node-pty").IPty;

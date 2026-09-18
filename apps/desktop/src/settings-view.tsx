@@ -7,8 +7,8 @@ import type {
   NotificationPreferences,
   ThemePresetId,
   WorkspaceRecord,
-} from "./desktop-state";
-import type { CustomProviderConfig, DesktopNotificationPermissionStatus } from "./ipc";
+} from "../contracts/desktop-state";
+import type { CustomProviderConfig, DesktopNotificationPermissionStatus } from "../contracts/ipc";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
 import { SettingsModelsSection } from "./settings-models-section";

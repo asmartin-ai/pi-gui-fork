@@ -93,6 +93,7 @@
     "@google/genai": "1.52.0",
     "@mistralai/mistralai": "2.2.6",
     "@opentelemetry/api": "1.9.0",
+    "@pi-gui/catalogs": "workspace:*",
     "@pi-gui/pi-sdk-driver": "workspace:*",
     "@pi-gui/session-driver": "workspace:*",
     "@silvia-odwyer/photon-node": "0.3.4",

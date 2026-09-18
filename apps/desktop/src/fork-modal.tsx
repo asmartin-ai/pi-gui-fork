@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { NewThreadEnvironment } from "./desktop-state";
+import type { NewThreadEnvironment } from "../contracts/desktop-state";
 import { trapDialogFocus } from "./dialog-focus";
 
 interface ForkModalProps {

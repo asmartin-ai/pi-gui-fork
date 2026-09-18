@@ -7,10 +7,10 @@ import {
   type NewThreadEnvironment,
   type SessionRecord,
   type WorkspaceRecord,
-} from "../desktop-state";
+} from "../../contracts/desktop-state";
 import { applySnapshotIfNewer } from "../app/desktop-app-state";
-import type { PiDesktopApi } from "../ipc";
-import { resolveRepoWorkspaceId } from "../workspace-roots";
+import type { PiDesktopApi } from "../../contracts/ipc";
+import { resolveRepoWorkspaceId } from "../../contracts/workspace-roots";
 
 interface TreeModalState {
   readonly open: boolean;

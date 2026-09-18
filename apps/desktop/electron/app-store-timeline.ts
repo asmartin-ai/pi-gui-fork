@@ -1,7 +1,7 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionTranscriptItem } from "@pi-gui/pi-sdk-driver";
+import type { SessionTranscriptItem } from "@pi-gui/session-driver";
 import type { SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
-import type { TranscriptMessage } from "../src/desktop-state";
+import type { TranscriptMessage } from "../contracts/desktop-state";
 import {
   formatElapsedDuration,
   makeActivityItem,

@@ -3,7 +3,7 @@ import type {
   CreateSessionInput,
   DesktopAppState,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import type { AppStoreInternals, RefreshStateOptions } from "./app-store-internals";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";

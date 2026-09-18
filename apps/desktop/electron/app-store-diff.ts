@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { ChangedFileEntry, ChangedFilesResult } from "../src/ipc";
+import type { ChangedFileEntry, ChangedFilesResult } from "../contracts/ipc";
 import { resolveWorkspacePath } from "./workspace-paths";
 
 export interface GitCommandOptions {

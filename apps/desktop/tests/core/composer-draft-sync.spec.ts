@@ -9,7 +9,7 @@ import {
   makeWorkspace,
   selectSession,
 } from "../helpers/electron-app";
-import { desktopIpc } from "../../src/ipc";
+import { desktopIpc } from "../../contracts/ipc";
 
 interface TestDraftWriteControl {
   readonly drafts: string[];

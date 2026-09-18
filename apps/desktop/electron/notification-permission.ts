@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { DesktopNotificationPermissionStatus } from "../src/ipc";
+import type { DesktopNotificationPermissionStatus } from "../contracts/ipc";
 
 const execFileAsync = promisify(execFile);
 const TEST_STATUS_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_STATUS";

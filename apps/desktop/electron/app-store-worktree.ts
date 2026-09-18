@@ -10,7 +10,7 @@ import type {
   ForkThreadInput,
   RemoveWorktreeInput,
   StartThreadInput,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import { sendMessageToSession } from "./app-store-composer";
 import type { CreateWorktreeOptions } from "./worktree-manager";
 import type { AppStoreInternals } from "./app-store-internals";

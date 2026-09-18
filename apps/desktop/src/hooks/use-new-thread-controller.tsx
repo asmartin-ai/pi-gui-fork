@@ -17,7 +17,7 @@ import {
   type NewThreadEnvironment,
   type StartThreadInput,
   type WorkspaceRecord,
-} from "../desktop-state";
+} from "../../contracts/desktop-state";
 import { updateSnapshot } from "../app/desktop-app-state";
 import {
   extractFilesFromDataTransfer,
@@ -26,13 +26,13 @@ import {
   readComposerAttachmentsFromFiles,
 } from "../composer-attachments";
 import { buildModelOptions, parseTreeComposerCommand } from "../composer-commands";
-import type { PiDesktopApi } from "../ipc";
+import type { PiDesktopApi } from "../../contracts/ipc";
 import { deriveModelOnboardingState } from "../model-onboarding";
 import { getEffectiveModelRuntime } from "../model-settings";
 import type { SettingsSection } from "../settings-view";
 import { useMentionMenu } from "./use-mention-menu";
 import { useSlashMenu } from "./use-slash-menu";
-import { resolveRepoWorkspaceId } from "../workspace-roots";
+import { resolveRepoWorkspaceId } from "../../contracts/workspace-roots";
 
 interface UseNewThreadControllerParams {
   readonly api: PiDesktopApi | undefined;

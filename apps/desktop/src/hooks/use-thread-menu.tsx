@@ -7,8 +7,8 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import type { DesktopAppState, WorkspaceSessionTarget } from "../desktop-state";
-import type { PiDesktopApi } from "../ipc";
+import type { DesktopAppState, WorkspaceSessionTarget } from "../../contracts/desktop-state";
+import type { PiDesktopApi } from "../../contracts/ipc";
 import type { ThreadListEntry } from "../thread-groups";
 
 interface UseThreadMenuParams {

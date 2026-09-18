@@ -1,4 +1,4 @@
-import type { WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import type { WorkspaceRecord, WorktreeRecord } from "../contracts/desktop-state";
 
 export interface DiffPanelFileRequest {
   readonly path: string;

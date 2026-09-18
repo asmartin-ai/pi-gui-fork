@@ -187,3 +187,27 @@ test("allows ordinary external browser packages", () => {
   });
   assert.deepEqual(result.failures, []);
 });
+
+for (const dependency of [
+  'import type { Contract } from "../electron/service";',
+  'export type { Contract } from "@main/service";',
+  'type Contract = import("../electron/service").Contract;',
+  'import "../src/index";',
+  'import fs from "node:fs";',
+]) {
+  test(`rejects contract implementation dependency: ${dependency}`, () => {
+    const result = fixture("export const value = 1;", {
+      "apps/desktop/contracts/api.ts": dependency,
+    });
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0], /contracts\/api.ts:1:/);
+  });
+}
+
+test("checks unused contracts and permits pure contract reuse", () => {
+  const result = fixture('import { value } from "../contracts/value";', {
+    "apps/desktop/contracts/value.ts": "export const value = 1;",
+  });
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.checkedFiles, 2);
+});

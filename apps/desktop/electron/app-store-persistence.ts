@@ -9,8 +9,8 @@ import type {
   OrchestrationSupervisionLoop,
   ThemeMode,
   ThemePresetId,
-} from "../src/desktop-state";
-import { isThemeMode, isThemePresetId } from "../src/desktop-state";
+} from "../contracts/desktop-state";
+import { isThemeMode, isThemePresetId } from "../contracts/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { readJsonWithBackup, writeFileAtomicQueued } from "./atomic-file-write";
 

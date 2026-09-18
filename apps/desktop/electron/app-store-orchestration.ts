@@ -16,7 +16,7 @@ import type {
   SetChildSupervisionLoopInput,
   TimelineToolCall,
   TranscriptMessage,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import { submitComposerToSession } from "./app-store-composer";
 import type { AppStoreInternals } from "./app-store-internals";
 import { latestSessionActivityAt, previewFromTranscript } from "./app-store-utils";

@@ -17,14 +17,14 @@ import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
-import type { PiDesktopApi } from "../../src/ipc";
+import type { PiDesktopApi } from "../../contracts/ipc";
 import type {
   DesktopAppState,
   NewThreadEnvironment,
   SelectedTranscriptRecord,
   SessionRecord,
   WorkspaceRecord,
-} from "../../src/desktop-state";
+} from "../../contracts/desktop-state";
 
 const desktopDir = resolve(__dirname, "..", "..");
 const packagedReleaseDir = join(desktopDir, "release");

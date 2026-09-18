@@ -34,7 +34,12 @@ import { NotificationPermissionService } from "./notification-permission";
 import { checkForUpdate, initUpdateChecker, openReleasesPage } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
-import type { AppView, DesktopAppState, ThemeMode, ThemePresetId } from "../src/desktop-state";
+import type {
+  AppView,
+  DesktopAppState,
+  ThemeMode,
+  ThemePresetId,
+} from "../contracts/desktop-state";
 import {
   desktopIpc,
   getDesktopCommandFromShortcut,
@@ -42,7 +47,7 @@ import {
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
-} from "../src/ipc";
+} from "../contracts/ipc";
 import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
 import type {
   ComposerAttachment,
@@ -56,7 +61,7 @@ import type {
   SetChildSupervisionLoopInput,
   StartThreadInput,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
 import type { SessionRef, WorkspaceRef } from "@pi-gui/session-driver";

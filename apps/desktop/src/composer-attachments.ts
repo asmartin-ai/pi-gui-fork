@@ -5,7 +5,7 @@ import type {
   ComposerAttachment,
   ComposerFileAttachment,
   ComposerImageAttachment,
-} from "./desktop-state";
+} from "../contracts/desktop-state";
 
 export function handleClipboardImageShortcut(
   event: KeyboardEvent<HTMLTextAreaElement>,

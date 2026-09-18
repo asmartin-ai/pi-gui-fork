@@ -1,3 +1,4 @@
+import type { SessionSchemaInfo } from "@pi-gui/session-driver";
 import type { BrowserWindow } from "electron";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -10,7 +11,6 @@ import {
   PiSdkDriver,
   type PiSdkDriverConfig,
   SessionLeasedError,
-  type SessionSchemaInfo,
   sessionKey,
 } from "@pi-gui/pi-sdk-driver";
 import type { SessionCatalogEntry } from "@pi-gui/catalogs";
@@ -61,7 +61,7 @@ import {
   type WorkspaceSessionTarget,
   isThemeMode,
   isThemePresetId,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import {
   applyTimelineEvent,
   appendAssistantDelta,
@@ -98,8 +98,8 @@ import {
   toSessionQueuedMessages,
   toSessionRef,
 } from "./app-store-utils";
-import type { CustomProviderConfig } from "../src/ipc";
-import { resolveRepoWorkspaceId } from "../src/workspace-roots";
+import type { CustomProviderConfig } from "../contracts/ipc";
+import { resolveRepoWorkspaceId } from "../contracts/workspace-roots";
 import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";

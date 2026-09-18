@@ -6,7 +6,7 @@ import type {
   DesktopAppState,
   QueuedComposerMessage,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
   formatSessionConfigStatus,

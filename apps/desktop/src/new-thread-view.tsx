@@ -7,7 +7,11 @@ import {
   type RefObject,
 } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
+import type {
+  ComposerAttachment,
+  NewThreadEnvironment,
+  WorkspaceRecord,
+} from "../contracts/desktop-state";
 import type { MentionOption } from "./hooks/use-mention-menu";
 import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
 import {

@@ -8,8 +8,8 @@ import {
   type RefCallback,
   type RefObject,
 } from "react";
-import type { TranscriptMessage } from "./desktop-state";
-import type { DisplayTimelineItem } from "./timeline-types";
+import type { TranscriptMessage } from "../contracts/desktop-state";
+import type { DisplayTimelineItem } from "../contracts/timeline-types";
 import { buildDisplayTimelineItems } from "./timeline-turns";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";

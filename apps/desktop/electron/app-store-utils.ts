@@ -19,7 +19,7 @@ import type {
   WorktreeRecord,
   WorkspaceRecord,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 
 export const LEGACY_TRANSCRIPT_HISTORY_LIMIT = 180;
 

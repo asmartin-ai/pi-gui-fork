@@ -18,7 +18,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import type {
+  AppView,
+  SessionRecord,
+  WorkspaceRecord,
+  WorktreeRecord,
+} from "../contracts/desktop-state";
 import {
   ArchiveIcon,
   ChevronDownIcon,
@@ -31,7 +36,7 @@ import {
   SkillIcon,
   WorktreeIcon,
 } from "./icons";
-import type { PiDesktopApi } from "./ipc";
+import type { PiDesktopApi } from "../contracts/ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 import { useThreadMenu, type ThreadMenuState } from "./hooks/use-thread-menu";
@@ -42,7 +47,7 @@ import {
   type ThreadListEntry,
 } from "./thread-groups";
 import type { Dispatch, SetStateAction } from "react";
-import type { DesktopAppState } from "./desktop-state";
+import type { DesktopAppState } from "../contracts/desktop-state";
 
 interface SidebarProps {
   readonly activeView: AppView;

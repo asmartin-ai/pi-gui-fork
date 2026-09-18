@@ -7,8 +7,12 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import type { DesktopAppState, WorkspaceRecord, WorktreeRecord } from "../desktop-state";
-import type { PiDesktopApi } from "../ipc";
+import type {
+  DesktopAppState,
+  WorkspaceRecord,
+  WorktreeRecord,
+} from "../../contracts/desktop-state";
+import type { PiDesktopApi } from "../../contracts/ipc";
 
 interface UseWorkspaceMenuParams {
   readonly api: PiDesktopApi | undefined;

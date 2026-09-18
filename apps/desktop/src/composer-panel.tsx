@@ -7,7 +7,11 @@ import {
   type SetStateAction,
 } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
+import type {
+  ComposerAttachment,
+  QueuedComposerMessage,
+  SessionRecord,
+} from "../contracts/desktop-state";
 import type { MentionOption } from "./hooks/use-mention-menu";
 import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
 import type {

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { PRELOAD_DEV_RELOAD_MARKER } from "./dev-reload-preload-probe";
 import {
   desktopIpc,
+  type PiDesktopApi,
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
@@ -14,7 +15,7 @@ import {
   type TerminalExitEvent,
   type TerminalPanelSnapshot,
   type TerminalSize,
-} from "../src/ipc";
+} from "../contracts/ipc";
 import type {
   NavigateSessionTreeOptions,
   NavigateSessionTreeResult,
@@ -38,7 +39,7 @@ import type {
   StartThreadInput,
   ThemePresetId,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 
@@ -464,4 +465,4 @@ contextBridge.exposeInMainWorld("piApp", {
       ipcRenderer.removeListener(desktopIpc.themeChanged, handler);
     };
   },
-});
+} satisfies PiDesktopApi);

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Dispatch, SetStateAction } from "react";
 import { updateSnapshot } from "../../src/app/desktop-app-state";
-import { createEmptyDesktopAppState, type DesktopAppState } from "../../src/desktop-state";
+import { createEmptyDesktopAppState, type DesktopAppState } from "../../contracts/desktop-state";
 
 function stateHarness(initial: DesktopAppState) {
   let state: DesktopAppState | null = initial;

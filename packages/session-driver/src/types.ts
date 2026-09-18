@@ -361,3 +361,16 @@ export interface SessionDriver {
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;
   closeSession(sessionRef: SessionRef): Promise<void>;
 }
+
+export interface SessionSchemaInfo {
+  /**
+   * The session file's header version. `undefined` when the file has no
+   * readable session header (e.g. missing/corrupt), in which case skew cannot
+   * be determined and is assumed absent.
+   */
+  readonly fileSchemaVersion: number | undefined;
+  /** The bundled runtime's schema version. */
+  readonly runtimeSchemaVersion: number;
+  /** True when the file was written by a newer pi than the bundled runtime. */
+  readonly writtenByNewerRuntime: boolean;
+}

@@ -95,6 +95,9 @@ importers:
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
+      '@pi-gui/catalogs':
+        specifier: workspace:*
+        version: link:../../packages/catalogs
       '@pi-gui/pi-sdk-driver':
         specifier: workspace:*
         version: link:../../packages/pi-sdk-driver

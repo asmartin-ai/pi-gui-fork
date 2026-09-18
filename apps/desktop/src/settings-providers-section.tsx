@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { CustomProviderConfig } from "./ipc";
+import type { CustomProviderConfig } from "../contracts/ipc";
 import { SettingsCustomEndpointsSection } from "./settings-custom-endpoints-section";
 import { filterProviders, ProviderRow, SettingsGroup } from "./settings-utils";
 

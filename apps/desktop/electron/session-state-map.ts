@@ -10,7 +10,7 @@ import type {
   SessionExtensionDialogRecord,
   SessionExtensionUiStateRecord,
   TranscriptMessage,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import type { RunMetrics } from "./app-store-timeline";
 
 export interface MutableSessionExtensionUiState extends ExtensionUiState {

@@ -1,4 +1,4 @@
-import type { DisplayTimelineItem, TranscriptMessage } from "./timeline-types";
+import type { DisplayTimelineItem, TranscriptMessage } from "../contracts/timeline-types";
 
 const MIN_WORKED_DURATION_MS = 1_000;
 

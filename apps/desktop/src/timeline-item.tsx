@@ -1,11 +1,11 @@
-import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
+import type { SessionTranscriptMessage } from "@pi-gui/session-driver";
 import type {
   DisplayTimelineItem,
   TimelineActivity,
   TimelineToolCall,
   TimelineSummary,
   TimelineTurnMarker,
-} from "./timeline-types";
+} from "../contracts/timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import { getSelectedSession, getSelectedWorkspace, type AppView } from "./desktop-state";
+import { getSelectedSession, getSelectedWorkspace, type AppView } from "../contracts/desktop-state";
 import { updateSnapshot, useDesktopAppState } from "./app/desktop-app-state";
 import { buildFileWorkbenchContexts } from "./app/file-workbench-contexts";
 import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app/app-shell-utils";
@@ -17,7 +17,7 @@ import {
   getDesktopCommandFromShortcut,
   getDesktopShortcutLabel,
   type PiDesktopCommand,
-} from "./ipc";
+} from "../contracts/ipc";
 import { deriveModelOnboardingState } from "./model-onboarding";
 import type { SettingsSection } from "./settings-view";
 import { SecondarySurfaces } from "./app/secondary-surfaces";

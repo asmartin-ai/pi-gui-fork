@@ -24,6 +24,7 @@ export function checkRendererBoundary(root) {
   root = realpathSync(root);
   const renderer = path.join(root, "apps/desktop/src");
   const main = path.join(root, "apps/desktop/electron");
+  const contracts = path.join(root, "apps/desktop/contracts");
   const configPath = path.join(root, "apps/desktop/tsconfig.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
   if (config.error)
@@ -35,9 +36,10 @@ export function checkRendererBoundary(root) {
         .map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n"))
         .join("\n"),
     );
-  const pending = ts.sys
-    .readDirectory(renderer, sourceExtensions)
-    .filter((file) => !/\.d\.[cm]?ts$/.test(file));
+  const pending = [
+    ...ts.sys.readDirectory(renderer, sourceExtensions),
+    ...ts.sys.readDirectory(contracts, sourceExtensions),
+  ].filter((file) => !/\.d\.[cm]?ts$/.test(file));
   if (!pending.length) throw new Error("Renderer boundary check found no source files.");
   const visited = new Set();
   const failures = [];
@@ -128,6 +130,24 @@ export function checkRendererBoundary(root) {
       }
     };
     const walk = (node) => {
+      // Contracts cannot depend on either process implementation, even for types.
+      // Resolve aliases instead of relying on spelling of relative paths.
+      if (isInside(contracts, file)) {
+        const specifier =
+          ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+            ? node.moduleSpecifier
+            : ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+              ? node.argument.literal
+              : undefined;
+        if (specifier && ts.isStringLiteralLike(specifier)) {
+          const target = ts.resolveModuleName(specifier.text, file, parsed.options, ts.sys, cache)
+            .resolvedModule?.resolvedFileName;
+          if (target && (isInside(renderer, target) || isInside(main, target))) {
+            fail(specifier, "Desktop contracts cannot depend on renderer or host implementation.");
+            return;
+          }
+        }
+      }
       if (ts.isImportDeclaration(node)) {
         // Inline type specifiers can retain an empty runtime import under
         // verbatimModuleSyntax. Only whole-statement type imports are erased.

@@ -36,7 +36,10 @@ import type {
   SessionModelSelection,
   SessionRef,
   SessionSnapshot,
+  SessionSchemaInfo,
   SessionStatus,
+  SessionTranscriptItem,
+  SessionTranscriptMessage,
   Unsubscribe,
   WorkspaceId,
   WorkspaceRef,
@@ -47,11 +50,7 @@ import {
   JsonCatalogStore,
   type SessionFileCatalogStorage,
 } from "./json-catalog-store.js";
-import {
-  buildSessionSchemaInfo,
-  readSessionFileSchemaVersion,
-  type SessionSchemaInfo,
-} from "./session-schema.js";
+import { buildSessionSchemaInfo, readSessionFileSchemaVersion } from "./session-schema.js";
 import {
   buildOwnLease,
   currentLeaseIdentity,
@@ -97,7 +96,6 @@ import {
   truncate,
   workspaceToRef,
 } from "./session-supervisor-utils.js";
-import type { SessionTranscriptItem, SessionTranscriptMessage } from "./transcript.js";
 import {
   createAgentSessionRuntimeWithNpmFallback,
   type PiCreateAgentSessionOptions,

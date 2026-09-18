@@ -3,8 +3,8 @@ import {
   type DesktopAppState,
   type WorkspaceRecord,
   type WorktreeRecord,
-} from "./desktop-state";
-import { resolveRepoWorkspaceId } from "./workspace-roots";
+} from "../contracts/desktop-state";
+import { resolveRepoWorkspaceId } from "../contracts/workspace-roots";
 
 export interface WorkspaceContext {
   readonly selectedWorkspace: WorkspaceRecord | undefined;

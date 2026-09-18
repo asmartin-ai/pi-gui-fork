@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { AppView, DesktopAppState, WorkspaceRecord } from "../desktop-state";
+import type { AppView, DesktopAppState, WorkspaceRecord } from "../../contracts/desktop-state";
 import { updateSnapshot } from "./desktop-app-state";
 import { getEffectiveModelRuntime } from "../model-settings";
-import { type CustomProviderConfig, type DesktopNotificationPermissionStatus } from "../ipc";
+import {
+  type CustomProviderConfig,
+  type DesktopNotificationPermissionStatus,
+} from "../../contracts/ipc";
 import { SkillsView } from "../skills-view";
 import { ExtensionsView } from "../extensions-view";
 import { SettingsView, type SettingsSection } from "../settings-view";

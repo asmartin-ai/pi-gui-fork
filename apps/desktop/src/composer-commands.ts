@@ -5,7 +5,7 @@ import type {
   RuntimeSettingsSnapshot,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
-import type { ExtensionCommandCompatibilityRecord } from "./desktop-state";
+import type { ExtensionCommandCompatibilityRecord } from "../contracts/desktop-state";
 import { titleCase } from "./string-utils";
 
 export type ComposerSlashCommandKind =

@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ExtensionCommandCompatibilityRecord, WorkspaceRecord } from "./desktop-state";
+import type {
+  ExtensionCommandCompatibilityRecord,
+  WorkspaceRecord,
+} from "../contracts/desktop-state";
 import { extensionScopeLabel, extensionSourceSummary } from "./extension-display";
 import { RefreshIcon } from "./icons";
 

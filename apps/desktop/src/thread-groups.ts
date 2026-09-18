@@ -1,4 +1,4 @@
-import type { DesktopAppState, SessionRecord, WorkspaceRecord } from "./desktop-state";
+import type { DesktopAppState, SessionRecord, WorkspaceRecord } from "../contracts/desktop-state";
 
 export interface ThreadEnvironmentMeta {
   readonly kind: "local" | "worktree";

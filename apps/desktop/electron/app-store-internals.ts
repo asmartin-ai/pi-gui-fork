@@ -17,7 +17,7 @@ import type {
   QueuedComposerMessage,
   TranscriptMessage,
   WorkspaceSessionTarget,
-} from "../src/desktop-state";
+} from "../contracts/desktop-state";
 import type {
   PendingAutoTitle,
   QueuedComposerEditState,

@@ -5,7 +5,7 @@ import type {
   ExtensionCommandCompatibilityRecord,
   SessionRecord,
   WorkspaceRecord,
-} from "../desktop-state";
+} from "../../contracts/desktop-state";
 import {
   buildModelOptions,
   isExactSlashCommand,
@@ -18,7 +18,7 @@ import {
   type ComposerSlashOptionEmptyState,
   type ComposerSlashOption,
 } from "../composer-commands";
-import type { PiDesktopApi } from "../ipc";
+import type { PiDesktopApi } from "../../contracts/ipc";
 import { deriveModelOnboardingState } from "../model-onboarding";
 import type { SettingsSection } from "../settings-view";
 

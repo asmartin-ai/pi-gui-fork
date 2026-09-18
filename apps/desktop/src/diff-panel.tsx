@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import type { WorkspaceRecord, WorktreeRecord } from "../contracts/desktop-state";
 import type { DiffPanelFileRequest, FileWorkbenchContext } from "./diff-panel-types";
 import type {
   ChangedFileEntry,
   ChangedFilesResult,
   PiDesktopApi,
   WorkspaceFilePreview,
-} from "./ipc";
+} from "../contracts/ipc";
 import { InlineDiff } from "./diff-inline";
 import { FileIcon, FolderIcon, RefreshIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";

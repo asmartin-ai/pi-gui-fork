@@ -2,7 +2,10 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { HostUiResponse } from "@pi-gui/session-driver";
 import { trapDialogFocus } from "./dialog-focus";
 import { ChevronDownIcon, ChevronRightIcon } from "./icons";
-import type { SessionExtensionDialogRecord, SessionExtensionUiStateRecord } from "./desktop-state";
+import type {
+  SessionExtensionDialogRecord,
+  SessionExtensionUiStateRecord,
+} from "../contracts/desktop-state";
 
 const ANSI_ESCAPE_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const DOCK_SEGMENT_SEPARATOR = "--------------------";

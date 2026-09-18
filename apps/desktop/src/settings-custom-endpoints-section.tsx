@@ -4,7 +4,7 @@ import {
   isValidHttpBaseUrl,
 } from "@pi-gui/pi-sdk-driver/custom-provider-types";
 import { trapDialogFocus } from "./dialog-focus";
-import type { CustomProviderConfig, CustomProviderModelConfig } from "./ipc";
+import type { CustomProviderConfig, CustomProviderModelConfig } from "../contracts/ipc";
 import { SettingsGroup } from "./settings-utils";
 
 interface SettingsCustomEndpointsSectionProps {

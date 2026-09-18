@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import type { DesktopAppState } from "../desktop-state";
-import type { PiDesktopApi } from "../ipc";
+import type { DesktopAppState } from "../../contracts/desktop-state";
+import type { PiDesktopApi } from "../../contracts/ipc";
 
 interface UseComposerDraftSyncParams {
   readonly api: PiDesktopApi | undefined;

@@ -3,8 +3,8 @@ import type {
   RuntimeSettingsSnapshot,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
-import type { DesktopAppState, WorkspaceRecord } from "./desktop-state";
-import { resolveRepoWorkspaceId } from "./workspace-roots";
+import type { DesktopAppState, WorkspaceRecord } from "../contracts/desktop-state";
+import { resolveRepoWorkspaceId } from "../contracts/workspace-roots";
 
 export function toModelSettingsSnapshot(
   settings: RuntimeSettingsSnapshot | ModelSettingsSnapshot,

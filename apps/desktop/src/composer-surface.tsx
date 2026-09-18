@@ -7,7 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import type { ComposerAttachment } from "./desktop-state";
+import type { ComposerAttachment } from "../contracts/desktop-state";
 import type { MentionOption } from "./hooks/use-mention-menu";
 import type {
   ComposerSlashCommand,
@@ -41,7 +41,7 @@ interface ComposerSurfaceProps {
   readonly setComposerDraft: (draft: string) => void;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly attachments: readonly ComposerAttachment[];
-  readonly queuedMessages: readonly import("./desktop-state").QueuedComposerMessage[];
+  readonly queuedMessages: readonly import("../contracts/desktop-state").QueuedComposerMessage[];
   readonly editingQueuedMessageId?: string;
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];

@@ -1,5 +1,5 @@
-import type { DesktopNotificationPermissionStatus } from "./ipc";
-import type { NotificationPreferences } from "./desktop-state";
+import type { DesktopNotificationPermissionStatus } from "../contracts/ipc";
+import type { NotificationPreferences } from "../contracts/desktop-state";
 import { SettingsGroup, SettingsRow } from "./settings-utils";
 
 interface SettingsNotificationsSectionProps {

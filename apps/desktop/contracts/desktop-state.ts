@@ -4,8 +4,8 @@ import type {
   RuntimeCommandRecord,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
-import type { SessionSchemaInfo } from "@pi-gui/pi-sdk-driver";
-export type { SessionSchemaInfo } from "@pi-gui/pi-sdk-driver";
+import type { SessionSchemaInfo } from "@pi-gui/session-driver";
+export type { SessionSchemaInfo } from "@pi-gui/session-driver";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TimelineToolCall, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";

@@ -11,7 +11,7 @@ import {
   type ComposerImageAttachment,
   type DesktopAppState,
   type SessionRecord,
-} from "../desktop-state";
+} from "../../contracts/desktop-state";
 import { updateSnapshot } from "../app/desktop-app-state";
 import {
   extractFilesFromDataTransfer,
@@ -20,7 +20,7 @@ import {
   readComposerAttachmentsFromFiles,
 } from "../composer-attachments";
 import { parseTreeComposerCommand } from "../composer-commands";
-import type { PiDesktopApi } from "../ipc";
+import type { PiDesktopApi } from "../../contracts/ipc";
 
 interface UseSessionComposerParams {
   readonly api: PiDesktopApi | undefined;

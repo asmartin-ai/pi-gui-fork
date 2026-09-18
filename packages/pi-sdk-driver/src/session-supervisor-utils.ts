@@ -7,10 +7,11 @@ import type {
   SessionRef,
   SessionSnapshot,
   SessionStatus,
+  SessionTranscriptAttachment,
+  SessionTranscriptItem,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type { SessionQueuedMessage } from "@pi-gui/session-driver/types";
-import type { SessionTranscriptAttachment, SessionTranscriptItem } from "./transcript.js";
 
 const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
 const FILE_ATTACHMENT_BLOCK_END = "</pi-gui-file-attachments>";

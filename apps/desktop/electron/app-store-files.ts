@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { open } from "node:fs/promises";
-import type { WorkspaceFilePreview } from "../src/ipc";
+import type { WorkspaceFilePreview } from "../contracts/ipc";
 import { resolveExistingWorkspacePath } from "./workspace-paths";
 
 const fileCache = new Map<string, { files: string[]; timestamp: number }>();

@@ -3,10 +3,10 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { DesktopAppStore } from "./app-store";
 import type { NotificationPermissionService } from "./notification-permission";
-import type { DesktopAppState } from "../src/desktop-state";
+import type { DesktopAppState } from "../contracts/desktop-state";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
-import { getSelectedSession } from "../src/desktop-state";
+import { getSelectedSession } from "../contracts/desktop-state";
 import { isSessionActivelyViewed } from "./session-visibility";
 
 const MAX_COMPLETED_RUN_KEYS = 500;
