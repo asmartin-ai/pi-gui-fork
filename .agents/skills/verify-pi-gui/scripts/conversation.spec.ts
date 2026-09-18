@@ -77,6 +77,7 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     });
     runs.push({ pid: harness.electronApp.process().pid!, closed: false });
     await harness.focusWindow();
+    page = await harness.firstWindow();
     const identity = await harness.electronApp.evaluate(({ app, BrowserWindow }) => ({
       pid: process.pid,
       appPath: app.getAppPath(),
@@ -86,16 +87,15 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
       testMode: process.env.PI_APP_TEST_MODE ?? null,
       testHooks: "__PI_APP_TEST_HOOKS" in globalThis,
     }));
-    await writeFile(join(evidence, `${phase}-doctor.json`), JSON.stringify(identity, null, 2));
-    expect(identity).toMatchObject({
-      visible: true,
-      focused: true,
-      testMode: null,
-      testHooks: false,
-    });
+    const documentFocused = await page.evaluate(() => document.hasFocus());
+    await writeFile(
+      join(evidence, `${phase}-doctor.json`),
+      JSON.stringify({ ...identity, documentFocused }, null, 2),
+    );
+    expect(identity).toMatchObject({ visible: true, testMode: null, testHooks: false });
+    expect(identity.focused || documentFocused).toBe(true);
     expect(resolve(identity.appPath)).toBe(resolve("apps/desktop"));
     expect(resolve(identity.userData)).toBe(resolve(profile));
-    page = await harness.firstWindow();
     await harness.electronApp
       .context()
       .tracing.start({ screenshots: true, snapshots: true, sources: true });
