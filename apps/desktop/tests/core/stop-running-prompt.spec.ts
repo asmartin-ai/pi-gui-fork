@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { PiSdkDriver } from "@pi-gui/pi-sdk-driver";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import {
+  clickSession,
   createNamedThread,
   getDesktopState,
   launchDesktop,
@@ -10,7 +11,7 @@ import {
   makeWorkspace,
 } from "../helpers/electron-app";
 
-test("Pin controls and Stop respond before a pending composer prompt completes", async () => {
+test("Thread switching, Pin controls and Stop respond before a pending composer prompt completes", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("stop-pending-prompt");
   const harness = await launchDesktop(userDataDir, {
@@ -19,6 +20,7 @@ test("Pin controls and Stop respond before a pending composer prompt completes",
   });
   try {
     const page = await harness.firstWindow();
+    await createNamedThread(page, "Other thread");
     await createNamedThread(page, "Pending prompt");
     await page.locator(".session-row", { hasText: "Pending prompt" }).hover();
     await page.getByRole("button", { name: /^Pin Pending prompt/ }).click();
@@ -90,6 +92,11 @@ test("Pin controls and Stop respond before a pending composer prompt completes",
     await row.getByRole("button", { name: /^Pin Pending prompt/ }).click();
     await expect(pinnedSection).toBeVisible();
     await expect(row).toHaveAttribute("data-sidebar-indicator", "running");
+    await clickSession(page, "Other thread");
+    await expect(page.locator(".topbar__session")).toHaveText("Other thread", { timeout: 5_000 });
+    await expect(row).toHaveAttribute("data-sidebar-indicator", "running");
+    await clickSession(page, "Pending prompt");
+    await expect(page.getByRole("button", { name: "Stop run", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Stop run", exact: true }).click();
     await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Send message", {
       timeout: 5_000,
