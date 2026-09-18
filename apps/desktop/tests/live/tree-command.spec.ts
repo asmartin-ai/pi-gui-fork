@@ -47,7 +47,7 @@ test("runs /tree summarize flow against a real provider and surfaces the branch 
       .click();
     await treeModal.getByRole("button", { name: "Continue" }).click();
     await expect(window.getByTestId("tree-summary-step")).toBeVisible();
-    await treeModal.getByRole("button", { name: "Summarize" }).click();
+    await treeModal.getByRole("button", { name: /^Summarize Generate a branch summary/ }).click();
     await treeModal.getByRole("button", { name: "Switch branch" }).click();
 
     await expect(treeModal).toHaveCount(0, { timeout: 150_000 });

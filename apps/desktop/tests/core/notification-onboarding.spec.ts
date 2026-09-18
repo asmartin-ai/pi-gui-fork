@@ -147,7 +147,7 @@ test("does not request notification permission when all notification categories 
     const backgroundFailure = window.getByLabel("Background failures", { exact: true });
     const attentionNeeded = window.getByLabel("Needs input or approval", { exact: true });
     for (const checkbox of [backgroundCompletion, backgroundFailure, attentionNeeded]) {
-      await checkbox.uncheck();
+      await checkbox.click();
       await expect(checkbox).not.toBeChecked();
     }
     await returnToThreads(window);
