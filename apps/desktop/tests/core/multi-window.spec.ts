@@ -442,7 +442,15 @@ test("keeps sender dialog actions scoped without blocking another window", async
       await settlePick().catch(() => undefined);
       throw error;
     }
+    // The sender can also navigate while its picker is pending (for example
+    // via IPC or another navigation source). Selection at completion is not
+    // the attachment's destination.
+    await selectSessionViaIpc(firstWindow, "Attachment focused thread");
     await settlePick();
+    await expect
+      .poll(async () => (await getDesktopState(firstWindow)).composerAttachments.length)
+      .toBe(0);
+    await selectSession(firstWindow, "Attachment sender thread");
 
     await expect
       .poll(async () =>

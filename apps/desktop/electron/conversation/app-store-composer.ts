@@ -30,10 +30,13 @@ import {
 } from "../application/app-store-utils";
 import type { AppStoreInternals } from "../application/app-store-internals";
 
+// Composer identity must be supplied by the caller, never read from window selection.
+type ComposerStore = Omit<AppStoreInternals, "selectedSessionRef">;
+
 /* ── Public methods ─────────────────────────────────────── */
 
 export async function updateComposerDraft(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef | undefined,
   composerDraft: string,
 ): Promise<DesktopAppState> {
@@ -52,12 +55,12 @@ export async function updateComposerDraft(
 }
 
 export async function addComposerAttachments(
-  store: AppStoreInternals,
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
   attachments: readonly ComposerAttachment[],
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef || attachments.length === 0) {
+  if (!sessionRef || !store.sessionFromState(sessionRef) || attachments.length === 0) {
     return store.emit();
   }
 
@@ -67,7 +70,9 @@ export async function addComposerAttachments(
   store.sessionState.composerAttachmentsBySession.set(key, next);
   store.state = {
     ...store.state,
-    composerAttachments: cloneComposerAttachments(next),
+    composerAttachments: isSelectedSession(store, sessionRef)
+      ? cloneComposerAttachments(next)
+      : store.state.composerAttachments,
     revision: store.state.revision + 1,
   };
   await store.persistComposerAttachments(key, next);
@@ -75,12 +80,12 @@ export async function addComposerAttachments(
 }
 
 export async function removeComposerAttachment(
-  store: AppStoreInternals,
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
   attachmentId: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef) {
+  if (!sessionRef || !store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 
@@ -94,7 +99,9 @@ export async function removeComposerAttachment(
   }
   store.state = {
     ...store.state,
-    composerAttachments: cloneComposerAttachments(next),
+    composerAttachments: isSelectedSession(store, sessionRef)
+      ? cloneComposerAttachments(next)
+      : store.state.composerAttachments,
     revision: store.state.revision + 1,
   };
   await store.persistComposerAttachments(key, next);
@@ -102,13 +109,13 @@ export async function removeComposerAttachment(
 }
 
 export async function editQueuedComposerMessage(
-  store: AppStoreInternals,
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
   messageId: string,
   currentDraft = "",
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef) {
+  if (!sessionRef || !store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 
@@ -127,7 +134,7 @@ export async function editQueuedComposerMessage(
       store.sessionState.composerAttachmentsBySession.get(key) ?? [],
     ),
   });
-  store.sessionState.composerDraftsBySession.set(key, message.text);
+  store.setComposerDraftForSession(sessionRef, message.text, "queued-message-edit");
   store.sessionState.composerAttachmentsBySession.set(
     key,
     cloneComposerAttachments(message.attachments),
@@ -135,17 +142,17 @@ export async function editQueuedComposerMessage(
   await store.persistComposerAttachments(key, message.attachments);
 
   return store.refreshState({
-    composerDraft: message.text,
-    composerDraftSyncSource: "queued-message-edit",
     clearLastError: true,
     markSelectedSessionViewed: false,
   });
 }
 
-export async function cancelQueuedComposerEdit(store: AppStoreInternals): Promise<DesktopAppState> {
+export async function cancelQueuedComposerEdit(
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
+): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef) {
+  if (!sessionRef || !store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 
@@ -156,11 +163,7 @@ export async function cancelQueuedComposerEdit(store: AppStoreInternals): Promis
 
   const key = sessionKey(sessionRef);
   store.setQueuedComposerEditState(sessionRef, undefined);
-  if (editState.restoreDraft) {
-    store.sessionState.composerDraftsBySession.set(key, editState.restoreDraft);
-  } else {
-    store.sessionState.composerDraftsBySession.delete(key);
-  }
+  store.setComposerDraftForSession(sessionRef, editState.restoreDraft, "queued-message-edit");
   if (editState.restoreAttachments.length > 0) {
     store.sessionState.composerAttachmentsBySession.set(
       key,
@@ -172,20 +175,18 @@ export async function cancelQueuedComposerEdit(store: AppStoreInternals): Promis
   await store.persistComposerAttachments(key, editState.restoreAttachments);
 
   return store.refreshState({
-    composerDraft: editState.restoreDraft,
-    composerDraftSyncSource: "queued-message-edit",
     clearLastError: true,
     markSelectedSessionViewed: false,
   });
 }
 
 export async function removeQueuedComposerMessage(
-  store: AppStoreInternals,
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
   messageId: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef) {
+  if (!sessionRef || !store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 
@@ -196,11 +197,7 @@ export async function removeQueuedComposerMessage(
 
   if (editState?.messageId === messageId) {
     store.setQueuedComposerEditState(sessionRef, undefined);
-    if (editState.restoreDraft) {
-      store.sessionState.composerDraftsBySession.set(key, editState.restoreDraft);
-    } else {
-      store.sessionState.composerDraftsBySession.delete(key);
-    }
+    store.setComposerDraftForSession(sessionRef, editState.restoreDraft, "queued-message-edit");
     if (editState.restoreAttachments.length > 0) {
       store.sessionState.composerAttachmentsBySession.set(
         key,
@@ -214,24 +211,18 @@ export async function removeQueuedComposerMessage(
 
   await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(next));
   return store.refreshState({
-    ...(editState?.messageId === messageId
-      ? {
-          composerDraft: editState.restoreDraft,
-          composerDraftSyncSource: "queued-message-edit" as const,
-        }
-      : {}),
     clearLastError: true,
     markSelectedSessionViewed: false,
   });
 }
 
 export async function steerQueuedComposerMessage(
-  store: AppStoreInternals,
+  store: ComposerStore,
+  sessionRef: SessionRef | undefined,
   messageId: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (!sessionRef) {
+  if (!sessionRef || !store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 
@@ -272,7 +263,7 @@ export async function steerQueuedComposerMessage(
 }
 
 export async function submitComposer(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef | undefined,
   textInput: string,
   options: {
@@ -296,7 +287,7 @@ export async function submitComposer(
 }
 
 export async function submitComposerToSession(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   textInput: string,
   attachments: readonly ComposerAttachment[],
@@ -436,7 +427,7 @@ export async function submitComposerToSession(
 }
 
 export async function setSessionModel(
-  store: AppStoreInternals,
+  store: ComposerStore,
   target: WorkspaceSessionTarget,
   provider: string,
   modelId: string,
@@ -453,7 +444,7 @@ export async function setSessionModel(
 }
 
 export async function setSessionThinkingLevel(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   thinkingLevel: string,
 ): Promise<DesktopAppState> {
@@ -467,7 +458,7 @@ export async function setSessionThinkingLevel(
 }
 
 export async function cancelCurrentRun(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef | undefined,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -494,7 +485,7 @@ export async function cancelCurrentRun(
 /* ── Internal helpers ───────────────────────────────────── */
 
 export async function sendMessageToSession(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   text: string,
   attachments: readonly ComposerAttachment[],
@@ -566,7 +557,7 @@ function replaceQueuedComposerMessage(
 }
 
 function removeOptimisticQueuedUserMessage(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   messageId: string,
 ): void {
@@ -580,17 +571,13 @@ function removeOptimisticQueuedUserMessage(
 }
 
 /** Eagerly merge config fields so finishComposerCommand sees them before the async sessionUpdated event arrives. */
-function syncSessionConfig(
-  store: AppStoreInternals,
-  key: string,
-  patch: Partial<SessionConfig>,
-): void {
+function syncSessionConfig(store: ComposerStore, key: string, patch: Partial<SessionConfig>): void {
   const current = store.sessionState.sessionConfigBySession.get(key) ?? {};
   store.sessionState.sessionConfigBySession.set(key, { ...current, ...patch });
 }
 
 async function runComposerCommand(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   commandText: string,
 ): Promise<DesktopAppState | undefined> {
@@ -670,11 +657,7 @@ async function runComposerCommand(
   return store.withSessionError(sessionRef, `Unsupported slash command: ${commandText}`);
 }
 
-function appendLocalActivity(
-  store: AppStoreInternals,
-  sessionRef: SessionRef,
-  label: string,
-): void {
+function appendLocalActivity(store: ComposerStore, sessionRef: SessionRef, label: string): void {
   const key = sessionKey(sessionRef);
   const transcript = [...(store.sessionState.transcriptCache.get(key) ?? [])];
   transcript.push(makeActivityItem(label));
@@ -682,7 +665,7 @@ function appendLocalActivity(
 }
 
 function finishComposerCommand(
-  store: AppStoreInternals,
+  store: ComposerStore,
   sessionRef: SessionRef,
   key: string,
   label: string,
@@ -724,7 +707,7 @@ function finishComposerCommand(
   return snapshot;
 }
 
-function isSelectedSession(store: AppStoreInternals, sessionRef: SessionRef): boolean {
+function isSelectedSession(store: ComposerStore, sessionRef: SessionRef): boolean {
   return (
     store.state.selectedWorkspaceId === sessionRef.workspaceId &&
     store.state.selectedSessionId === sessionRef.sessionId

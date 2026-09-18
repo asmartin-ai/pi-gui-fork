@@ -309,7 +309,8 @@ export class DesktopAppStore implements AppStoreInternals {
     const syncTargetsProjectedSession =
       (state.composerDraftSyncSource === "extension-editor-text" ||
         state.composerDraftSyncSource === "persist" ||
-        state.composerDraftSyncSource === "command") &&
+        state.composerDraftSyncSource === "command" ||
+        state.composerDraftSyncSource === "queued-message-edit") &&
       this.composerDraftSyncTarget?.workspaceId === selectedWorkspaceId &&
       this.composerDraftSyncTarget?.sessionId === selectedSessionId;
     const activeView = view.activeView ?? state.activeView;
@@ -328,7 +329,8 @@ export class DesktopAppStore implements AppStoreInternals {
             (matchesStateSelection &&
               state.composerDraftSyncSource !== "extension-editor-text" &&
               state.composerDraftSyncSource !== "persist" &&
-              state.composerDraftSyncSource !== "command")
+              state.composerDraftSyncSource !== "command" &&
+              state.composerDraftSyncSource !== "queued-message-edit")
           ? state.composerDraftSyncSource
           : "state",
       composerDraftSyncNonce: selectionChanged
@@ -652,13 +654,17 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async addComposerAttachments(
+    sessionRef: SessionRef | undefined,
     attachments: readonly ComposerAttachment[],
   ): Promise<DesktopAppState> {
-    return composer.addComposerAttachments(this, attachments);
+    return composer.addComposerAttachments(this, sessionRef, attachments);
   }
 
-  async removeComposerAttachment(attachmentId: string): Promise<DesktopAppState> {
-    return composer.removeComposerAttachment(this, attachmentId);
+  async removeComposerAttachment(
+    sessionRef: SessionRef | undefined,
+    attachmentId: string,
+  ): Promise<DesktopAppState> {
+    return composer.removeComposerAttachment(this, sessionRef, attachmentId);
   }
 
   async submitComposer(
@@ -670,22 +676,29 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async editQueuedComposerMessage(
+    sessionRef: SessionRef | undefined,
     messageId: string,
     currentDraft?: string,
   ): Promise<DesktopAppState> {
-    return composer.editQueuedComposerMessage(this, messageId, currentDraft);
+    return composer.editQueuedComposerMessage(this, sessionRef, messageId, currentDraft);
   }
 
-  async cancelQueuedComposerEdit(): Promise<DesktopAppState> {
-    return composer.cancelQueuedComposerEdit(this);
+  async cancelQueuedComposerEdit(sessionRef: SessionRef | undefined): Promise<DesktopAppState> {
+    return composer.cancelQueuedComposerEdit(this, sessionRef);
   }
 
-  async removeQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
-    return composer.removeQueuedComposerMessage(this, messageId);
+  async removeQueuedComposerMessage(
+    sessionRef: SessionRef | undefined,
+    messageId: string,
+  ): Promise<DesktopAppState> {
+    return composer.removeQueuedComposerMessage(this, sessionRef, messageId);
   }
 
-  async steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
-    return composer.steerQueuedComposerMessage(this, messageId);
+  async steerQueuedComposerMessage(
+    sessionRef: SessionRef | undefined,
+    messageId: string,
+  ): Promise<DesktopAppState> {
+    return composer.steerQueuedComposerMessage(this, sessionRef, messageId);
   }
 
   async cancelCurrentRun(sessionRef: SessionRef | undefined): Promise<DesktopAppState> {
@@ -3420,7 +3433,7 @@ export class DesktopAppStore implements AppStoreInternals {
   setComposerDraftForSession(
     sessionRef: SessionRef,
     draft: string,
-    source: "persist" | "command" | "extension-editor-text",
+    source: "persist" | "command" | "extension-editor-text" | "queued-message-edit",
   ): void {
     const key = sessionKey(sessionRef);
     if (draft) {

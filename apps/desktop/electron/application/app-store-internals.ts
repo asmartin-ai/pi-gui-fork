@@ -58,7 +58,7 @@ export interface AppStoreInternals {
   setComposerDraftForSession(
     sessionRef: SessionRef,
     draft: string,
-    source: "persist" | "command" | "extension-editor-text",
+    source: "persist" | "command" | "extension-editor-text" | "queued-message-edit",
   ): void;
   emit(): DesktopAppState;
   withError(error: unknown): Promise<DesktopAppState>;

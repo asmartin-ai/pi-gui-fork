@@ -34,6 +34,10 @@ The renderer now uses the feature groups below: conversation (including transcri
 
 Host files are now grouped by responsibility, with `main.ts`, `preload.ts`, and their development probes retained as entrypoints. This is a relocation: `application/app-store-internals.ts` still exposes broad mutable state to conversation, workspace, and orchestration helpers. Narrowing those interfaces remains separate work. Window selection and IPC routing remain in `main.ts`; there are no placeholder window or IPC owner folders.
 
+Composer draft, send, stop, attachment, and queued-message commands now receive explicit session targets captured from the sender window at dispatch. Attachment picking captures the target before the dialog opens. Queue editing updates the target's draft rather than writing through selected-state refresh. The composer interface excludes the ambient session lookup; other store method groups remain transitional. Opening New thread flushes the outgoing conversation's pending draft before navigation.
+
+Cancellation executes immediately against its captured target: waiting behind a submitted prompt would prevent Stop from reaching the runtime until that prompt finished. Other window-scoped actions retain their existing serialization.
+
 Current placement:
 
 ```text

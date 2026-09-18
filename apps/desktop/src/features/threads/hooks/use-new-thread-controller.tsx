@@ -44,6 +44,7 @@ interface UseNewThreadControllerParams {
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly expandWorkspace: (workspaceId: string) => void;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly flushComposerDraft: () => void;
 }
 
 export function useNewThreadController(params: UseNewThreadControllerParams) {
@@ -57,6 +58,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
     selectedWorkspace,
     expandWorkspace,
     openSettings,
+    flushComposerDraft,
   } = params;
 
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState("");
@@ -146,6 +148,8 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
 
   const openSurface = useCallback(
     (workspaceId?: string) => {
+      // Save the outgoing conversation before the new-thread flow can change its selection.
+      flushComposerDraft();
       setPendingWorkspaceId("");
       resetSurface(workspaceId);
       if (api) {
@@ -156,7 +160,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
         );
       }
     },
-    [api, resetSurface, setSnapshot],
+    [api, flushComposerDraft, resetSurface, setSnapshot],
   );
 
   const selectWorkspace = useCallback((workspaceId: string) => {

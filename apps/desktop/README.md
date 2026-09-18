@@ -190,10 +190,9 @@ That spec launches the app in development mode, edits isolated probe modules for
 - Prefer real clicks, typing, keyboard shortcuts, and visible assertions.
 - Avoid direct IPC shortcuts for visible behavior unless the user surface does not exist yet. If you must use one, document why the surface gap exists.
 - `pasteTinyPng()` drives the renderer paste handler directly and is appropriate for background-safe coverage.
-- `pasteTinyPngViaClipboard()` uses Electron clipboard plus `webContents.paste()` and is appropriate for foreground/native coverage.
+- `pasteTinyPngViaClipboard()` writes an image to the Electron clipboard and presses the platform paste shortcut. It belongs in foreground/native coverage.
 - `tests/production/real-auth-contract.spec.ts` proves the default non-real-auth path still seeds a temporary fake-auth agent dir and keeps real-auth coverage opt-in.
 - `tests/production/packaged-smoke.spec.ts` proves the packaged `.app` bundle launches and can start a thread through the real UI.
-- `test:prod:packaged-computer-use` packages the `.app` and verifies the bundled Computer Use helper, extension, locked-use self-test, and top-level @ extension surface.
 - `tests/production/applications-relaunch.spec.ts` proves an installed copy under `/Applications` launches and relaunches with persisted state.
 - `tests/production/release-zip-smoke.spec.ts` proves the packaged release ZIP can be extracted to a temp download-style path and launched through the real UI before publish.
 - `tests/production/open-folder-real.spec.ts` proves the real macOS open panel can add a workspace through the empty-state button.

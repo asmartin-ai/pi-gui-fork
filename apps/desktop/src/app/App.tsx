@@ -438,6 +438,7 @@ export default function App() {
     selectedWorkspace,
     expandWorkspace: wsMenu.expandWorkspace,
     openSettings,
+    flushComposerDraft,
   });
 
   const {

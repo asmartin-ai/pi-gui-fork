@@ -1559,9 +1559,14 @@ app
     );
     ipcMain.handle(desktopIpc.cancelCurrentRun, (event) => {
       const target = sessionTargetForEvent(event);
-      return runWindowScopedForEvent(event, () => store.cancelCurrentRun(target));
+      // A submitted prompt holds the window action queue until its turn ends.
+      // Stop must reach the captured session immediately to release that turn.
+      return runImmediateStateResultForWindow(BrowserWindow.fromWebContents(event.sender), () =>
+        store.cancelCurrentRun(target),
+      );
     });
     ipcMain.handle(desktopIpc.pickComposerAttachments, async (event) => {
+      const target = sessionTargetForEvent(event);
       const window = resolveDialogWindow(BrowserWindow.fromWebContents(event.sender));
       const result = window
         ? await dialog.showOpenDialog(window, {
@@ -1576,7 +1581,9 @@ app
         return stateForWindow(window);
       }
       const attachments = await Promise.all(result.filePaths.map(readComposerAttachment));
-      return runWindowScopedForWindow(window, () => store.addComposerAttachments(attachments));
+      return runWindowScopedForWindow(window, () =>
+        store.addComposerAttachments(target, attachments),
+      );
     });
     ipcMain.on(desktopIpc.readClipboardImage, (event) => {
       event.returnValue = readClipboardImageAttachment();
@@ -1584,29 +1591,44 @@ app
     ipcMain.handle(
       desktopIpc.addComposerAttachments,
       (event, attachments: readonly ComposerAttachment[]) => {
+        const target = sessionTargetForEvent(event);
         const validated = attachments.flatMap(validateComposerAttachmentPayload);
-        return runWindowScopedForEvent(event, () => store.addComposerAttachments(validated));
+        return runWindowScopedForEvent(event, () =>
+          store.addComposerAttachments(target, validated),
+        );
       },
     );
-    ipcMain.handle(desktopIpc.removeComposerAttachment, (event, attachmentId: string) =>
-      runWindowScopedForEvent(event, () => store.removeComposerAttachment(attachmentId)),
-    );
+    ipcMain.handle(desktopIpc.removeComposerAttachment, (event, attachmentId: string) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, () =>
+        store.removeComposerAttachment(target, attachmentId),
+      );
+    });
     ipcMain.handle(
       desktopIpc.editQueuedComposerMessage,
-      (event, messageId: string, currentDraft?: string) =>
-        runWindowScopedForEvent(event, () =>
-          store.editQueuedComposerMessage(messageId, currentDraft),
-        ),
+      (event, messageId: string, currentDraft?: string) => {
+        const target = sessionTargetForEvent(event);
+        return runWindowScopedForEvent(event, () =>
+          store.editQueuedComposerMessage(target, messageId, currentDraft),
+        );
+      },
     );
-    ipcMain.handle(desktopIpc.cancelQueuedComposerEdit, (event) =>
-      runWindowScopedForEvent(event, () => store.cancelQueuedComposerEdit()),
-    );
-    ipcMain.handle(desktopIpc.removeQueuedComposerMessage, (event, messageId: string) =>
-      runWindowScopedForEvent(event, () => store.removeQueuedComposerMessage(messageId)),
-    );
-    ipcMain.handle(desktopIpc.steerQueuedComposerMessage, (event, messageId: string) =>
-      runWindowScopedForEvent(event, () => store.steerQueuedComposerMessage(messageId)),
-    );
+    ipcMain.handle(desktopIpc.cancelQueuedComposerEdit, (event) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, () => store.cancelQueuedComposerEdit(target));
+    });
+    ipcMain.handle(desktopIpc.removeQueuedComposerMessage, (event, messageId: string) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, () =>
+        store.removeQueuedComposerMessage(target, messageId),
+      );
+    });
+    ipcMain.handle(desktopIpc.steerQueuedComposerMessage, (event, messageId: string) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, () =>
+        store.steerQueuedComposerMessage(target, messageId),
+      );
+    });
     ipcMain.handle(desktopIpc.updateComposerDraft, (event, composerDraft: string) => {
       const target = sessionTargetForEvent(event);
       return runWindowScopedForEvent(event, async () => {
