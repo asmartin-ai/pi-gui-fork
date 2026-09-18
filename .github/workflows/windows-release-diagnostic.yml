@@ -1,0 +1,74 @@
+name: Windows release diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag to diagnose
+        required: true
+        default: v0.1.0-beta.38
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-release-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-installer:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    # Draft assets require push access. This job never publishes or uploads release assets.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download existing Windows packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || 'v0.1.0-beta.38' }}
+        run: |
+          gh release download $env:RELEASE_TAG --dir draft-release
+          if ($LASTEXITCODE -ne 0) { throw "Draft download failed" }
+          New-Item -ItemType Directory -Force -Path diagnostic-proof | Out-Null
+          Get-ChildItem draft-release -Filter '*.exe' | Get-FileHash -Algorithm SHA256 |
+            Format-List | Out-String | Tee-Object -FilePath diagnostic-proof/package-hashes.txt
+      - name: Reproduce native package verification
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || 'v0.1.0-beta.38' }}
+        run: |
+          $started = Get-Date
+          try {
+            ./apps/desktop/scripts/verify-windows-release.ps1 `
+              -ReleaseDir "$PWD/draft-release" `
+              -Version ($env:RELEASE_TAG -replace '^v', '') `
+              -SmokePackages
+          }
+          finally {
+            New-Item -ItemType Directory -Force -Path diagnostic-proof | Out-Null
+            # WER records crash events asynchronously after the process exits.
+            $events = @()
+            for ($attempt = 0; $attempt -le 15; $attempt++) {
+              $events = @(Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=$started; Id=1000,1001} -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match 'pi-gui.*setup' })
+              if ($events.Count -gt 0) { break }
+              if ($attempt -lt 15) { Start-Sleep -Seconds 2 }
+            }
+            if ($events.Count -eq 0) { Write-Warning 'No matching crash events appeared within 30 seconds' }
+            $events | Select-Object TimeCreated, Id, ProviderName, Message |
+              Format-List | Out-String -Width 250 |
+              Tee-Object -FilePath diagnostic-proof/crash-events.txt
+          }
+      - name: Retain crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-diagnostic-${{ github.run_id }}
+          path: diagnostic-proof/
+          if-no-files-found: warn
+          retention-days: 7
