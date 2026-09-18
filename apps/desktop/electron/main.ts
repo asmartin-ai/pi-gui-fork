@@ -19,21 +19,21 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { augmentPosixPath } from "../scripts/augment-path.cjs";
-import { DesktopAppStore, type DesktopAppViewState } from "./app-store";
+import { DesktopAppStore, type DesktopAppViewState } from "./application/app-store";
 import {
   createOrchestrationRuntimeExtension,
   createOrchestrationRuntimeTools,
   type OrchestrationRuntimeBridge,
-} from "./orchestration-runtime";
-import * as orchestrationTools from "./app-store-orchestration";
-import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
-import { listWorkspaceFiles, readWorkspaceFile } from "./app-store-files";
+} from "./orchestration/orchestration-runtime";
+import * as orchestrationTools from "./orchestration/app-store-orchestration";
+import { getChangedFiles, getFileDiff, stageFile } from "./platform/files/app-store-diff";
+import { listWorkspaceFiles, readWorkspaceFile } from "./platform/files/app-store-files";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
-import { NotificationManager } from "./notification-manager";
-import { NotificationPermissionService } from "./notification-permission";
-import { checkForUpdate, initUpdateChecker, openReleasesPage } from "./update-checker";
-import { ThemeManager } from "./theme-manager";
-import { TerminalService } from "./terminal-service";
+import { NotificationManager } from "./platform/notification-manager";
+import { NotificationPermissionService } from "./platform/notification-permission";
+import { checkForUpdate, initUpdateChecker, openReleasesPage } from "./platform/update-checker";
+import { ThemeManager } from "./platform/theme-manager";
+import { TerminalService } from "./platform/terminal-service";
 import type {
   AppView,
   DesktopAppState,
@@ -48,7 +48,7 @@ import {
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
 } from "../contracts/ipc";
-import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
+import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../contracts/composer-attachments";
 import type {
   ComposerAttachment,
   ComposerFileAttachment,
@@ -663,6 +663,13 @@ async function runWindowScopedForWindow(
       }
     }
   });
+}
+
+function sessionTargetForEvent(event: IpcMainInvokeEvent): SessionRef | undefined {
+  const view = windowViews.get(event.sender.id);
+  return view?.selectedWorkspaceId && view.selectedSessionId
+    ? { workspaceId: view.selectedWorkspaceId, sessionId: view.selectedSessionId }
+    : undefined;
 }
 
 function runWindowScopedForEvent(
@@ -1550,9 +1557,10 @@ app
         await shell.openPath(path.dirname(resolved));
       },
     );
-    ipcMain.handle(desktopIpc.cancelCurrentRun, (event) =>
-      runWindowScopedForEvent(event, () => store.cancelCurrentRun()),
-    );
+    ipcMain.handle(desktopIpc.cancelCurrentRun, (event) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, () => store.cancelCurrentRun(target));
+    });
     ipcMain.handle(desktopIpc.pickComposerAttachments, async (event) => {
       const window = resolveDialogWindow(BrowserWindow.fromWebContents(event.sender));
       const result = window
@@ -1599,20 +1607,23 @@ app
     ipcMain.handle(desktopIpc.steerQueuedComposerMessage, (event, messageId: string) =>
       runWindowScopedForEvent(event, () => store.steerQueuedComposerMessage(messageId)),
     );
-    ipcMain.handle(desktopIpc.updateComposerDraft, (event, composerDraft: string) =>
-      runWindowScopedForEvent(event, async () => {
+    ipcMain.handle(desktopIpc.updateComposerDraft, (event, composerDraft: string) => {
+      const target = sessionTargetForEvent(event);
+      return runWindowScopedForEvent(event, async () => {
         currentComposerDraftPersistOriginWebContentsId = event.sender.id;
         try {
-          return await store.updateComposerDraft(composerDraft);
+          return await store.updateComposerDraft(target, composerDraft);
         } finally {
           currentComposerDraftPersistOriginWebContentsId = undefined;
         }
-      }),
-    );
+      });
+    });
     ipcMain.handle(
       desktopIpc.submitComposer,
-      (event, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
-        runWindowScopedForEvent(event, () => store.submitComposer(text, options)),
+      (event, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) => {
+        const target = sessionTargetForEvent(event);
+        return runWindowScopedForEvent(event, () => store.submitComposer(target, text, options));
+      },
     );
     ipcMain.handle(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
       store.getSessionTree(target),

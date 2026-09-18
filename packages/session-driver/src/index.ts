@@ -73,3 +73,5 @@ export type {
   SessionTranscriptRole,
   SessionTranscriptToolCall,
 } from "./transcript.js";
+
+export { sessionKey } from "./identity.js";

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
-import { reviewedFilesKey } from "../../src/reviewed-files-store";
+import { reviewedFilesKey } from "../../src/features/workbench/reviewed-files-store";
 import {
   commitAllInGitRepo,
   createNamedThread,

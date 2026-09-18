@@ -24,7 +24,7 @@ test("the real lint config rejects shortcuts across source and script scopes", a
     },
   });
   for (const filePath of [
-    "apps/desktop/src/App.tsx",
+    "apps/desktop/src/app/App.tsx",
     "apps/desktop/electron/main.ts",
     "apps/desktop/tests/core/smoke.spec.ts",
     "apps/website/app/page.tsx",
@@ -42,7 +42,7 @@ test("the real lint config rejects shortcuts across source and script scopes", a
     assert.equal(valid.errorCount + valid.warningCount, 0, filePath);
   }
   const [unsafe] = await eslint.lintText("new Promise(async (resolve) => { resolve(1); });\n", {
-    filePath: "apps/desktop/src/syntax-highlight.ts",
+    filePath: "apps/desktop/src/ui/syntax-highlight.ts",
   });
   assert(unsafe.messages.some((message) => message.ruleId === "no-async-promise-executor"));
 });

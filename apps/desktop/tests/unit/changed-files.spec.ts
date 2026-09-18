@@ -11,7 +11,7 @@ import {
   stageFile,
   type GitCommandExecutor,
   type GitCommandResult,
-} from "../../electron/app-store-diff";
+} from "../../electron/platform/files/app-store-diff";
 
 const execFileAsync = promisify(execFile);
 

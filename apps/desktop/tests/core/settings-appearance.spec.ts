@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Video } from "@playwright/test";
-import { themePresets } from "../../src/theme-presets";
+import { themePresets } from "../../src/features/settings/theme-presets";
 import {
   createNamedThread,
   desktopShortcut,

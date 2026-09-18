@@ -6,7 +6,7 @@ Keep the workspace split and upstream Pi runtime. Organize code around the owner
 
 The renderer calls `window.piApp` through preload. Electron main routes the request through per-window handling to `DesktopAppStore`; the store coordinates the Pi SDK driver, catalog, attachments, and platform services. The driver delegates agent execution to upstream Pi.
 
-Start tracing in [main](../apps/desktop/electron/main.ts), [store](../apps/desktop/electron/app-store.ts), and [driver](../packages/pi-sdk-driver/src). Renderer, preload, and main remain separate bundles configured by [electron-vite](../apps/desktop/electron.vite.config.mjs).
+Start tracing in [main](../apps/desktop/electron/main.ts), [store](../apps/desktop/electron/application/app-store.ts), and [driver](../packages/pi-sdk-driver/src). Renderer, preload, and main remain separate bundles configured by [electron-vite](../apps/desktop/electron.vite.config.mjs).
 
 The store currently shares one catalog instance with the driver and worktree manager. Its method groups can access broad mutable store internals. Main also serializes actions while installing the sender window's selection into shared state. Preserve that serialization until explicit session targets and equivalent regression coverage replace the dependency; it is not safe to remove it as a folder cleanup.
 
@@ -28,34 +28,38 @@ The workspace lifecycle rule is an intended invariant. A previously observed int
 
 Keep `packages/session-driver` authoritative for portable session contracts, `packages/catalogs` for catalog contracts, and `packages/pi-sdk-driver` thin over upstream Pi. Do not redeclare owned package interfaces in ambient vendor files. A catalog backend move must first account for every writer and preserve the shared instance's coordination semantics.
 
-## Target placement
+## Placement and remaining ownership work
 
-Create these groups only as coherent responsibilities are extracted:
+The renderer now uses the feature groups below: conversation (including transcript search and session tree/fork), threads (sidebar and new-thread creation), workbench, settings, and extensions. `src/app` composes these surfaces, `src/ui` holds shared visual helpers, and `src/lib` holds general string formatting. CSS remains in `src/styles` with its existing load order. Renderer feature hooks still use the shared snapshot projection helpers in `src/app`; this relocation does not complete host state-owner extraction.
+
+Host files are now grouped by responsibility, with `main.ts`, `preload.ts`, and their development probes retained as entrypoints. This is a relocation: `application/app-store-internals.ts` still exposes broad mutable state to conversation, workspace, and orchestration helpers. Narrowing those interfaces remains separate work. Window selection and IPC routing remain in `main.ts`; there are no placeholder window or IPC owner folders.
+
+Current placement:
 
 ```text
 apps/desktop/
   contracts/             browser-safe desktop API and values
   electron/
-    main/
-      application/       composition and snapshot projection
-      windows/           window views and sender context
-      ipc/               request validation and routing
-      conversation/      session commands, drafts, events
-      workspace/         workspace/worktree operations
-      orchestration/     child-thread policy and supervision
-      settings/          preference operations
-      persistence/       UI state and attachment storage
-      platform/          operating-system adapters
-    preload/             narrow transport adapter
+    main.ts              composition, window state, IPC routing
+    preload.ts           narrow transport adapter
+    application/         app store, internals, shared projection helpers
+    conversation/        session commands, drafts, events, visibility
+    workspace/           workspace/worktree use cases
+    orchestration/       child-thread policy and supervision
+    persistence/         UI state and attachment storage
+    platform/            theme, notifications, updates, terminal
+      files/             workspace paths, file reads, diffs
+      worktrees/         Git worktree adapter
   src/
     app/                 screen composition
     features/
       conversation/      composer and transcript
-      threads/           sidebar, search, navigation
+      threads/           sidebar, navigation, new-thread creation
       workbench/         files, diffs, terminal presentation
       settings/
       extensions/
     ui/                  shared visual primitives
+    lib/                 general renderer helpers
     styles/              global tokens and base styles
 ```
 

@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
-import { reviewedFilesKey } from "../../src/reviewed-files-store";
+import { reviewedFilesKey } from "../../src/features/workbench/reviewed-files-store";
 import {
   commitAllInGitRepo,
   createNamedThread,

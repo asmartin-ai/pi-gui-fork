@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { writeJsonFileAtomic } from "./atomic-write.js";
+import { writeJsonFileAtomic } from "@pi-gui/catalogs/node/atomic-write";
 import {
   BUILT_IN_PROVIDER_IDS,
   CUSTOM_PROVIDER_ID_PATTERN,

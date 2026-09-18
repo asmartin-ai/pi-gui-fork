@@ -87,10 +87,6 @@ export function forcePersistSession(sessionManager: object): void {
   }
 }
 
-export function sessionKey(sessionRef: SessionRef): string {
-  return `${sessionRef.workspaceId}:${sessionRef.sessionId}`;
-}
-
 export function workspaceToRef(workspace: {
   workspaceId: string;
   path: string;

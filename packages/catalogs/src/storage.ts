@@ -34,3 +34,14 @@ export interface CatalogStorage {
     ): Promise<void>;
   };
 }
+
+export interface SessionFileCatalogStorage extends CatalogStorage {
+  getSessionFile(sessionRef: SessionRef): Promise<string | undefined>;
+  setSessionFile(sessionRef: SessionRef, sessionFile: string): Promise<void>;
+  deleteSessionFile(sessionRef: SessionRef): Promise<void>;
+  replaceWorkspaceSessions(
+    workspaceId: WorkspaceId,
+    entries: readonly SessionCatalogEntry[],
+    sessionFiles: Readonly<Record<string, string>>,
+  ): Promise<void>;
+}

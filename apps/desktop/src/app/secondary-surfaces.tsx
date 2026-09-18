@@ -2,15 +2,15 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AppView, DesktopAppState, WorkspaceRecord } from "../../contracts/desktop-state";
 import { updateSnapshot } from "./desktop-app-state";
-import { getEffectiveModelRuntime } from "../model-settings";
+import { getEffectiveModelRuntime } from "../features/settings/model-settings";
 import {
   type CustomProviderConfig,
   type DesktopNotificationPermissionStatus,
 } from "../../contracts/ipc";
-import { SkillsView } from "../skills-view";
-import { ExtensionsView } from "../extensions-view";
-import { SettingsView, type SettingsSection } from "../settings-view";
-import { SecondarySurface } from "../secondary-surface";
+import { SkillsView } from "../features/extensions/skills-view";
+import { ExtensionsView } from "../features/extensions/extensions-view";
+import { SettingsView, type SettingsSection } from "../features/settings/settings-view";
+import { SecondarySurface } from "./secondary-surface";
 
 const settingsNav = [
   { id: "appearance", label: "Appearance" },

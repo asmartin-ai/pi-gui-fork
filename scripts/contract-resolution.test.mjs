@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import ts from "typescript";
@@ -47,4 +48,19 @@ const rejected: SessionDriver = incomplete;
     declaration.getSourceFile().fileName,
     path.join(root, "packages/session-driver/dist/types.d.ts"),
   );
+});
+
+test("desktop runtime resolves its catalog backend without TypeScript aliases", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const require = createRequire(path.join(root, "apps/desktop/package.json"));
+  for (const [specifier, relative] of [
+    ["@pi-gui/catalogs/node", "packages/catalogs/dist/node/index.js"],
+    ["@pi-gui/catalogs/node/atomic-write", "packages/catalogs/dist/node/atomic-write.js"],
+  ]) {
+    let resolved;
+    assert.doesNotThrow(() => {
+      resolved = require.resolve(specifier);
+    }, `${specifier} must resolve from desktop; run pnpm install --frozen-lockfile after workspace dependency changes and build shared packages.`);
+    assert.equal(resolved, path.join(root, relative));
+  }
 });

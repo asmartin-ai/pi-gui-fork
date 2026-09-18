@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import type { CatalogStorage, WorktreeCatalogEntry } from "@pi-gui/catalogs";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
-import { GitWorktreeManager } from "../../electron/worktree-manager";
+import { GitWorktreeManager } from "../../electron/platform/worktrees/worktree-manager";
 
 const execFileAsync = promisify(execFile);
 

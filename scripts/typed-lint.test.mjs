@@ -18,14 +18,15 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 // lintText replaces only the in-memory contents of existing project members.
 // No invalid fixture is written into the checkout or its compiled output.
 const paths = [
-  "apps/desktop/src/App.tsx",
+  "apps/desktop/src/app/App.tsx",
   "apps/desktop/electron/main.ts",
   "apps/desktop/tests/core/smoke.spec.ts",
   "apps/desktop/scripts/capture-showcase.mts",
   "apps/website/app/page.tsx",
   "packages/catalogs/src/index.ts",
   "packages/pi-sdk-driver/src/index.ts",
-  "packages/pi-sdk-driver/test/atomic-write.test.mts",
+  "packages/catalogs/test/atomic-write.test.mts",
+  "packages/pi-sdk-driver/test/session-schema.test.mts",
   "packages/session-driver/src/index.ts",
   "video/src/Root.tsx",
 ];

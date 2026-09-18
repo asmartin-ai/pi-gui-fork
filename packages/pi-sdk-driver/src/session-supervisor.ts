@@ -45,11 +45,9 @@ import type {
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
-import {
-  isMissingFileError,
-  JsonCatalogStore,
-  type SessionFileCatalogStorage,
-} from "./json-catalog-store.js";
+import { isMissingFileError, JsonCatalogStore } from "@pi-gui/catalogs/node";
+import type { SessionFileCatalogStorage } from "@pi-gui/catalogs";
+import { sessionKey } from "@pi-gui/session-driver";
 import { buildSessionSchemaInfo, readSessionFileSchemaVersion } from "./session-schema.js";
 import {
   buildOwnLease,
@@ -87,7 +85,6 @@ import {
   messageText,
   nowIso,
   previewFromSessionInfo,
-  sessionKey,
   shouldTailFromDisk,
   singleFlight,
   titleFromSessionInfo,
