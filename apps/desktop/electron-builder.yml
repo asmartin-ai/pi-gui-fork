@@ -95,6 +95,7 @@ toolsets:
   appimage: "1.0.2"
 
 dmg:
+  sign: true
   contents:
     - x: 130
       y: 220

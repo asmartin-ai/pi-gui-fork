@@ -115,6 +115,10 @@ function validateCiWorkflow(workflow) {
 function validateBuilderConfig(config, desktopPackage, afterRemoveSource) {
   assert(config.mac?.notarize === true, "electron-builder must notarize the macOS app");
   assert(
+    config.dmg?.sign === true,
+    "DMG must be signed for Gatekeeper primary-signature verification",
+  );
+  assert(
     config.win?.signAndEditExecutable === true,
     "Windows packaging must preserve executable icon and version metadata",
   );
