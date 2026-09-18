@@ -131,6 +131,7 @@ interface ManagedSessionRecord {
   preview: string | undefined;
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
+  cancellationRequested: boolean;
   queuedMessages: SessionQueuedMessage[];
   closed: boolean;
   listeners: Set<SessionEventListener>;
@@ -727,6 +728,7 @@ export class SessionSupervisor {
 
     const isQueuedMessage = session.isStreaming && !isExtensionCommand && Boolean(input.deliverAs);
     const runId = isQueuedMessage || isExtensionCommand ? undefined : crypto.randomUUID();
+    if (!isQueuedMessage && !isExtensionCommand) record.cancellationRequested = false;
     record.runningRunId = runId ?? record.runningRunId;
     record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
@@ -837,6 +839,7 @@ export class SessionSupervisor {
       return;
     }
 
+    record.cancellationRequested = true;
     try {
       await record.session.abort();
     } catch (error) {
@@ -1117,6 +1120,7 @@ export class SessionSupervisor {
       preview: undefined,
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
+      cancellationRequested: false,
       queuedMessages: [],
       closed: false,
       listeners: new Set<SessionEventListener>(),
@@ -1979,20 +1983,25 @@ export class SessionSupervisor {
       case "turn_end":
         return [sessionUpdatedEvent(record)];
       case "agent_end": {
-        const outcome = determineRunOutcome(event.messages);
+        const outcome = determineRunOutcome(event.messages, record.cancellationRequested);
+        record.cancellationRequested = false;
         const runId = record.runningRunId;
         record.runningRunId = undefined;
-        record.status = outcome.success ? "idle" : "failed";
+        record.status = outcome.status === "failed" ? "failed" : "idle";
         record.updatedAt = timestamp;
-        if (!outcome.success && outcome.error) {
+        if (outcome.status === "failed") {
           record.preview = outcome.error.message;
         }
         if (record.session) {
           record.sessionCommands = this.collectSessionCommands(record.session);
         }
 
+        // User cancellation is neither successful completion nor a runtime
+        // failure. Publish idle without triggering completion/failure consumers.
+        if (outcome.status === "cancelled") return [sessionUpdatedEvent(record)];
+
         return toDriverEvents(
-          outcome.success
+          outcome.status === "completed"
             ? {
                 type: "runCompleted" as const,
                 sessionRef: record.ref,
@@ -2003,7 +2012,7 @@ export class SessionSupervisor {
                 type: "runFailed" as const,
                 sessionRef: record.ref,
                 timestamp,
-                error: outcome.error ?? toSessionErrorInfo(undefined, "RUN_FAILED"),
+                error: outcome.error,
               },
           record,
           runId,

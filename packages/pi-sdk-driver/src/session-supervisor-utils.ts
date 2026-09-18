@@ -151,17 +151,22 @@ export function extractPreview(message: unknown): string | undefined {
   return undefined;
 }
 
-export function determineRunOutcome(messages: readonly unknown[]): {
-  success: boolean;
-  error?: SessionErrorInfo;
-} {
+export type RunOutcome =
+  | { readonly status: "completed" }
+  | { readonly status: "cancelled" }
+  | { readonly status: "failed"; readonly error: SessionErrorInfo };
+
+export function determineRunOutcome(
+  messages: readonly unknown[],
+  cancellationRequested = false,
+): RunOutcome {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!isRecord(message) || message.role !== "assistant") {
-      continue;
-    }
-
+    if (!isRecord(message) || message.role !== "assistant") continue;
     const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
+    if (stopReason === "aborted" && cancellationRequested) {
+      return { status: "cancelled" };
+    }
     if (stopReason === "error" || stopReason === "aborted") {
       const messageText =
         typeof message.errorMessage === "string" && message.errorMessage.trim().length > 0
@@ -169,18 +174,11 @@ export function determineRunOutcome(messages: readonly unknown[]): {
           : stopReason === "aborted"
             ? "Run aborted"
             : "Run failed";
-      return {
-        success: false,
-        error: {
-          message: messageText,
-          code: stopReason.toUpperCase(),
-        },
-      };
+      return { status: "failed", error: { message: messageText, code: stopReason.toUpperCase() } };
     }
     break;
   }
-
-  return { success: true };
+  return { status: "completed" };
 }
 
 export function toSessionErrorInfo(error: unknown, code: string): SessionErrorInfo {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { messageText } from "../dist/session-supervisor-utils.js";
+import { determineRunOutcome, messageText } from "../dist/session-supervisor-utils.js";
 
 const markdownParts = [
   "## Verification report",
@@ -35,4 +35,28 @@ await test("messageText preserves Markdown newlines in array-shaped assistant co
   };
 
   assert.equal(messageText(message), markdownReport);
+});
+
+await test("only a requested SDK abort is cancellation; actual provider errors remain failures", () => {
+  const aborted = [
+    { role: "assistant", stopReason: "aborted", errorMessage: "Request was aborted" },
+  ];
+  assert.deepEqual(determineRunOutcome(aborted, true), { status: "cancelled" });
+  assert.deepEqual(determineRunOutcome(aborted), {
+    status: "failed",
+    error: { code: "ABORTED", message: "Request was aborted" },
+  });
+  assert.deepEqual(
+    determineRunOutcome(
+      [{ role: "assistant", stopReason: "error", errorMessage: "Request was aborted" }],
+      true,
+    ),
+    {
+      status: "failed",
+      error: { code: "ERROR", message: "Request was aborted" },
+    },
+  );
+  assert.deepEqual(determineRunOutcome([{ role: "assistant", stopReason: "stop" }], true), {
+    status: "completed",
+  });
 });
