@@ -8,6 +8,7 @@ import type { Page } from "@playwright/test";
 import {
   addWorkspaceViaIpc,
   getDesktopState,
+  getSelectedTranscript,
   launchDesktop,
   makeWorkspace,
   type PiAppWindow,
@@ -83,9 +84,14 @@ async function waitForLiveResponse(
     const state = await getDesktopState(page);
     const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
     const session = workspace?.sessions.find((entry) => entry.id === state.selectedSessionId);
-    const transcript = session?.transcript ?? [];
-    const assistantMessages = transcript.filter(
-      (item) => item.kind === "message" && item.role === "assistant",
+    const selectedTranscript = await getSelectedTranscript(page);
+    const transcript =
+      selectedTranscript?.workspaceId === workspace?.id &&
+      selectedTranscript?.sessionId === session?.id
+        ? (selectedTranscript?.transcript ?? [])
+        : [];
+    const assistantMessages = transcript.flatMap((item) =>
+      item.kind === "message" && item.role === "assistant" ? [item.text] : [],
     );
     const latestAssistant = assistantMessages.at(-1);
 
@@ -96,7 +102,7 @@ async function waitForLiveResponse(
     if (
       session?.status === "idle" &&
       latestAssistant &&
-      latestAssistant.text.trim().length >= options.minimumAssistantLength
+      latestAssistant.trim().length >= options.minimumAssistantLength
     ) {
       return;
     }
@@ -157,7 +163,7 @@ async function captureParallelSessions(page: Page): Promise<void> {
       ({ workspaceId: wId, sessionId, prompt }) => {
         const app = (window as PiAppWindow).piApp;
         if (!app) throw new Error("piApp unavailable");
-        void app
+        return app
           .selectSession({ workspaceId: wId, sessionId })
           .then(() => app.submitComposer(prompt));
       },
@@ -182,7 +188,7 @@ async function captureParallelSessions(page: Page): Promise<void> {
       ({ workspaceId: wId, sessionId, prompt }) => {
         const app = (window as PiAppWindow).piApp;
         if (!app) throw new Error("piApp unavailable");
-        void app
+        return app
           .selectSession({ workspaceId: wId, sessionId })
           .then(() => app.submitComposer(prompt));
       },
@@ -197,7 +203,7 @@ async function captureParallelSessions(page: Page): Promise<void> {
       ({ workspaceId: wId, sessionId }) => {
         const app = (window as PiAppWindow).piApp;
         if (!app) throw new Error("piApp unavailable");
-        void app.selectSession({ workspaceId: wId, sessionId });
+        return app.selectSession({ workspaceId: wId, sessionId });
       },
       { workspaceId, sessionId: sessionAId },
     );
@@ -210,7 +216,7 @@ async function captureParallelSessions(page: Page): Promise<void> {
       ({ workspaceId: wId, sessionId }) => {
         const app = (window as PiAppWindow).piApp;
         if (!app) throw new Error("piApp unavailable");
-        void app.selectSession({ workspaceId: wId, sessionId });
+        return app.selectSession({ workspaceId: wId, sessionId });
       },
       { workspaceId, sessionId: sessionBId },
     );

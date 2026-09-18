@@ -12,14 +12,13 @@ import {
   streamAssistantDeltas,
   waitForWorkspaceByPath,
   type DesktopHarness,
-  type PiAppWindow,
 } from "../helpers/electron-app";
 
 const platformModifier = process.platform === "darwin" ? "meta" : "control";
 
 async function waitForPiApp(window: Page): Promise<void> {
   await window.waitForLoadState("domcontentloaded");
-  await window.waitForFunction(() => Boolean((window as PiAppWindow).piApp), undefined, {
+  await window.waitForFunction(() => Boolean(globalThis.window.piApp), undefined, {
     timeout: 15_000,
   });
 }
@@ -57,7 +56,7 @@ async function browserWindowIndexForPage(harness: DesktopHarness, source: Page):
   const index = await harness.electronApp.evaluate(async ({ BrowserWindow }, value) => {
     const windows = BrowserWindow.getAllWindows();
     for (const [candidateIndex, candidateWindow] of windows.entries()) {
-      const candidateMarker = await candidateWindow.webContents
+      const candidateMarker: unknown = await candidateWindow.webContents
         .executeJavaScript("window.__piGuiTestWindowMarker", true)
         .catch(() => undefined);
       if (candidateMarker === value) {
@@ -164,7 +163,7 @@ async function pendingDialogCount(
 
 async function selectSessionViaIpc(window: Page, title: string): Promise<void> {
   await window.evaluate(async (targetTitle) => {
-    const app = (window as PiAppWindow).piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -186,7 +185,7 @@ async function selectSessionViaIpcAndCaptureStateEvents(
   title: string,
 ): Promise<readonly string[]> {
   return window.evaluate(async (targetTitle) => {
-    const app = (window as PiAppWindow).piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -407,7 +406,7 @@ test("keeps sender dialog actions scoped without blocking another window", async
 
     await stubDelayedOpenDialog(harness, [attachmentPath]);
     const pickPromise = firstWindow.evaluate(async () => {
-      const app = (window as PiAppWindow).piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }

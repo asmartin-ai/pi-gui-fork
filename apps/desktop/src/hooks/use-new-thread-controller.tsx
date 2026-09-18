@@ -101,12 +101,16 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
   }, []);
 
   const addAttachments = useCallback((files: File[]) => {
-    void readComposerAttachmentsFromFiles(files).then((added) => {
-      if (added.length === 0) {
-        return;
-      }
-      setAttachments((current) => [...current, ...added]);
-    });
+    void readComposerAttachmentsFromFiles(files)
+      .then((added) => {
+        if (added.length === 0) {
+          return;
+        }
+        setAttachments((current) => [...current, ...added]);
+      })
+      .catch((error: unknown) => {
+        setComposerError(error instanceof Error ? error.message : String(error));
+      });
   }, []);
 
   const removeAttachment = useCallback((attachmentId: string) => {
@@ -145,7 +149,11 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       setPendingWorkspaceId("");
       resetSurface(workspaceId);
       if (api) {
-        void updateSnapshot(api, setSnapshot, () => api.setActiveView("new-thread"));
+        void updateSnapshot(setSnapshot, () => api.setActiveView("new-thread")).catch(
+          (error: unknown) => {
+            console.error("[renderer] setActiveView failed", error);
+          },
+        );
       }
     },
     [api, resetSurface, setSnapshot],
@@ -188,13 +196,21 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       if (!api || !workspace) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.loginProvider(workspace.id, providerId));
+      void updateSnapshot(setSnapshot, () => api.loginProvider(workspace.id, providerId)).catch(
+        (error: unknown) => {
+          console.error("[renderer] loginProvider failed", error);
+        },
+      );
     },
     onSelectLogoutProvider: (providerId) => {
       if (!api || !workspace) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.logoutProvider(workspace.id, providerId));
+      void updateSnapshot(setSnapshot, () => api.logoutProvider(workspace.id, providerId)).catch(
+        (error: unknown) => {
+          console.error("[renderer] logoutProvider failed", error);
+        },
+      );
     },
   });
 
@@ -203,7 +219,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       if (!api || !workspace) {
         return Promise.resolve();
       }
-      return updateSnapshot(api, setSnapshot, () =>
+      return updateSnapshot(setSnapshot, () =>
         api.setExtensionEnabled(workspace.id, filePath, true),
       ).then(() => undefined);
     },
@@ -249,14 +265,18 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       thinkingLevel: resolvedThinkingLevel,
     };
     expandWorkspace(rootWorkspaceId);
-    void updateSnapshot(api, setSnapshot, () => api.startThread(input)).then(() => {
-      setPrompt("");
-      setAttachments([]);
-      setProvider(undefined);
-      setModelId(undefined);
-      setThinkingLevel(undefined);
-      setEnvironment("local");
-    });
+    void updateSnapshot(setSnapshot, () => api.startThread(input))
+      .then(() => {
+        setPrompt("");
+        setAttachments([]);
+        setProvider(undefined);
+        setModelId(undefined);
+        setThinkingLevel(undefined);
+        setEnvironment("local");
+      })
+      .catch((error: unknown) => {
+        setComposerError(error instanceof Error ? error.message : String(error));
+      });
   }, [
     api,
     attachments,

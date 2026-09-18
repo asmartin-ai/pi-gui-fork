@@ -190,7 +190,7 @@ test("scopes worktree creation and startup collection to the active profile", as
       expect(await pathExists(rememberedProfileAWorktree.path)).toBe(true);
       expect(legacyWorkspace.kind).toBe("worktree");
       await window.evaluate(async (workspaceId) => {
-        await window.piApp.selectWorkspace(workspaceId);
+        await globalThis.window.piApp.selectWorkspace(workspaceId);
       }, legacyWorkspace.id);
       const state = await getDesktopState(window);
       expect(state.selectedWorkspaceId).toBe(legacyWorkspace.id);
@@ -315,10 +315,8 @@ test("keeps orphaned worktree workspaces visible after removing the root workspa
     await window
       .getByRole("button", { name: `Workspace actions for ${rootWorkspace.name}` })
       .click();
-    window.once("dialog", (dialog) => {
-      void dialog.accept();
-    });
-    await window.getByRole("button", { name: "Remove" }).click();
+    const acceptRemoval = window.waitForEvent("dialog").then((dialog) => dialog.accept());
+    await Promise.all([window.getByRole("button", { name: "Remove" }).click(), acceptRemoval]);
 
     await expect(window.getByTestId("empty-state")).toHaveCount(0);
     await expect

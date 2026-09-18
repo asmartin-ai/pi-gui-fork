@@ -187,7 +187,9 @@ export async function startThread(
       void sendMessageToSession(store, session.ref, prompt, attachments, {
         rollbackOptimisticMessageOnError: false,
       }).catch((error) => {
-        void store.withError(error);
+        void store.withError(error).catch((error: unknown) => {
+          console.error("[app-store-worktree] withError failed", error);
+        });
       });
     }
     if (prompt) {
@@ -197,6 +199,8 @@ export async function startThread(
         signal: autoTitleAbortController.signal,
         ...(initialModel ? { model: initialModel } : {}),
         ...(initialThinkingLevel ? { thinkingLevel: initialThinkingLevel } : {}),
+      }).catch((error: unknown) => {
+        console.error("[app-store-worktree] generateAndApplyAutoTitle failed", error);
       });
     } else {
       store.clearPendingAutoTitle(session.ref);

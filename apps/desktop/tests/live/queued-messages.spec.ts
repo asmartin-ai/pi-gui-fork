@@ -14,12 +14,8 @@ function assistantMessages(
 ): string[] {
   return (transcript?.transcript ?? [])
     .filter(
-      (
-        item,
-      ): item is Extract<
-        NonNullable<typeof transcript>["transcript"][number],
-        { kind: "message"; role: "assistant" }
-      > => item.kind === "message" && item.role === "assistant",
+      (item): item is Extract<typeof item, { kind: "message" }> =>
+        item.kind === "message" && item.role === "assistant",
     )
     .map((item) => item.text.trim());
 }

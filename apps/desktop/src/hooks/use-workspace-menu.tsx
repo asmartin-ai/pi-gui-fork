@@ -14,7 +14,6 @@ interface UseWorkspaceMenuParams {
   readonly api: PiDesktopApi | undefined;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly updateSnapshot: (
-    api: PiDesktopApi,
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
@@ -142,7 +141,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.renameWorkspace(workspace.id, nextName));
+    void updateSnapshot(setSnapshot, () => api.renameWorkspace(workspace.id, nextName)).catch(
+      (error: unknown) => {
+        console.error("[renderer] renameWorkspace failed", error);
+      },
+    );
   };
 
   const cancelRename = () => {
@@ -159,7 +162,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!confirmed || !api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.removeWorkspace(workspace.id));
+    void updateSnapshot(setSnapshot, () => api.removeWorkspace(workspace.id)).catch(
+      (error: unknown) => {
+        console.error("[renderer] removeWorkspace failed", error);
+      },
+    );
   };
 
   const toggleArchived = (workspaceId: string, open: boolean) => {
@@ -187,9 +194,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       api.createWorktree({ workspaceId, fromSessionWorkspaceId, fromSessionId }),
-    );
+    ).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
   };
 
   const removeWorktree = (workspaceId: string, worktree: WorktreeRecord) => {
@@ -200,9 +209,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!confirmed || !api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       api.removeWorktree({ workspaceId, worktreeId: worktree.id }),
-    );
+    ).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
   };
 
   const selectWorkspace = (workspaceId: string) => {
@@ -210,7 +221,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspaceId));
+    void updateSnapshot(setSnapshot, () => api.selectWorkspace(workspaceId)).catch(
+      (error: unknown) => {
+        console.error("[renderer] selectWorkspace failed", error);
+      },
+    );
   };
 
   const runWorkspaceMenuAction = (event: ReactMouseEvent<HTMLElement>, action: () => void) => {

@@ -110,7 +110,11 @@ export function SettingsCustomEndpointsSection({
                 <button
                   className="button button--secondary"
                   type="button"
-                  onClick={() => void handleDelete(entry.providerId)}
+                  onClick={() =>
+                    void handleDelete(entry.providerId).catch((error: unknown) => {
+                      setLoadError(error instanceof Error ? error.message : String(error));
+                    })
+                  }
                 >
                   Remove
                 </button>
@@ -331,7 +335,12 @@ function CustomEndpointDialog({
               className="button button--secondary"
               disabled={probePending || savePending}
               type="button"
-              onClick={() => void handleProbe()}
+              onClick={() =>
+                void handleProbe().catch((error: unknown) => {
+                  setProbePending(false);
+                  setProbeError(error instanceof Error ? error.message : String(error));
+                })
+              }
             >
               {probePending ? "Detecting…" : "Detect models"}
             </button>
@@ -368,7 +377,12 @@ function CustomEndpointDialog({
               savePending || Boolean(idValidationError) || models.length === 0 || !baseUrl.trim()
             }
             type="button"
-            onClick={() => void handleSave()}
+            onClick={() =>
+              void handleSave().catch((error: unknown) => {
+                setSavePending(false);
+                setFormError(error instanceof Error ? error.message : String(error));
+              })
+            }
           >
             {isEdit ? "Save changes" : "Add endpoint"}
           </button>

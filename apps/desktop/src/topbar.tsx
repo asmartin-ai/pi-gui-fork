@@ -63,7 +63,9 @@ export function Topbar(props: TopbarProps) {
       return;
     }
 
-    void api.toggleWindowMaximize();
+    void api.toggleWindowMaximize().catch((error: unknown) => {
+      console.error("[renderer] toggleWindowMaximize failed", error);
+    });
   };
 
   return (

@@ -411,7 +411,7 @@ test("preserves durable ui state when one startup workspace is unavailable", asy
     const window = await firstRun.firstWindow();
     const seededState = await window.evaluate(
       async ({ healthyPath, unavailablePath }) => {
-        const app = window.piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }
@@ -438,7 +438,7 @@ test("preserves durable ui state when one startup workspace is unavailable", asy
         await app.updateComposerDraft("draft survives unavailable workspace");
         // Let the renderer's draft debounce settle before unrelated durable writes.
         // A stale local snapshot must not enqueue a later write that clears this draft.
-        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        await new Promise((resolve) => globalThis.window.setTimeout(resolve, 500));
         await app.setSessionPinned({ workspaceId: unavailable.id, sessionId: session.id }, true);
         await app.reorderWorkspaces([unavailable.id, healthy.id]);
         await app.setNotificationPreferences({
@@ -552,7 +552,7 @@ test("preserves durable ui state when one startup workspace is unavailable", asy
     }
 
     const healthySelection = await window.evaluate(async (workspaceId) => {
-      const app = window.piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
@@ -561,7 +561,7 @@ test("preserves durable ui state when one startup workspace is unavailable", asy
     expect(healthySelection.selectedWorkspaceId).toBe(healthyWorkspaceId);
     await window.evaluate(
       async ({ workspaceId, sessionId }) => {
-        const app = window.piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }
@@ -674,6 +674,7 @@ test("migrates legacy inline attachment persistence and drops legacy inline tran
     readFile(join(userDataDir, "ui-state.json"), "utf8"),
   ]);
 
+  const legacyAttachments: unknown = JSON.parse(attachmentRaw);
   const uiState = JSON.parse(uiStateRaw) as Record<string, unknown>;
   await unlink(attachmentPath);
   await writeFile(
@@ -693,7 +694,7 @@ test("migrates legacy inline attachment persistence and drops legacy inline tran
           ],
         },
         composerAttachmentsBySession: {
-          [rawSessionKey]: JSON.parse(attachmentRaw),
+          [rawSessionKey]: legacyAttachments,
         },
       },
       null,

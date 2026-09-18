@@ -83,7 +83,8 @@ test("new thread reuses drag-drop attachments and carries them into the transcri
         async () => {
           const transcript = await getSelectedTranscript(window);
           const userMessage = transcript?.transcript.find(
-            (entry) => entry.kind === "message" && "role" in entry && entry.role === "user",
+            (entry): entry is Extract<typeof entry, { kind: "message" }> =>
+              entry.kind === "message" && entry.role === "user",
           );
           return (
             userMessage?.attachments

@@ -29,7 +29,9 @@ export class NotificationPermissionService {
   private reconciliationPollTimer: ReturnType<typeof setTimeout> | undefined;
   private reconciliationPollCount = 0;
   private readonly handleAppReactivation = () => {
-    void this.reconcileOnActivation();
+    void this.reconcileOnActivation().catch((error: unknown) => {
+      console.error("[notification-permission] reconcileOnActivation failed", error);
+    });
   };
 
   constructor(private readonly getWindow: () => BrowserWindow | null) {
@@ -58,7 +60,9 @@ export class NotificationPermissionService {
     }
 
     const handleWindowActivation = () => {
-      void this.reconcileOnActivation();
+      void this.reconcileOnActivation().catch((error: unknown) => {
+        console.error("[notification-permission] reconcileOnActivation failed", error);
+      });
     };
     const clearTrackedWindow = () => {
       this.trackWindow(null);
@@ -145,12 +149,16 @@ export class NotificationPermissionService {
       }
 
       this.reconciliationPollTimer = setTimeout(() => {
-        void tick();
+        void tick().catch((error: unknown) => {
+          console.error("[notification-permission] tick failed", error);
+        });
       }, RECONCILIATION_POLL_INTERVAL_MS);
     };
 
     this.reconciliationPollTimer = setTimeout(() => {
-      void tick();
+      void tick().catch((error: unknown) => {
+        console.error("[notification-permission] tick failed", error);
+      });
     }, RECONCILIATION_POLL_INTERVAL_MS);
   }
 
@@ -215,7 +223,7 @@ async function requestNotificationPermissionInternal(
   }
 
   try {
-    const value = await window.webContents.executeJavaScript(
+    const value: unknown = await window.webContents.executeJavaScript(
       override
         ? `globalThis.Notification ? Promise.resolve(${JSON.stringify(override)}) : Promise.resolve("unsupported")`
         : `globalThis.Notification ? Notification.requestPermission() : Promise.resolve("unsupported")`,
@@ -290,7 +298,7 @@ async function readRendererNotificationPermission(
   }
 
   try {
-    const value = await window.webContents.executeJavaScript(
+    const value: unknown = await window.webContents.executeJavaScript(
       `globalThis.Notification?.permission ?? "unsupported"`,
       true,
     );

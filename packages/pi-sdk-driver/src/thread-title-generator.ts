@@ -84,7 +84,13 @@ export async function generateThreadTitle(
     if (!session.model) {
       return null;
     }
-    const auth = await session.modelRegistry.getApiKeyAndHeaders(session.model);
+    // The upstream session exposes Model<any>; validate its API discriminator
+    // before passing the model into the typed authentication boundary.
+    const api: unknown = session.model.api;
+    if (typeof api !== "string") {
+      return null;
+    }
+    const auth = await session.modelRegistry.getApiKeyAndHeaders({ ...session.model, api });
     if (!auth.ok || !auth.apiKey) {
       return null;
     }

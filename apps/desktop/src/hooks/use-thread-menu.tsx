@@ -15,7 +15,6 @@ interface UseThreadMenuParams {
   readonly api: PiDesktopApi;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly updateSnapshot: (
-    api: PiDesktopApi,
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
@@ -88,7 +87,9 @@ export function useThreadMenu({
   });
   const mutate = (action: () => Promise<DesktopAppState>) => {
     setMenuSessionId(null);
-    void updateSnapshot(api, setSnapshot, action);
+    void updateSnapshot(setSnapshot, action).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
   };
 
   return {
@@ -133,7 +134,9 @@ export function useThreadMenu({
     markRead: (thread) => mutate(() => api.markSessionRead(targetFor(thread))),
     copySessionId: (thread) => {
       setMenuSessionId(null);
-      void navigator.clipboard.writeText(thread.session.id);
+      void navigator.clipboard.writeText(thread.session.id).catch((error: unknown) => {
+        console.error("[renderer] navigator.clipboard.writeText failed", error);
+      });
     },
     runMenuAction: (event, action) => {
       event.preventDefault();

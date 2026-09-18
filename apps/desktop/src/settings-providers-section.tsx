@@ -217,7 +217,9 @@ function ProviderApiKeyDialog({
             }
             if (event.key === "Enter" && draft.trim()) {
               event.preventDefault();
-              void onSave();
+              void onSave().catch((error: unknown) => {
+                console.error("[renderer] onSave failed", error);
+              });
             }
           }}
         />
@@ -236,7 +238,11 @@ function ProviderApiKeyDialog({
               className="button button--secondary"
               disabled={pending}
               type="button"
-              onClick={() => void onRemove()}
+              onClick={() =>
+                void onRemove().catch((error: unknown) => {
+                  console.error("[renderer] onRemove failed", error);
+                })
+              }
             >
               Remove saved key
             </button>
@@ -245,7 +251,11 @@ function ProviderApiKeyDialog({
             className="button"
             disabled={pending || draft.trim().length === 0}
             type="button"
-            onClick={() => void onSave()}
+            onClick={() =>
+              void onSave().catch((error: unknown) => {
+                console.error("[renderer] onSave failed", error);
+              })
+            }
           >
             {provider.authSource === "auth_file" ? "Save key" : "Set API key"}
           </button>

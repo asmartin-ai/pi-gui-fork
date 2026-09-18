@@ -7,7 +7,6 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
-  type PiAppWindow,
   seedAgentDir,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
@@ -194,7 +193,7 @@ test("custom endpoints keep legacy managed entries separate from built-in overri
 
     const blockedState = await window.evaluate(
       async ({ workspaceId }) => {
-        const app = (window as PiAppWindow).piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }
@@ -210,7 +209,7 @@ test("custom endpoints keep legacy managed entries separate from built-in overri
 
     await window.evaluate(
       async ({ workspaceId }) => {
-        const app = (window as PiAppWindow).piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }

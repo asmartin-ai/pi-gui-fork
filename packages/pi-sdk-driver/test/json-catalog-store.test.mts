@@ -16,7 +16,7 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
   }
 }
 
-test("desktop and driver catalog owners preserve each other's records", async () => {
+await test("desktop and driver catalog owners preserve each other's records", async () => {
   await withTempDir(async (dir) => {
     const catalogFilePath = join(dir, "catalogs.json");
     const workspacePath = join(dir, "workspace");
@@ -57,7 +57,7 @@ test("desktop and driver catalog owners preserve each other's records", async ()
   });
 });
 
-test("same-path stores serialize concurrent workspace, session, and worktree mutations", async () => {
+await test("same-path stores serialize concurrent workspace, session, and worktree mutations", async () => {
   await withTempDir(async (dir) => {
     const catalogFilePath = join(dir, "catalogs.json");
     const workspaceWriter = new JsonCatalogStore({ catalogFilePath });
@@ -116,7 +116,7 @@ test("same-path stores serialize concurrent workspace, session, and worktree mut
   });
 });
 
-test("new stores reload an externally replaced catalog and preserve it on mutation", async () => {
+await test("new stores reload an externally replaced catalog and preserve it on mutation", async () => {
   await withTempDir(async (dir) => {
     const catalogFilePath = join(dir, "catalogs.json");
     const firstStore = new JsonCatalogStore({ catalogFilePath });
@@ -184,7 +184,7 @@ test("new stores reload an externally replaced catalog and preserve it on mutati
   });
 });
 
-test("an interrupted temp write leaves the last committed catalog readable", async () => {
+await test("an interrupted temp write leaves the last committed catalog readable", async () => {
   await withTempDir(async (dir) => {
     const catalogFilePath = join(dir, "catalogs.json");
     const catalog = new JsonCatalogStore({ catalogFilePath });

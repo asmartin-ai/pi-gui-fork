@@ -309,32 +309,22 @@ test("light theme presets apply coordinated workbench palettes", async () => {
   }
 });
 
-async function hasTransparencyClass(window: {
-  evaluate<R>(pageFunction: () => R): Promise<R>;
-}): Promise<boolean> {
+async function hasTransparencyClass(window: Page): Promise<boolean> {
   return window.evaluate(() => document.documentElement.classList.contains("enable-transparency"));
 }
 
-async function rootThemePreset(window: {
-  evaluate<R>(pageFunction: () => R): Promise<R>;
-}): Promise<string | undefined> {
+async function rootThemePreset(window: Page): Promise<string | undefined> {
   return window.evaluate(() => document.documentElement.dataset.themePreset);
 }
 
-async function rootCssVariable(
-  window: { evaluate<R>(pageFunction: () => R): Promise<R> },
-  name: string,
-): Promise<string> {
+async function rootCssVariable(window: Page, name: string): Promise<string> {
   return window.evaluate(
     (tokenName) => getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim(),
     name,
   );
 }
 
-async function rootInlineCssVariable(
-  window: { evaluate<R>(pageFunction: () => R): Promise<R> },
-  name: string,
-): Promise<string> {
+async function rootInlineCssVariable(window: Page, name: string): Promise<string> {
   return window.evaluate(
     (tokenName) => document.documentElement.style.getPropertyValue(tokenName).trim(),
     name,
@@ -342,7 +332,7 @@ async function rootInlineCssVariable(
 }
 
 async function rootInlineCssVariables(
-  window: { evaluate<R>(pageFunction: () => R): Promise<R> },
+  window: Page,
   names: readonly string[],
 ): Promise<readonly string[]> {
   return window.evaluate(
@@ -355,7 +345,7 @@ async function rootInlineCssVariables(
 }
 
 async function rootComputedCssVariables(
-  window: { evaluate<R>(pageFunction: () => R): Promise<R> },
+  window: Page,
   names: readonly string[],
 ): Promise<readonly string[]> {
   return window.evaluate(
@@ -367,10 +357,7 @@ async function rootComputedCssVariables(
   );
 }
 
-async function rootCssVariableAsColor(
-  window: { evaluate<R>(pageFunction: () => R): Promise<R> },
-  name: string,
-): Promise<string> {
+async function rootCssVariableAsColor(window: Page, name: string): Promise<string> {
   return window.evaluate((tokenName) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim();
     const probe = document.createElement("div");

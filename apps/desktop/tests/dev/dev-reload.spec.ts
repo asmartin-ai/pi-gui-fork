@@ -77,7 +77,7 @@ class DevDesktopHarness {
     const readMarker = async (page: Page) =>
       page.evaluate(async (markerName) => {
         if (markerName === "main") {
-          const pingValue = await window.piApp?.ping();
+          const pingValue = await globalThis.window.piApp?.ping();
           return pingValue?.split(":")[1] ?? null;
         }
         return (
@@ -212,8 +212,8 @@ async function startDesktopDev(): Promise<DevDesktopHarness> {
   });
 
   const harness = new DevDesktopHarness(child);
-  child.stdout.on("data", (chunk) => harness.appendLog(chunk.toString()));
-  child.stderr.on("data", (chunk) => harness.appendLog(chunk.toString()));
+  child.stdout.on("data", (chunk: Buffer) => harness.appendLog(chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => harness.appendLog(chunk.toString()));
   try {
     await waitForMarker(harness, probes.renderer.markerName, probes.renderer.before, 45_000);
     return harness;

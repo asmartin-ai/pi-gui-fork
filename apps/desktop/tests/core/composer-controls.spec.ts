@@ -135,7 +135,7 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     expect(selectedWorkspaceId).toBeTruthy();
     await window.evaluate(
       async ({ workspaceId }) => {
-        const app = window.piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }

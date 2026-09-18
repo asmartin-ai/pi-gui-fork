@@ -174,7 +174,9 @@ function TimelineToolCallItem({
 
   const handleCopy = () => {
     const text = diffText ?? formatToolContent(item.input, item.output);
-    void navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text).catch((error: unknown) => {
+      console.error("[renderer] navigator.clipboard.writeText failed", error);
+    });
   };
 
   return (

@@ -69,7 +69,9 @@ export function useSessionComposer(params: UseSessionComposerParams) {
 
     const hasComposerInput = composerDraft.trim().length > 0 || composerAttachments.length > 0;
     if (selectedSession.status === "running" && !hasComposerInput) {
-      void updateSnapshot(api, setSnapshot, () => api.cancelCurrentRun());
+      void updateSnapshot(setSnapshot, () => api.cancelCurrentRun()).catch((error: unknown) => {
+        console.error("[renderer] cancelCurrentRun failed", error);
+      });
       return;
     }
 
@@ -101,7 +103,7 @@ export function useSessionComposer(params: UseSessionComposerParams) {
     setComposerDraft("");
     setAttachmentsClearedOnSubmit(true);
     void (async () => {
-      const nextState = await updateSnapshot(api, setSnapshot, () =>
+      const nextState = await updateSnapshot(setSnapshot, () =>
         api.submitComposer(
           previousDraft,
           selectedSession.status === "running"
@@ -127,48 +129,70 @@ export function useSessionComposer(params: UseSessionComposerParams) {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.pickComposerAttachments());
+    void updateSnapshot(setSnapshot, () => api.pickComposerAttachments()).catch(
+      (error: unknown) => {
+        console.error("[renderer] pickComposerAttachments failed", error);
+      },
+    );
   };
 
   const handleRemoveAttachment = (attachmentId: string) => {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.removeComposerAttachment(attachmentId));
+    void updateSnapshot(setSnapshot, () => api.removeComposerAttachment(attachmentId)).catch(
+      (error: unknown) => {
+        console.error("[renderer] removeComposerAttachment failed", error);
+      },
+    );
   };
 
   const handleEditQueuedMessage = (messageId: string) => {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
-      api.editQueuedComposerMessage(messageId, composerDraft),
-    ).then(() => {
-      composerRef.current?.focus();
-    });
+    void updateSnapshot(setSnapshot, () => api.editQueuedComposerMessage(messageId, composerDraft))
+      .then(() => {
+        composerRef.current?.focus();
+      })
+      .catch((error: unknown) => {
+        console.error("[renderer] editQueuedComposerMessage failed", error);
+      });
   };
 
   const handleCancelQueuedEdit = () => {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.cancelQueuedComposerEdit()).then(() => {
-      composerRef.current?.focus();
-    });
+    void updateSnapshot(setSnapshot, () => api.cancelQueuedComposerEdit())
+      .then(() => {
+        composerRef.current?.focus();
+      })
+      .catch((error: unknown) => {
+        console.error("[renderer] cancelQueuedComposerEdit failed", error);
+      });
   };
 
   const handleRemoveQueuedMessage = (messageId: string) => {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.removeQueuedComposerMessage(messageId));
+    void updateSnapshot(setSnapshot, () => api.removeQueuedComposerMessage(messageId)).catch(
+      (error: unknown) => {
+        console.error("[renderer] removeQueuedComposerMessage failed", error);
+      },
+    );
   };
 
   const handleSteerQueuedMessage = (messageId: string) => {
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.steerQueuedComposerMessage(messageId));
+    void updateSnapshot(setSnapshot, () => api.steerQueuedComposerMessage(messageId)).catch(
+      (error: unknown) => {
+        console.error("[renderer] steerQueuedComposerMessage failed", error);
+      },
+    );
   };
 
   const handleImagePaste = (
@@ -203,18 +227,26 @@ export function useSessionComposer(params: UseSessionComposerParams) {
     if (valid.length === 0) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments(valid));
+    void updateSnapshot(setSnapshot, () => api.addComposerAttachments(valid)).catch(
+      (error: unknown) => {
+        console.error("[renderer] addComposerAttachments failed", error);
+      },
+    );
   }
 
   const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     handleImagePaste(event, (files) => {
-      void addAttachmentsToSessionComposer(files);
+      void addAttachmentsToSessionComposer(files).catch((error: unknown) => {
+        console.error("[renderer] addAttachmentsToSessionComposer failed", error);
+      });
     });
   };
 
   const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
     handleAttachmentDrop(event, (files) => {
-      void addAttachmentsToSessionComposer(files);
+      void addAttachmentsToSessionComposer(files).catch((error: unknown) => {
+        console.error("[renderer] addAttachmentsToSessionComposer failed", error);
+      });
     });
   };
 
@@ -224,7 +256,11 @@ export function useSessionComposer(params: UseSessionComposerParams) {
       if (!api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments([clipboardImage]));
+      void updateSnapshot(setSnapshot, () => api.addComposerAttachments([clipboardImage])).catch(
+        (error: unknown) => {
+          console.error("[renderer] addComposerAttachments failed", error);
+        },
+      );
       return;
     }
 
@@ -239,7 +275,11 @@ export function useSessionComposer(params: UseSessionComposerParams) {
         if (!api) {
           return;
         }
-        void updateSnapshot(api, setSnapshot, () => api.addComposerAttachments([clipboardImage]));
+        void updateSnapshot(setSnapshot, () => api.addComposerAttachments([clipboardImage])).catch(
+          (error: unknown) => {
+            console.error("[renderer] addComposerAttachments failed", error);
+          },
+        );
       })
     ) {
       return;

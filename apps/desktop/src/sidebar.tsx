@@ -56,7 +56,6 @@ interface SidebarProps {
   readonly api: PiDesktopApi;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly updateSnapshot: (
-    api: PiDesktopApi,
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
@@ -321,7 +320,11 @@ export function Sidebar(props: SidebarProps) {
               className="icon-button"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void updateSnapshot(setSnapshot, () => api.pickWorkspace()).catch(
+                  (error: unknown) => {
+                    console.error("[renderer] pickWorkspace failed", error);
+                  },
+                );
               }}
             >
               <FolderIcon />
@@ -337,7 +340,11 @@ export function Sidebar(props: SidebarProps) {
               className="button button--primary"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void updateSnapshot(setSnapshot, () => api.pickWorkspace()).catch(
+                  (error: unknown) => {
+                    console.error("[renderer] pickWorkspace failed", error);
+                  },
+                );
               }}
             >
               Open first folder
@@ -576,7 +583,9 @@ function WorkspaceGroupContent(
                 type="button"
                 onClick={(event) =>
                   wsMenu.runWorkspaceMenuAction(event, () => {
-                    void api.openWorkspaceInFinder(rootWorkspace.id);
+                    void api.openWorkspaceInFinder(rootWorkspace.id).catch((error: unknown) => {
+                      console.error("[renderer] openWorkspaceInFinder failed", error);
+                    });
                   })
                 }
               >

@@ -47,7 +47,7 @@ async function readSidebarLayout(window: Page): Promise<SidebarLayout | null> {
     const toggleRect = toggle.getBoundingClientRect();
     const topbarRect = topbar.getBoundingClientRect();
     return {
-      viewportWidth: window.innerWidth,
+      viewportWidth: globalThis.window.innerWidth,
       mainLeft: mainRect.left,
       mainRight: mainRect.right,
       mainWidth: mainRect.width,
@@ -87,8 +87,8 @@ async function setElectronWindowSize(
   await expect
     .poll(() =>
       window.evaluate(() => ({
-        height: window.innerHeight,
-        width: window.innerWidth,
+        height: globalThis.window.innerHeight,
+        width: globalThis.window.innerWidth,
       })),
     )
     .toEqual({ height, width });

@@ -129,11 +129,23 @@ export function getRealAuthConfig(): RealAuthConfig {
   };
 }
 
+function isWorkspacePaths(
+  options: readonly string[] | LaunchDesktopOptions,
+): options is readonly string[] {
+  return Array.isArray(options);
+}
+
+function normalizeLaunchOptions(
+  options: readonly string[] | LaunchDesktopOptions,
+): LaunchDesktopOptions {
+  return isWorkspacePaths(options) ? { initialWorkspaces: options } : options;
+}
+
 export async function launchDesktop(
   userDataDir: string,
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
-  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const normalized = normalizeLaunchOptions(options);
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   const electronApp = await electron.launch({
@@ -157,7 +169,7 @@ export async function spawnDesktopProcess(
   userDataDir: string,
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<ChildProcess> {
-  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const normalized = normalizeLaunchOptions(options);
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   return spawn(electronExecutablePath, [desktopDir], {
@@ -171,7 +183,7 @@ export async function launchPackagedDesktop(
   userDataDir: string,
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
-  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const normalized = normalizeLaunchOptions(options);
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   const releaseDir = resolvePackagedReleaseDir(process.env.PI_APP_TEST_RELEASE_DIR);
@@ -184,7 +196,7 @@ export async function launchDesktopByExecutable(
   userDataDir: string,
   options: readonly string[] | LaunchDesktopOptions = [],
 ): Promise<DesktopHarness> {
-  const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
+  const normalized = normalizeLaunchOptions(options);
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
   return launchDesktopExecutable(executablePath, env);
@@ -211,7 +223,7 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
     if (!page) {
       page = await electronApp.firstWindow();
       await page.waitForLoadState("domcontentloaded");
-      await page.waitForFunction(() => Boolean((window as PiAppWindow).piApp), undefined, {
+      await page.waitForFunction(() => Boolean(globalThis.window.piApp), undefined, {
         timeout: 15_000,
       });
     }
@@ -421,8 +433,10 @@ async function writeAgentEnabledModels(
 
 async function readJsonObject(filePath: string): Promise<Record<string, unknown>> {
   try {
-    const parsed = JSON.parse(await readFile(filePath, "utf8"));
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : {};
+    const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? Object.fromEntries(Object.entries(parsed))
+      : {};
   } catch (error) {
     if (isMissingPathError(error)) {
       return {};
@@ -1215,14 +1229,14 @@ export async function triggerApplicationMenuItem(
     if (!item?.click) {
       return false;
     }
-    item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as never);
+    Reflect.apply(item.click, item, [item, BrowserWindow.getFocusedWindow() ?? undefined, {}]);
     return true;
   }, menuItemId);
 }
 
 export async function getDesktopState(window: Page): Promise<DesktopAppState> {
   const state = await window.evaluate(() => {
-    const app = (window as PiAppWindow).piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -1240,7 +1254,7 @@ export async function getSelectedTranscript(
   window: Page,
 ): Promise<SelectedTranscriptRecord | null> {
   return window.evaluate(async () => {
-    const app = (window as PiAppWindow).piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -1385,8 +1399,8 @@ export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): 
           pane.scrollTop = Math.max(0, maxScrollTop - distance);
           pane.dispatchEvent(new Event("scroll", { bubbles: true }));
           await new Promise<void>((resolve) => {
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(resolve);
+            globalThis.window.requestAnimationFrame(() => {
+              globalThis.window.requestAnimationFrame(() => resolve());
             });
           });
           return pane.scrollHeight - pane.scrollTop - pane.clientHeight;
@@ -1782,7 +1796,7 @@ export async function waitForWorkspaceByPath(
 
 export async function addWorkspaceViaIpc(window: Page, workspacePath: string): Promise<void> {
   await window.evaluate(async (pathValue) => {
-    const app = (window as PiAppWindow).piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -1894,7 +1908,7 @@ export async function startThreadViaIpc(
 
   const rootWorkspaceId = await window.evaluate(
     async ({ requestedWorkspaceName }) => {
-      const app = (window as PiAppWindow).piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
@@ -1924,7 +1938,7 @@ export async function startThreadViaIpc(
       nextModelId,
       nextThinkingLevel,
     }) => {
-      const app = (window as PiAppWindow).piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
@@ -1969,7 +1983,7 @@ export async function createNamedThread(
 
   const targetWorkspaceId = await window.evaluate(
     ({ requestedWorkspaceName }) => {
-      const app = (window as PiAppWindow).piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
@@ -2009,7 +2023,7 @@ export async function createSessionViaIpc(
 ): Promise<void> {
   await window.evaluate(
     async ({ workspaceTarget, targetTitle }) => {
-      const app = (window as PiAppWindow).piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
@@ -2024,7 +2038,7 @@ export async function createSessionViaIpc(
           await app.createSession({ workspaceId: workspace.id, title: targetTitle });
           return;
         }
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
+        await new Promise((resolve) => globalThis.window.setTimeout(resolve, 100));
       }
 
       throw new Error(`Workspace not found: ${workspaceTarget}`);

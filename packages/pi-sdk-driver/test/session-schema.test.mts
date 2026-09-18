@@ -32,7 +32,7 @@ function headerLine(version: number | undefined): string {
   return `${JSON.stringify(header)}\n`;
 }
 
-test("buildSessionSchemaInfo flags only strictly-newer file versions", () => {
+await test("buildSessionSchemaInfo flags only strictly-newer file versions", () => {
   assert.equal(buildSessionSchemaInfo(RUNTIME_SCHEMA_VERSION).writtenByNewerRuntime, false);
   assert.equal(buildSessionSchemaInfo(RUNTIME_SCHEMA_VERSION + 1).writtenByNewerRuntime, true);
   assert.equal(buildSessionSchemaInfo(1).writtenByNewerRuntime, false);
@@ -43,7 +43,7 @@ test("buildSessionSchemaInfo flags only strictly-newer file versions", () => {
   assert.equal(info.runtimeSchemaVersion, RUNTIME_SCHEMA_VERSION);
 });
 
-test("schemaVersionFromHeaderLine parses version, defaults missing to 1, rejects non-headers", () => {
+await test("schemaVersionFromHeaderLine parses version, defaults missing to 1, rejects non-headers", () => {
   assert.equal(
     schemaVersionFromHeaderLine(JSON.stringify({ type: "session", id: "a", version: 4 })),
     4,
@@ -56,7 +56,7 @@ test("schemaVersionFromHeaderLine parses version, defaults missing to 1, rejects
   assert.equal(schemaVersionFromHeaderLine("{ not json"), undefined);
 });
 
-test("current-version file is not flagged as written by a newer runtime", async () => {
+await test("current-version file is not flagged as written by a newer runtime", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
     await writeFile(
@@ -69,7 +69,7 @@ test("current-version file is not flagged as written by a newer runtime", async 
   });
 });
 
-test("a file written by a newer pi is flagged", async () => {
+await test("a file written by a newer pi is flagged", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
     await writeFile(
@@ -82,7 +82,7 @@ test("a file written by a newer pi is flagged", async () => {
   });
 });
 
-test("the detected version survives external appends (disk-tail re-read)", async () => {
+await test("the detected version survives external appends (disk-tail re-read)", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
     await writeFile(
@@ -98,7 +98,7 @@ test("the detected version survives external appends (disk-tail re-read)", async
   });
 });
 
-test("unreadable / headerless files yield undefined (skew assumed absent)", async () => {
+await test("unreadable / headerless files yield undefined (skew assumed absent)", async () => {
   await withTempDir(async (dir) => {
     assert.equal(await readSessionFileSchemaVersion(join(dir, "missing.jsonl")), undefined);
 

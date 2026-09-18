@@ -101,7 +101,6 @@ test("records a fork-from-message walkthrough", async () => {
   if (recordedPath) {
     const finalPath = join(videoDir, "fork-from-message-demo.webm");
     await copyFile(recordedPath, finalPath);
-    // eslint-disable-next-line no-console
     console.log(`\nFORK_DEMO_VIDEO=${finalPath}\n`);
   }
 });

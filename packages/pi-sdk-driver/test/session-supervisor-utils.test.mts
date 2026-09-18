@@ -9,7 +9,7 @@ const markdownParts = [
 ];
 const markdownReport = markdownParts.join("\n\n");
 
-test("messageText preserves Markdown newlines in array-shaped assistant content", () => {
+await test("messageText preserves Markdown newlines in array-shaped assistant content", () => {
   const message = {
     role: "assistant",
     content: [

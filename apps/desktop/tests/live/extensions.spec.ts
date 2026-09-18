@@ -263,7 +263,7 @@ test("shows extensions above files in @ mentions and enables disabled extensions
 
     await window.evaluate(
       async ({ targetWorkspacePath, targetExtensionPath }) => {
-        const app = (window as any).piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }

@@ -73,7 +73,6 @@ interface UseSlashMenuParams {
   readonly focusComposer: () => void;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
   readonly updateSnapshot: (
-    api: PiDesktopApi,
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
@@ -303,11 +302,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
         }
         resetSlashUi();
         setComposerDraft(command.command);
-        void updateSnapshot(api, setSnapshot, () => api.submitComposer(command.command)).then(
-          (state) => {
+        void updateSnapshot(setSnapshot, () => api.submitComposer(command.command))
+          .then((state) => {
             setComposerDraft(state.composerDraft);
-          },
-        );
+          })
+          .catch((error: unknown) => {
+            console.error("[renderer] submitComposer failed", error);
+          });
         return;
       }
 
@@ -350,11 +351,15 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !selectedSession || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
+      void updateSnapshot(setSnapshot, () =>
         api.setSessionModel(selectedWorkspace.id, selectedSession.id, providerId, option.value),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      )
+        .then((state) => {
+          setComposerDraft(state.composerDraft);
+        })
+        .catch((error: unknown) => {
+          console.error("[renderer] updateSnapshot failed", error);
+        });
       return;
     }
 
@@ -368,15 +373,19 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !selectedSession || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
+      void updateSnapshot(setSnapshot, () =>
         api.setSessionThinkingLevel(
           selectedWorkspace.id,
           selectedSession.id,
           option.value as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>,
         ),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      )
+        .then((state) => {
+          setComposerDraft(state.composerDraft);
+        })
+        .catch((error: unknown) => {
+          console.error("[renderer] updateSnapshot failed", error);
+        });
       return;
     }
 
@@ -390,11 +399,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
-        api.loginProvider(selectedWorkspace.id, option.value),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      void updateSnapshot(setSnapshot, () => api.loginProvider(selectedWorkspace.id, option.value))
+        .then((state) => {
+          setComposerDraft(state.composerDraft);
+        })
+        .catch((error: unknown) => {
+          console.error("[renderer] loginProvider failed", error);
+        });
       return;
     }
 
@@ -408,11 +419,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
-        api.logoutProvider(selectedWorkspace.id, option.value),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      void updateSnapshot(setSnapshot, () => api.logoutProvider(selectedWorkspace.id, option.value))
+        .then((state) => {
+          setComposerDraft(state.composerDraft);
+        })
+        .catch((error: unknown) => {
+          console.error("[renderer] logoutProvider failed", error);
+        });
       return;
     }
 

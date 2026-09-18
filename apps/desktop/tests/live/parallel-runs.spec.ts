@@ -196,8 +196,6 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
           case "activity":
           case "summary":
             return `${item.kind}:${item.label}`;
-          default:
-            return item.kind;
         }
       });
 

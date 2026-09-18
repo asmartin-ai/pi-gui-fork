@@ -141,6 +141,7 @@ if (notificationHelperPath && !existsSync(notificationHelperPath)) {
 }
 
 const extractedDir = mkdtempSync(path.join(tmpdir(), "pi-gui-packaged-runtime-"));
+let cleanupError;
 try {
   execFileSync(pnpmBinary, ["exec", "asar", "extract", asarPath, extractedDir], {
     cwd: desktopDir,
@@ -164,10 +165,13 @@ try {
     if (process.platform === "win32") {
       console.warn(`Warning: could not remove temp dir ${extractedDir}: ${error.message}`);
     } else {
-      throw error;
+      cleanupError = error;
     }
   }
 }
+
+// Preserve a verification failure if cleanup also failed.
+if (cleanupError) throw cleanupError;
 
 console.log(`Verified packaged runtime dependencies in ${asarPath}`);
 

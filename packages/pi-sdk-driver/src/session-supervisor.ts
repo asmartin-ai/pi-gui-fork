@@ -283,12 +283,12 @@ export class SessionSupervisor {
     ).filter((session): session is NonNullable<typeof session> => Boolean(session));
     const preservedKeys = new Set(preservedEntries.map((entry) => sessionKey(entry.sessionRef)));
     const mergedEntries = [...nextEntries, ...preservedEntries];
-    const nextSessionFiles = Object.fromEntries([
-      ...nextEntries.map((entry, index) => [
+    const nextSessionFiles = Object.fromEntries<string>([
+      ...nextEntries.map((entry, index): [string, string] => [
         sessionKey(entry.sessionRef),
         infos[index]?.path ?? "",
       ]),
-      ...preservedEntries.map((entry) => [
+      ...preservedEntries.map((entry): [string, string] => [
         sessionKey(entry.sessionRef),
         entry.sessionFilePath ?? "",
       ]),
@@ -1290,7 +1290,7 @@ export class SessionSupervisor {
     record.sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
     record.unsubscribeAgent?.();
     record.unsubscribeAgent = session.subscribe((event) => {
-      void this.handleAgentEvent(record, event);
+      this.handleAgentEvent(record, event);
     });
     record.bindingExtensions = true;
     try {
@@ -1307,7 +1307,7 @@ export class SessionSupervisor {
             });
             return;
           }
-          void this.emitExtensionError(record, error.extensionPath, error.event, error.error);
+          this.emitExtensionError(record, error.extensionPath, error.event, error.error);
         },
       });
     } finally {
@@ -1683,12 +1683,12 @@ export class SessionSupervisor {
     );
   }
 
-  private async emitExtensionError(
+  private emitExtensionError(
     record: ManagedSessionRecord,
     extensionPath: string,
     eventName: string,
     error: string,
-  ): Promise<void> {
+  ): void {
     this.emitHostUiRequest(record, {
       kind: "notify",
       requestId: crypto.randomUUID(),
@@ -1884,10 +1884,7 @@ export class SessionSupervisor {
     );
   }
 
-  private async handleAgentEvent(
-    record: ManagedSessionRecord,
-    event: AgentSessionEvent,
-  ): Promise<void> {
+  private handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
     const mapped = this.mapAgentEvent(record, event);
     if (mapped.length === 0) {
       return;
@@ -2554,7 +2551,7 @@ function previewForTreeMessage(
   if (Array.isArray(content)) {
     const preview = truncate(
       content
-        .flatMap((part) =>
+        .flatMap((part: unknown) =>
           typeof part === "object" &&
           part !== null &&
           "type" in part &&
@@ -2652,7 +2649,7 @@ function previewForTreeContent(content: unknown): string | undefined {
   return (
     truncate(
       content
-        .flatMap((part) =>
+        .flatMap((part: unknown) =>
           typeof part === "object" &&
           part !== null &&
           "type" in part &&

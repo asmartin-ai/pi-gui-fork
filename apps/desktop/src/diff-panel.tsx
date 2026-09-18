@@ -212,6 +212,9 @@ export function DiffPanel({
           if (refreshRequestNonceRef.current === requestNonce) {
             setLoading(false);
           }
+        })
+        .catch((error: unknown) => {
+          console.error("[renderer] Promise.all failed", error);
         });
     },
     [api, contextIdsKey, sessionId, workspaceId],
@@ -329,7 +332,12 @@ export function DiffPanel({
   }, [selectedFile, changedRows]);
 
   const handleStage = (file: WorkbenchChangedFile) => {
-    void api.stageFile(file.workspaceId, file.path, file.stagingSourcePath).then(() => refresh());
+    void api
+      .stageFile(file.workspaceId, file.path, file.stagingSourcePath)
+      .then(() => refresh())
+      .catch((error: unknown) => {
+        setViewerError(error instanceof Error ? error.message : String(error));
+      });
   };
 
   const toggleReviewed = useCallback(

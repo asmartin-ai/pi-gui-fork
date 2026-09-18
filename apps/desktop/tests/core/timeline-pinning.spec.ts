@@ -124,10 +124,10 @@ async function sampleTimelineCollapseWindow(
           resolve();
           return;
         }
-        window.requestAnimationFrame(captureFrame);
+        globalThis.window.requestAnimationFrame(captureFrame);
       };
 
-      window.requestAnimationFrame(captureFrame);
+      globalThis.window.requestAnimationFrame(captureFrame);
     });
 
     return samples.reduce(
@@ -212,7 +212,7 @@ async function expectNoTimelineCollapseWindow(
 
 async function setDesktopActiveView(window: Page, view: "threads" | "settings"): Promise<void> {
   await window.evaluate(async (nextView) => {
-    const app = window.piApp;
+    const app = globalThis.window.piApp;
     if (!app) {
       throw new Error("piApp IPC bridge is unavailable");
     }
@@ -232,7 +232,7 @@ async function createTimelineSession(
 
   await window.evaluate(
     async ({ targetTitle, targetWorkspaceId }) => {
-      const app = window.piApp;
+      const app = globalThis.window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }

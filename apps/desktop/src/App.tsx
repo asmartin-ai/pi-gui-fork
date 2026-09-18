@@ -89,10 +89,15 @@ export default function App() {
     const piApi = window.piApp;
     if (!piApi) return;
 
-    void piApi.getResolvedTheme().then((theme) => {
-      setResolvedTheme(theme);
-      document.documentElement.classList.toggle("dark", theme === "dark");
-    });
+    void piApi
+      .getResolvedTheme()
+      .then((theme) => {
+        setResolvedTheme(theme);
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      })
+      .catch((error: unknown) => {
+        console.error("[renderer] getResolvedTheme failed", error);
+      });
 
     const unsub = piApi.onThemeChanged((theme) => {
       setResolvedTheme(theme);
@@ -335,7 +340,11 @@ export default function App() {
     if (section) {
       setSettingsSection(section);
     }
-    void updateSnapshot(api, setSnapshot, () => api.setActiveView("settings"));
+    void updateSnapshot(setSnapshot, () => api.setActiveView("settings")).catch(
+      (error: unknown) => {
+        console.error("[renderer] setActiveView failed", error);
+      },
+    );
   };
 
   const {
@@ -386,7 +395,7 @@ export default function App() {
       if (!api || !selectedWorkspace) {
         return Promise.resolve();
       }
-      return updateSnapshot(api, setSnapshot, () =>
+      return updateSnapshot(setSnapshot, () =>
         api.setExtensionEnabled(selectedWorkspace.id, filePath, true),
       ).then(() => undefined);
     },
@@ -507,9 +516,11 @@ export default function App() {
     if (!sidebarApi || !canTogglePrimarySidebar(sidebarState.activeView)) {
       return false;
     }
-    void updateSnapshot(sidebarApi, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       sidebarApi.setSidebarCollapsed(!sidebarState.sidebarCollapsed),
-    );
+    ).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
     return true;
   }, []);
   const sidebarToggleShortcutLabel = api ? getDesktopShortcutLabel(api.platform, "B") : "";
@@ -682,7 +693,9 @@ export default function App() {
     ) : null;
 
   const setActiveView = (view: AppView) => {
-    void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
+    void updateSnapshot(setSnapshot, () => api.setActiveView(view)).catch((error: unknown) => {
+      console.error("[renderer] setActiveView failed", error);
+    });
   };
 
   const openSkills = (workspaceId?: string) => {
@@ -711,31 +724,39 @@ export default function App() {
     if (!selectedWorkspace || !selectedSession) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       api.setSessionModel(selectedWorkspace.id, selectedSession.id, provider, modelId),
-    );
+    ).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
   };
 
   const handleSetSessionThinking = (level: string) => {
     if (!selectedWorkspace || !selectedSession) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       api.setSessionThinkingLevel(
         selectedWorkspace.id,
         selectedSession.id,
         level as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>,
       ),
-    );
+    ).catch((error: unknown) => {
+      console.error("[renderer] updateSnapshot failed", error);
+    });
   };
 
   const handleTrySkill = (command: string) => {
-    void updateSnapshot(api, setSnapshot, () => api.setActiveView("threads"));
+    void updateSnapshot(setSnapshot, () => api.setActiveView("threads")).catch((error: unknown) => {
+      console.error("[renderer] setActiveView failed", error);
+    });
     slashMenu.fillComposerFromSlash(command);
   };
 
   const handleArchiveSession = (target: { workspaceId: string; sessionId: string }) => {
-    void updateSnapshot(api, setSnapshot, () => api.archiveSession(target));
+    void updateSnapshot(setSnapshot, () => api.archiveSession(target)).catch((error: unknown) => {
+      console.error("[renderer] archiveSession failed", error);
+    });
   };
 
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
@@ -745,9 +766,13 @@ export default function App() {
     saveCurrentTimelineScrollState();
     setOpenTerminalSessionKey("");
     setTakeoverTerminalSessionKey("");
-    void updateSnapshot(api, setSnapshot, () => api.selectSession(target)).then(() => {
-      focusComposer();
-    });
+    void updateSnapshot(setSnapshot, () => api.selectSession(target))
+      .then(() => {
+        focusComposer();
+      })
+      .catch((error: unknown) => {
+        console.error("[renderer] selectSession failed", error);
+      });
   };
 
   const handleRespondToExtensionDialog = (
@@ -760,11 +785,15 @@ export default function App() {
       return;
     }
 
-    void updateSnapshot(api, setSnapshot, () =>
+    void updateSnapshot(setSnapshot, () =>
       api.respondToHostUiRequest(selectedWorkspace.id, selectedSession.id, response),
-    ).then(() => {
-      focusComposer();
-    });
+    )
+      .then(() => {
+        focusComposer();
+      })
+      .catch((error: unknown) => {
+        console.error("[renderer] updateSnapshot failed", error);
+      });
   };
 
   const handleToggleExtensionDock = () => {
@@ -779,14 +808,20 @@ export default function App() {
   };
 
   const handleUnarchiveSession = (target: { workspaceId: string; sessionId: string }) => {
-    void updateSnapshot(api, setSnapshot, () => api.unarchiveSession(target));
+    void updateSnapshot(setSnapshot, () => api.unarchiveSession(target)).catch((error: unknown) => {
+      console.error("[renderer] unarchiveSession failed", error);
+    });
   };
 
   const handleSetSessionPinned = (
     target: { workspaceId: string; sessionId: string },
     pinned: boolean,
   ) => {
-    void updateSnapshot(api, setSnapshot, () => api.setSessionPinned(target, pinned));
+    void updateSnapshot(setSnapshot, () => api.setSessionPinned(target, pinned)).catch(
+      (error: unknown) => {
+        console.error("[renderer] setSessionPinned failed", error);
+      },
+    );
   };
 
   if (secondarySurfaceView) {

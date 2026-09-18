@@ -39,7 +39,9 @@ export function showUpdateNotification(
     body: `Version ${latestVersion} is available (you have ${currentVersion}). Click to view the release.`,
   });
   notification.on("click", () => {
-    void openReleasesPage(releaseUrl);
+    void openReleasesPage(releaseUrl).catch((error: unknown) => {
+      console.error("[update-checker] openReleasesPage failed", error);
+    });
   });
   notification.show();
 }
@@ -129,8 +131,20 @@ export function initUpdateChecker(): () => void {
     }
   };
 
-  const timeout = setTimeout(() => void runAutoCheck(), INITIAL_DELAY_MS);
-  const interval = setInterval(() => void runAutoCheck(), CHECK_INTERVAL_MS);
+  const timeout = setTimeout(
+    () =>
+      void runAutoCheck().catch((error: unknown) => {
+        console.error("[update-checker] runAutoCheck failed", error);
+      }),
+    INITIAL_DELAY_MS,
+  );
+  const interval = setInterval(
+    () =>
+      void runAutoCheck().catch((error: unknown) => {
+        console.error("[update-checker] runAutoCheck failed", error);
+      }),
+    CHECK_INTERVAL_MS,
+  );
 
   return () => {
     clearTimeout(timeout);

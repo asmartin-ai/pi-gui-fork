@@ -118,7 +118,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async refreshRuntime(workspace: WorkspaceRef): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     this.authStorage.reload();
     this.modelRegistry.refresh();
     await context.resourceLoader.reload();
@@ -231,7 +231,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("defaultModel");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -262,7 +262,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("defaultThinkingLevel");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -298,7 +298,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("enabledModels");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -860,7 +860,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {
   try {
     const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};
@@ -998,17 +998,26 @@ type PiOAuthLoginCallbacks = Parameters<AuthStorage["login"]>[1];
 
 function toPiOAuthLoginCallbacks(callbacks: RuntimeLoginCallbacks): PiOAuthLoginCallbacks {
   return {
-    onAuth: callbacks.onAuth,
-    onDeviceCode: (info) =>
-      callbacks.onAuth({
-        url: info.verificationUri,
-        instructions: [
-          `Enter code: ${info.userCode}`,
-          info.expiresInSeconds ? `Expires in ${info.expiresInSeconds} seconds.` : undefined,
-        ]
-          .filter((line): line is string => Boolean(line))
-          .join("\n"),
-      }),
+    onAuth: (info) => {
+      Promise.resolve(callbacks.onAuth(info)).catch((error: unknown) => {
+        console.error("OAuth authorization callback failed", error);
+      });
+    },
+    onDeviceCode: (info) => {
+      Promise.resolve(
+        callbacks.onAuth({
+          url: info.verificationUri,
+          instructions: [
+            `Enter code: ${info.userCode}`,
+            info.expiresInSeconds ? `Expires in ${info.expiresInSeconds} seconds.` : undefined,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n"),
+        }),
+      ).catch((error: unknown) => {
+        console.error("OAuth device-code callback failed", error);
+      });
+    },
     onPrompt: callbacks.onPrompt,
     onSelect: async (prompt) => {
       const defaultOption = prompt.options[0];
@@ -1033,7 +1042,15 @@ function toPiOAuthLoginCallbacks(callbacks: RuntimeLoginCallbacks): PiOAuthLogin
         (option) => option.id === normalizedChoice || option.label === normalizedChoice,
       )?.id;
     },
-    ...(callbacks.onProgress ? { onProgress: callbacks.onProgress } : {}),
+    ...(callbacks.onProgress
+      ? {
+          onProgress: (message: string) => {
+            Promise.resolve(callbacks.onProgress?.(message)).catch((error: unknown) => {
+              console.error("OAuth progress callback failed", error);
+            });
+          },
+        }
+      : {}),
     ...(callbacks.onManualCodeInput ? { onManualCodeInput: callbacks.onManualCodeInput } : {}),
     ...(callbacks.signal ? { signal: callbacks.signal } : {}),
   };

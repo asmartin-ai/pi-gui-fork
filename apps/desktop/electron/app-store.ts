@@ -366,7 +366,9 @@ export class DesktopAppStore implements AppStoreInternals {
     this.orchestrationSupervisionTimer = setTimeout(() => {
       this.orchestrationSupervisionTimer = undefined;
       this.scheduledOrchestrationSupervisionRunAt = undefined;
-      void this.runOrchestrationSupervisionTick();
+      void this.runOrchestrationSupervisionTick().catch((error: unknown) => {
+        console.error("[app-store] runOrchestrationSupervisionTick failed", error);
+      });
     }, delayMs);
     this.orchestrationSupervisionTimer.unref?.();
   }
@@ -1301,7 +1303,9 @@ export class DesktopAppStore implements AppStoreInternals {
       });
       // Startup GC of leaked pi/* worktrees and branches; self-contained and
       // error-swallowing, so fire-and-forget without blocking initialization.
-      void worktree.reconcileWorktrees(this);
+      void worktree.reconcileWorktrees(this).catch((error: unknown) => {
+        console.error("[app-store] reconcileWorktrees failed", error);
+      });
       const restoredSessionRef = this.selectedSessionRef();
       if (restoredSessionRef && persisted.selectedWorkspaceId && persisted.selectedSessionId) {
         this.restoredSelectedSessionKeysAwaitingSelection.add(sessionKey(restoredSessionRef));
@@ -1747,11 +1751,15 @@ export class DesktopAppStore implements AppStoreInternals {
       console.error(`[app-store] workspace reconcile failed for ${workspaceId}`, error);
     });
     this.externalChangeQueues.set(workspaceId, next);
-    void next.finally(() => {
-      if (this.externalChangeQueues.get(workspaceId) === next) {
-        this.externalChangeQueues.delete(workspaceId);
-      }
-    });
+    void next
+      .finally(() => {
+        if (this.externalChangeQueues.get(workspaceId) === next) {
+          this.externalChangeQueues.delete(workspaceId);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("[app-store] workspace reconcile cleanup failed", error);
+      });
   }
 
   private async reconcileWorkspaceFromDisk(workspaceId: string): Promise<void> {
@@ -1976,11 +1984,15 @@ export class DesktopAppStore implements AppStoreInternals {
         console.error(`[app-store] session event queue error for ${subscriptionKey}`, error);
       });
     this.sessionEventQueues.set(subscriptionKey, next);
-    void next.finally(() => {
-      if (this.sessionEventQueues.get(subscriptionKey) === next) {
-        this.sessionEventQueues.delete(subscriptionKey);
-      }
-    });
+    void next
+      .finally(() => {
+        if (this.sessionEventQueues.get(subscriptionKey) === next) {
+          this.sessionEventQueues.delete(subscriptionKey);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("[app-store] session event queue cleanup failed", error);
+      });
   }
 
   private migrateSessionSubscriptionKey(sourceKey: string, targetKey: string): void {
@@ -2133,7 +2145,9 @@ export class DesktopAppStore implements AppStoreInternals {
           this.emit();
         }
       }
-    })();
+    })().catch((error: unknown) => {
+      console.error("[app-store] session command refresh publication failed", error);
+    });
   }
 
   getLearnedRuntimeCommandCompatibility(
@@ -2978,7 +2992,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.persistUiStateTimer = setTimeout(() => {
       this.persistUiStateTimer = undefined;
-      void this.persistUiState();
+      void this.persistUiState().catch((error: unknown) => {
+        console.error("[app-store] persistUiState failed", error);
+      });
     }, 250);
   }
 
@@ -3216,7 +3232,11 @@ export class DesktopAppStore implements AppStoreInternals {
     const selectionEpoch = ++this.selectionEpoch;
     void this.hydrateSelectedSessionAfterSelection(sessionRef, selectionEpoch, options).catch(
       (error: unknown) => {
-        void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
+        void this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error).catch(
+          (error: unknown) => {
+            console.error("[app-store] handleSelectedSessionHydrationError failed", error);
+          },
+        );
       },
     );
   }
@@ -3693,7 +3713,7 @@ async function readProjectModelSettingsFile(
 ): Promise<Record<string, unknown>> {
   try {
     const raw = await readFile(join(workspacePath, ".pi", "settings.json"), "utf8");
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};

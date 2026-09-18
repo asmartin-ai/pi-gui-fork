@@ -49,12 +49,18 @@ export class NotificationManager {
           sessionId: state.selectedSessionId,
         });
       }
-      void this.reevaluateOnboardingState();
+      void this.reevaluateOnboardingState().catch((error: unknown) => {
+        console.error("[notification-manager] reevaluateOnboardingState failed", error);
+      });
     });
     const stopEvents = this.store.subscribeToSessionEvents((event, state) => {
       this.latestState = state;
-      void this.reevaluateOnboardingState();
-      void this.handleEvent(event);
+      void this.reevaluateOnboardingState().catch((error: unknown) => {
+        console.error("[notification-manager] reevaluateOnboardingState failed", error);
+      });
+      void this.handleEvent(event).catch((error: unknown) => {
+        console.error("[notification-manager] handleEvent failed", error);
+      });
     });
     return () => {
       stopState();
@@ -85,7 +91,9 @@ export class NotificationManager {
     }
 
     const reevaluateVisibility = () => {
-      void this.reevaluateOnboardingState(false);
+      void this.reevaluateOnboardingState(false).catch((error: unknown) => {
+        console.error("[notification-manager] reevaluateOnboardingState failed", error);
+      });
     };
     const clearTrackedWindow = () => {
       this.trackWindow(null);
@@ -289,7 +297,9 @@ export class NotificationManager {
       silent: false,
     });
     notification.on("click", () => {
-      void this.openSession(sessionRef);
+      void this.openSession(sessionRef).catch((error: unknown) => {
+        console.error("[notification-manager] openSession failed", error);
+      });
     });
     notification.on("close", () => {
       this.activeBySession.delete(sessionKey(sessionRef));

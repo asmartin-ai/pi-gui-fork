@@ -72,7 +72,8 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
         async () => {
           const transcript = await getSelectedTranscript(window);
           const userMessage = transcript?.transcript.find(
-            (entry) => entry.kind === "message" && "role" in entry && entry.role === "user",
+            (entry): entry is Extract<typeof entry, { kind: "message" }> =>
+              entry.kind === "message" && entry.role === "user",
           );
           return userMessage?.attachments?.map((attachment) => attachment.kind).join(",") ?? "";
         },
@@ -163,7 +164,7 @@ test("new thread routes disabled-model recovery to settings models", async () =>
 
     await window.evaluate(
       async ({ workspaceId }) => {
-        const app = window.piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }
@@ -234,7 +235,7 @@ test("refreshing after a provider becomes available auto-enables that provider's
     expect(selectedWorkspaceId).toBeTruthy();
     await window.evaluate(
       async ({ workspaceId }) => {
-        const app = window.piApp;
+        const app = globalThis.window.piApp;
         if (!app) {
           throw new Error("piApp IPC bridge is unavailable");
         }

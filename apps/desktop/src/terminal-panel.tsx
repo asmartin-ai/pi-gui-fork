@@ -70,7 +70,9 @@ export function TerminalPanel({
   useEffect(() => {
     setPanel(null);
     setError("");
-    void requestPanel();
+    void requestPanel().catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : String(error));
+    });
   }, [requestPanel]);
 
   const createTerminal = useCallback(async () => {
@@ -130,7 +132,9 @@ export function TerminalPanel({
       return;
     }
     lastSizeRef.current = nextSize;
-    void api.resizeTerminal(terminalId, nextSize);
+    void api.resizeTerminal(terminalId, nextSize).catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : String(error));
+    });
   }, [api]);
 
   useEffect(() => {
@@ -139,20 +143,26 @@ export function TerminalPanel({
       return undefined;
     }
     const markFocused = () => {
-      void api.setTerminalFocused(true);
+      void api.setTerminalFocused(true).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
     };
     const markBlurred = (event: FocusEvent) => {
       if (event.relatedTarget instanceof Node && panelElement.contains(event.relatedTarget)) {
         return;
       }
-      void api.setTerminalFocused(false);
+      void api.setTerminalFocused(false).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
     };
     panelElement.addEventListener("focusin", markFocused);
     panelElement.addEventListener("focusout", markBlurred);
     return () => {
       panelElement.removeEventListener("focusin", markFocused);
       panelElement.removeEventListener("focusout", markBlurred);
-      void api.setTerminalFocused(false);
+      void api.setTerminalFocused(false).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
     };
   }, [api]);
 
@@ -221,7 +231,9 @@ export function TerminalPanel({
     const fitAddon = new FitAddon();
     const clipboardAddon = new ClipboardAddon();
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
-      void api.openExternal(uri);
+      void api.openExternal(uri).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
     });
 
     terminal.loadAddon(fitAddon);
@@ -234,23 +246,31 @@ export function TerminalPanel({
       const commandModifier = api.platform === "darwin" ? event.metaKey : event.ctrlKey;
       const key = event.key.toLowerCase();
       if (commandModifier && !event.shiftKey && key === "t") {
-        void createTerminal();
+        void createTerminal().catch((error: unknown) => {
+          setError(error instanceof Error ? error.message : String(error));
+        });
         return false;
       }
       if (api.platform === "darwin" && event.metaKey) {
         const sequence = macTerminalSequenceForEvent(event);
         if (sequence) {
-          void api.writeTerminal(activeSession.id, sequence);
+          void api.writeTerminal(activeSession.id, sequence).catch((error: unknown) => {
+            setError(error instanceof Error ? error.message : String(error));
+          });
           return false;
         }
       }
       return true;
     });
     terminal.onData((data) => {
-      void api.writeTerminal(activeSession.id, data);
+      void api.writeTerminal(activeSession.id, data).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
     });
     terminal.onTitleChange((title) => {
-      void api.setTerminalTitle(activeSession.id, title);
+      void api.setTerminalTitle(activeSession.id, title).catch((error: unknown) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
       setPanel((currentPanel) =>
         updateSession(currentPanel, activeSession.id, (session) => ({
           ...session,
@@ -332,7 +352,11 @@ export function TerminalPanel({
                 role="tab"
                 aria-selected={session.id === panel?.activeSessionId}
                 data-testid="terminal-tab"
-                onClick={() => void setActiveTerminal(session.id)}
+                onClick={() =>
+                  void setActiveTerminal(session.id).catch((error: unknown) => {
+                    setError(error instanceof Error ? error.message : String(error));
+                  })
+                }
               >
                 <span
                   className={`terminal-panel__status terminal-panel__status--${session.status}`}
@@ -345,7 +369,9 @@ export function TerminalPanel({
                 aria-label={`Close ${session.title}`}
                 onClick={(event) => {
                   event.stopPropagation();
-                  void closeTerminal(session.id);
+                  void closeTerminal(session.id).catch((error: unknown) => {
+                    setError(error instanceof Error ? error.message : String(error));
+                  });
                 }}
               >
                 <CloseIcon />
@@ -359,7 +385,11 @@ export function TerminalPanel({
             className="icon-button terminal-panel__action"
             title="New terminal"
             aria-label="New terminal"
-            onClick={() => void createTerminal()}
+            onClick={() =>
+              void createTerminal().catch((error: unknown) => {
+                setError(error instanceof Error ? error.message : String(error));
+              })
+            }
           >
             <PlusIcon />
           </button>
@@ -368,7 +398,11 @@ export function TerminalPanel({
             className="icon-button terminal-panel__action"
             title="Restart terminal"
             aria-label="Restart terminal"
-            onClick={() => void restartTerminal()}
+            onClick={() =>
+              void restartTerminal().catch((error: unknown) => {
+                setError(error instanceof Error ? error.message : String(error));
+              })
+            }
           >
             <RefreshIcon />
           </button>
