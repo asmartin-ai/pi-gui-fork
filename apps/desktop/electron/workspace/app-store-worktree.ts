@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { sessionKey } from "@pi-gui/session-driver";
 import type { WorktreeCatalogEntry } from "@pi-gui/catalogs";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
 import type {
@@ -11,15 +10,14 @@ import type {
   RemoveWorktreeInput,
   StartThreadInput,
 } from "../../contracts/desktop-state";
-import { sendMessageToSession } from "../conversation/app-store-composer";
 import type { CreateWorktreeOptions } from "../platform/worktrees/worktree-manager";
-import type { AppStoreInternals } from "../application/app-store-internals";
+import type { WorkspaceOwnerHost } from "./app-store-workspace";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "../conversation/thread-title-constants";
 
 /* ── Public methods ─────────────────────────────────────── */
 
 export async function createWorktree(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   input: CreateWorktreeInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -63,7 +61,7 @@ export async function createWorktree(
 }
 
 export async function removeWorktree(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   input: RemoveWorktreeInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -79,12 +77,13 @@ export async function removeWorktree(
       await store.driver.removeWorkspace(worktree.path).catch(() => undefined);
     }
 
+    const state = store.workspaceState();
     const selectedWorkspaceId =
-      store.state.selectedWorkspaceId === input.worktreeId
+      state.selectedWorkspaceId === input.worktreeId
         ? input.workspaceId
-        : store.state.selectedWorkspaceId;
+        : state.selectedWorkspaceId;
     const selectedSessionId =
-      store.state.selectedWorkspaceId === input.worktreeId ? "" : store.state.selectedSessionId;
+      state.selectedWorkspaceId === input.worktreeId ? "" : state.selectedSessionId;
     return store.refreshState({
       selectedWorkspaceId,
       selectedSessionId,
@@ -96,7 +95,7 @@ export async function removeWorktree(
 }
 
 export async function startThread(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   input: StartThreadInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -152,10 +151,7 @@ export async function startThread(
       }
       throw error;
     }
-    const key = sessionKey(session.ref);
-    store.sessionState.transcriptCache.set(key, []);
-    store.sessionState.loadedTranscriptKeys.add(key);
-    store.updateSessionConfig(session.ref, session.config);
+    store.seedSession(session);
     const autoTitleAbortController = new AbortController();
     const pendingAutoTitle = {
       requestToken: randomUUID(),
@@ -167,11 +163,7 @@ export async function startThread(
     // Set selection eagerly so that any subscription replay events
     // (fired by ensureSessionReady inside refreshState) read the new
     // session ID instead of the stale one.
-    store.state = {
-      ...store.state,
-      selectedWorkspaceId: session.ref.workspaceId,
-      selectedSessionId: session.ref.sessionId,
-    };
+    store.setActiveSession(session.ref);
     const state = await store.refreshState({
       selectedWorkspaceId: session.ref.workspaceId,
       selectedSessionId: session.ref.sessionId,
@@ -184,13 +176,15 @@ export async function startThread(
     // Fire message in background — assistantDelta events flow through
     // handleSessionEvent → emit() and update React while on the thread view
     if (prompt || attachments.length > 0) {
-      void sendMessageToSession(store, session.ref, prompt, attachments, {
-        rollbackOptimisticMessageOnError: false,
-      }).catch((error) => {
-        void store.withError(error).catch((error: unknown) => {
-          console.error("[app-store-worktree] withError failed", error);
+      void store
+        .sendMessageToSession(session.ref, prompt, attachments, {
+          rollbackOptimisticMessageOnError: false,
+        })
+        .catch((error) => {
+          void store.withError(error).catch((error: unknown) => {
+            console.error("[app-store-worktree] withError failed", error);
+          });
         });
-      });
     }
     if (prompt) {
       void generateAndApplyAutoTitle(store, session.ref, targetWorkspace, {
@@ -211,7 +205,7 @@ export async function startThread(
 }
 
 export async function forkThread(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   input: ForkThreadInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -275,11 +269,7 @@ export async function forkThread(
     store.updateSessionConfig(session.ref, session.config);
 
     // Set selection eagerly so subscription replay events read the new session ID.
-    store.state = {
-      ...store.state,
-      selectedWorkspaceId: session.ref.workspaceId,
-      selectedSessionId: session.ref.sessionId,
-    };
+    store.setActiveSession(session.ref);
 
     // Load the branched history transcript from the driver before publishing state.
     await store.reloadTranscriptFromDriver(session.ref);
@@ -297,7 +287,7 @@ export async function forkThread(
 }
 
 export async function syncAndListWorktrees(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   workspaces: readonly {
     workspaceId: string;
     path: string;
@@ -397,8 +387,8 @@ export async function syncAndListWorktrees(
  * Build default worktree options — used both by `createWorktree` and `startThread`
  * (which lives in the main store).
  */
-export function buildWorktreeOptions(
-  store: AppStoreInternals,
+function buildWorktreeOptions(
+  store: WorkspaceOwnerHost,
   workspace: WorkspaceRef,
   fromSessionWorkspaceId?: string,
   fromSessionId?: string,
@@ -429,7 +419,7 @@ export function buildWorktreeOptions(
  * intentionally never adopted or pruned because their profile ownership is
  * ambiguous.
  */
-export async function reconcileWorktrees(store: AppStoreInternals): Promise<void> {
+export async function reconcileWorktrees(store: WorkspaceOwnerHost): Promise<void> {
   try {
     const referencedPaths = new Set<string>();
     const catalog = await store.catalogStore.worktrees.listWorktrees();
@@ -438,7 +428,7 @@ export async function reconcileWorktrees(store: AppStoreInternals): Promise<void
         referencedPaths.add(await canonicalWorktreePath(worktree.path));
       }
     }
-    for (const workspace of store.state.workspaces) {
+    for (const workspace of store.workspaceState().workspaces) {
       referencedPaths.add(await canonicalWorktreePath(workspace.path));
     }
     await store.worktreeManager.pruneOrphanedWorktrees({
@@ -462,7 +452,7 @@ async function canonicalWorktreePath(pathValue: string): Promise<string> {
 }
 
 async function rollbackCreatedWorktree(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   workspace: WorkspaceRef,
   options: CreateWorktreeOptions,
 ): Promise<void> {
@@ -477,7 +467,7 @@ async function rollbackCreatedWorktree(
 /* ── Private helpers ─────────────────────────────────────── */
 
 async function generateAndApplyAutoTitle(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   sessionRef: { workspaceId: string; sessionId: string },
   workspace: WorkspaceRef,
   options: {
@@ -543,12 +533,13 @@ async function generateAndApplyAutoTitle(
 }
 
 function sessionTitleForWorktree(
-  store: AppStoreInternals,
+  store: WorkspaceOwnerHost,
   workspaceId: string,
   sessionId: string,
 ): string | undefined {
-  return store.state.workspaces
-    .find((workspace) => workspace.id === workspaceId)
+  return store
+    .workspaceState()
+    .workspaces.find((workspace) => workspace.id === workspaceId)
     ?.sessions.find((session) => session.id === sessionId)
     ?.title.trim();
 }

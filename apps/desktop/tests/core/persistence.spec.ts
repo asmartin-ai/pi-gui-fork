@@ -208,7 +208,7 @@ test("recovers persisted ui state from the backup when ui-state.json is corrupt"
   }
 });
 
-test("recovers from parseable malformed nested state without overwriting valid fields", async () => {
+test("rejects malformed nested state without overwriting it and resumes after repair", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("malformed-nested-state-workspace");
@@ -325,71 +325,34 @@ test("recovers from parseable malformed nested state without overwriting valid f
   )}\n`;
   await writeFile(uiStatePath, malformedSnapshot, "utf8");
 
-  const secondRun = await launchDesktop(userDataDir, {
-    testMode: "background",
-    envOverrides: {
-      PI_APP_ORCHESTRATION_SUPERVISION_INTERVAL_MS: "250",
-    },
-  });
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {
     const window = await secondRun.firstWindow();
-    await expect(window.getByTestId("workspace-list")).toContainText(
-      "malformed-nested-state-workspace",
+    await expect(window.getByTestId("startup-diagnostics")).toContainText(
+      /ui-state|compatibility/i,
     );
-    await expect(window.locator(".session-row--active")).toContainText(
-      "Malformed nested state session",
+    expect(await readFile(uiStatePath, "utf8")).toBe(malformedSnapshot);
+    expect(await readFile(sessionFilePath, "utf8")).toContain(
+      "valid catalog transcript survives malformed nested state",
     );
+  } finally {
+    await secondRun.close();
+  }
+  expect(await readFile(uiStatePath, "utf8")).toBe(malformedSnapshot);
+
+  // Simulate deliberate external repair, then prove normal startup resumes.
+  await writeFile(uiStatePath, JSON.stringify(persisted));
+  const repairedRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await repairedRun.firstWindow();
     await expect(window.getByTestId("composer")).toHaveValue(
       "valid draft survives malformed nested state",
     );
     await expect(window.getByTestId("transcript")).toContainText(
       "valid catalog transcript survives malformed nested state",
     );
-
-    const state = await getDesktopState(window);
-    const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
-    expect(workspace?.sessions.some((entry) => entry.id === sessionId)).toBe(true);
-    expect(state.selectedWorkspaceId).toBe(workspaceId);
-    expect(state.selectedSessionId).toBe(sessionId);
-    expect(state.lastError).toBeUndefined();
-    expect(state.startupDiagnostics).toEqual([]);
-    expect(state.extensionCommandCompatibilityByWorkspace[workspaceId]).toEqual([
-      validCompatibility,
-    ]);
-    await expect
-      .poll(
-        async () => {
-          const child = (await getDesktopState(window)).orchestrationChildren.find(
-            (entry) => entry.id === "persisted-supervised-child",
-          );
-          return child?.supervisionLoop?.iterationCount ?? 0;
-        },
-        { timeout: 10_000 },
-      )
-      .toBeGreaterThan(7);
-
-    const recovered = JSON.parse(await readFile(uiStatePath, "utf8")) as Record<string, unknown>;
-    expect(recovered.selectedWorkspaceId).toBe(workspaceId);
-    expect(recovered.selectedSessionId).toBe(sessionId);
-    expect(recovered.composerDraft).toBe("valid draft survives malformed nested state");
-    expect(recovered.composerDraftsBySession).toEqual({
-      [`${workspaceId}:${sessionId}`]: "valid draft survives malformed nested state",
-    });
-    expect(recovered.extensionCommandCompatibilityByWorkspace).toEqual({
-      [workspaceId]: [validCompatibility],
-    });
-    expect(recovered.composerAttachmentsBySession).toBeUndefined();
-
-    const transcriptBefore = await getSelectedTranscript(window);
-    const transcriptLengthBefore = transcriptBefore?.transcript.length ?? 0;
-    const composer = window.getByTestId("composer");
-    await composer.fill("/status");
-    await composer.press("Enter");
-    await expect
-      .poll(async () => (await getSelectedTranscript(window))?.transcript.length ?? 0)
-      .toBeGreaterThan(transcriptLengthBefore);
   } finally {
-    await secondRun.close();
+    await repairedRun.close();
   }
 });
 

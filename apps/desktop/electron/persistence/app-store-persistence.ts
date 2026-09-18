@@ -13,6 +13,7 @@ import type {
 import { isThemeMode, isThemePresetId } from "../../contracts/desktop-state";
 import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { readJsonWithBackup, writeFileAtomicQueued } from "./atomic-file-write";
+import { decodeAttachments } from "./attachment-store";
 
 export interface PersistedUiState {
   readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
@@ -49,7 +50,12 @@ export interface LegacyPersistedUiState extends PersistedUiState {
 export async function readPersistedUiState(
   uiStateFilePath: string,
 ): Promise<LegacyPersistedUiState> {
-  const result = await readJsonWithBackup<unknown>(uiStateFilePath);
+  const result = await readJsonWithBackup(uiStateFilePath);
+  if (result.corrupted && !result.recovered) {
+    throw new Error(
+      `Invalid ui-state at ${uiStateFilePath}; original data was retained. Repair or restore the file before continuing.`,
+    );
+  }
   if (result.corrupted) {
     // Surface corruption instead of silently returning `{}` (which the next
     // write would then persist over the last good state, losing pins, drafts,
@@ -57,16 +63,14 @@ export async function readPersistedUiState(
     // the operator sees that the primary file needs attention.
     console.error(
       `[app-store] corrupt ui-state at ${uiStateFilePath}` +
-        (result.recovered
-          ? " — recovered from backup"
-          : " — no usable backup, starting from empty state"),
+        (result.recovered ? " — recovered from backup" : " — no usable backup"),
     );
   }
-  const parsed = result.value;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return {};
-  }
-  const candidate = parsed as Record<string, unknown>;
+  return result.value === undefined ? {} : decodePersistedUiState(result.value);
+}
+
+export function decodePersistedUiState(parsed: unknown): LegacyPersistedUiState {
+  const candidate = validateUiState(parsed);
 
   return {
     version: toPersistedVersion(candidate.version),
@@ -119,7 +123,294 @@ export async function writePersistedUiState(
     null,
     2,
   )}\n`;
-  await writeFileAtomicQueued(uiStateFilePath, serialized);
+  decodePersistedUiState(payload);
+  await writeFileAtomicQueued(uiStateFilePath, serialized, decodePersistedUiState);
+}
+
+function validateUiState(value: unknown): Record<string, unknown> {
+  const root = objectRecord(value);
+  if (!root) throw new Error("Invalid ui-state: expected an object; original data was retained.");
+  const fail = (field: string): never => {
+    throw new Error(`Invalid ui-state field ${field}; original data was retained.`);
+  };
+  const knownKeys = (record: Record<string, unknown>, keys: readonly string[], path: string) => {
+    for (const key of Object.keys(record))
+      if (!keys.includes(key)) fail(`${path}.${key} (unsupported field)`);
+  };
+  knownKeys(
+    root,
+    [
+      "version",
+      "selectedWorkspaceId",
+      "selectedSessionId",
+      "activeView",
+      "composerDraft",
+      "composerDraftsBySession",
+      "extensionCommandCompatibilityByWorkspace",
+      "notificationPreferences",
+      "integratedTerminalShell",
+      "lastViewedAtBySession",
+      "pinnedAtBySession",
+      "pinnedSessionOrder",
+      "workspaceOrder",
+      "modelSettingsScopeMode",
+      "appGlobalModelSettings",
+      "sidebarCollapsed",
+      "allowMultiple",
+      "enableTransparency",
+      "themeMode",
+      "themePresetId",
+      "orchestrationChildren",
+      "composerAttachmentsBySession",
+      "transcripts",
+    ],
+    "ui-state",
+  );
+  const optional = (
+    object: Record<string, unknown>,
+    key: string,
+    valid: (v: unknown) => boolean,
+    path = key,
+  ) => {
+    if (object[key] !== undefined && !valid(object[key])) fail(path);
+  };
+  const string = (v: unknown) => typeof v === "string";
+  const boolean = (v: unknown) => typeof v === "boolean";
+  const strings = (v: unknown) => Array.isArray(v) && v.every(string);
+  const stringRecord = (v: unknown) => {
+    const r = objectRecord(v);
+    return !!r && Object.values(r).every(string);
+  };
+  optional(root, "version", (v) => toPersistedVersion(v) !== undefined);
+  for (const key of [
+    "selectedWorkspaceId",
+    "selectedSessionId",
+    "composerDraft",
+    "integratedTerminalShell",
+  ])
+    optional(root, key, string);
+  for (const key of ["composerDraftsBySession", "lastViewedAtBySession", "pinnedAtBySession"])
+    optional(root, key, stringRecord);
+  for (const key of ["pinnedSessionOrder", "workspaceOrder"]) optional(root, key, strings);
+  for (const key of ["sidebarCollapsed", "allowMultiple", "enableTransparency"])
+    optional(root, key, boolean);
+  optional(root, "activeView", (v) => toAppView(v) !== undefined);
+  optional(root, "themeMode", isThemeMode);
+  optional(root, "themePresetId", isThemePresetId);
+  optional(root, "modelSettingsScopeMode", (v) => v === "per-repo" || v === "app-global");
+  if (root.notificationPreferences !== undefined) {
+    const preferences =
+      objectRecord(root.notificationPreferences) ?? fail("notificationPreferences");
+    knownKeys(
+      preferences,
+      ["backgroundCompletion", "backgroundFailure", "attentionNeeded"],
+      "notificationPreferences",
+    );
+    for (const key of ["backgroundCompletion", "backgroundFailure", "attentionNeeded"])
+      optional(preferences, key, boolean, `notificationPreferences.${key}`);
+  }
+  if (root.appGlobalModelSettings !== undefined) {
+    const settings = objectRecord(root.appGlobalModelSettings) ?? fail("appGlobalModelSettings");
+    knownKeys(
+      settings,
+      ["defaultProvider", "defaultModelId", "defaultThinkingLevel", "enabledModelPatterns"],
+      "appGlobalModelSettings",
+    );
+    for (const key of ["defaultProvider", "defaultModelId"])
+      optional(settings, key, string, `appGlobalModelSettings.${key}`);
+    optional(
+      settings,
+      "defaultThinkingLevel",
+      (v) =>
+        ["off", "minimal", "low", "medium", "high", "xhigh", "max"].some((level) => level === v),
+      "appGlobalModelSettings.defaultThinkingLevel",
+    );
+    optional(
+      settings,
+      "enabledModelPatterns",
+      strings,
+      "appGlobalModelSettings.enabledModelPatterns",
+    );
+  }
+  if (root.extensionCommandCompatibilityByWorkspace !== undefined) {
+    const records =
+      objectRecord(root.extensionCommandCompatibilityByWorkspace) ??
+      fail("extensionCommandCompatibilityByWorkspace");
+    for (const [key, entries] of Object.entries(records))
+      if (
+        !key ||
+        !Array.isArray(entries) ||
+        !entries.every((entry) => toPersistedCompatibilityRecord(entry) !== undefined)
+      )
+        fail(`extensionCommandCompatibilityByWorkspace.${key}`);
+    for (const entries of Object.values(records)) {
+      for (const entry of entries as unknown[])
+        knownKeys(
+          objectRecord(entry)!,
+          ["commandName", "extensionPath", "status", "message", "capability", "updatedAt"],
+          "extensionCommandCompatibilityByWorkspace",
+        );
+    }
+  }
+  for (const key of ["composerAttachmentsBySession", "transcripts"]) {
+    if (root[key] === undefined) continue;
+    const records = objectRecord(root[key]) ?? fail(key);
+    for (const [id, entries] of Object.entries(records))
+      if (
+        !id ||
+        !Array.isArray(entries) ||
+        !entries.every((entry) => objectRecord(entry) !== undefined)
+      )
+        fail(`${key}.${id}`);
+    if (key === "composerAttachmentsBySession")
+      for (const entries of Object.values(records)) decodeAttachments(entries);
+  }
+  if (root.orchestrationChildren !== undefined) {
+    if (!Array.isArray(root.orchestrationChildren)) fail("orchestrationChildren");
+    const children = root.orchestrationChildren as unknown[];
+    for (const [index, child] of children.entries()) {
+      const path = `orchestrationChildren[${index}]`;
+      const record = objectRecord(child) ?? fail(path);
+      knownKeys(
+        record,
+        [
+          "id",
+          "sourceToolCallId",
+          "parentWorkspaceId",
+          "parentSessionId",
+          "childWorkspaceId",
+          "childSessionId",
+          "title",
+          "goal",
+          "status",
+          "latestTranscript",
+          "transcript",
+          "evidence",
+          "supervisionLoop",
+          "createdAt",
+          "updatedAt",
+        ],
+        path,
+      );
+      if (toPersistedOrchestrationChildren([child])?.length !== 1) fail(path);
+      for (const key of [
+        "id",
+        "sourceToolCallId",
+        "parentWorkspaceId",
+        "parentSessionId",
+        "childWorkspaceId",
+        "childSessionId",
+        "title",
+        "goal",
+        "latestTranscript",
+        "createdAt",
+        "updatedAt",
+      ])
+        optional(record, key, string, `${path}.${key}`);
+      optional(
+        record,
+        "status",
+        (v) => toOptionalOrchestrationStatus(v) !== undefined,
+        `${path}.status`,
+      );
+      if (record.transcript !== undefined) {
+        if (!Array.isArray(record.transcript)) fail(`${path}.transcript`);
+        for (const message of record.transcript as unknown[]) {
+          const m = objectRecord(message) ?? fail(`${path}.transcript`);
+          knownKeys(m, ["id", "role", "text", "createdAt"], `${path}.transcript`);
+          if (
+            !["parent", "child", "system"].some((role) => role === m.role) ||
+            ![m.id, m.text, m.createdAt].every(string)
+          )
+            fail(`${path}.transcript`);
+        }
+      }
+      if (record.evidence !== undefined) {
+        if (!Array.isArray(record.evidence)) fail(`${path}.evidence`);
+        for (const entry of record.evidence as unknown[]) {
+          if (toPersistedEvidence([entry], String(record.id)).length !== 1)
+            fail(`${path}.evidence`);
+          const evidence = objectRecord(entry) ?? fail(`${path}.evidence`);
+          knownKeys(
+            evidence,
+            [
+              "id",
+              "childThreadId",
+              "kind",
+              "source",
+              "status",
+              "title",
+              "detail",
+              "command",
+              "toolName",
+              "severity",
+              "parentSessionId",
+              "childSessionId",
+              "git",
+              "createdAt",
+              "updatedAt",
+            ],
+            `${path}.evidence`,
+          );
+          for (const key of [
+            "detail",
+            "command",
+            "toolName",
+            "parentSessionId",
+            "childSessionId",
+            "updatedAt",
+          ])
+            optional(evidence, key, string, `${path}.evidence.${key}`);
+          optional(
+            evidence,
+            "severity",
+            (v) => toEvidenceSeverity(v) !== undefined,
+            `${path}.evidence.severity`,
+          );
+          if (evidence.git !== undefined) {
+            const git = objectRecord(evidence.git) ?? fail(`${path}.evidence.git`);
+            knownKeys(git, ["workspaceId", "branchName", "headSha"], `${path}.evidence.git`);
+            if (!toEvidenceGit(git)) fail(`${path}.evidence.git`);
+            for (const key of ["branchName", "headSha"])
+              optional(git, key, string, `${path}.evidence.git.${key}`);
+          }
+        }
+      }
+      if (
+        record.supervisionLoop !== undefined &&
+        !toPersistedSupervisionLoop(record.supervisionLoop, toOrchestrationStatus(record.status))
+      )
+        fail(`${path}.supervisionLoop`);
+      if (record.supervisionLoop !== undefined) {
+        const loop = objectRecord(record.supervisionLoop) ?? fail(`${path}.supervisionLoop`);
+        knownKeys(
+          loop,
+          [
+            "id",
+            "status",
+            "gate",
+            "intervalMs",
+            "iterationCount",
+            "lastCheckedAt",
+            "nextRunAt",
+            "reason",
+            "lastChildStatus",
+            "stoppedAt",
+          ],
+          `${path}.supervisionLoop`,
+        );
+        for (const key of ["nextRunAt", "stoppedAt"])
+          optional(loop, key, string, `${path}.supervisionLoop.${key}`);
+        optional(
+          loop,
+          "lastChildStatus",
+          (v) => toOptionalOrchestrationStatus(v) !== undefined,
+          `${path}.supervisionLoop.lastChildStatus`,
+        );
+      }
+    }
+  }
+  return root;
 }
 
 function toThemeMode(value: unknown): ThemeMode | undefined {

@@ -1,85 +1,90 @@
-# Architecture and staged ownership
+# Architecture and ownership
 
-Keep the workspace split and upstream Pi runtime. Organize code around the owner of behavior and mutable state; moving files alone does not establish a boundary. This guide records the accepted direction. The target layout below is a migration plan, not a claim that every owner or guard exists today.
+pi-gui keeps the desktop app, portable contracts, catalogs, and Pi adapter separate. Code is grouped by the component that owns behavior and mutable state. Folder placement alone is not an ownership boundary; types and repository guards enforce the important dependency rules.
 
-## Current execution path
+## Execution path
 
-The renderer calls `window.piApp` through preload. Electron main routes the request through per-window handling to `DesktopAppStore`; the store coordinates the Pi SDK driver, catalog, attachments, and platform services. The driver delegates agent execution to upstream Pi.
+The renderer calls the browser-safe `window.piApp` API exposed by preload. Electron main validates requests and routes them through [IPC registration](../apps/desktop/electron/ipc/register-desktop-ipc.ts). The [window owner](../apps/desktop/electron/windows/window-owner.ts) supplies the sender window's view and target session. Bounded desktop owners perform the operation, and the Pi SDK driver delegates agent execution to upstream Pi.
 
-Start tracing in [main](../apps/desktop/electron/main.ts), [store](../apps/desktop/electron/application/app-store.ts), and [driver](../packages/pi-sdk-driver/src). Renderer, preload, and main remain separate bundles configured by [electron-vite](../apps/desktop/electron.vite.config.mjs).
+Start tracing in [main](../apps/desktop/electron/main.ts), [window owner](../apps/desktop/electron/windows/window-owner.ts), [IPC registration](../apps/desktop/electron/ipc/register-desktop-ipc.ts), [application store](../apps/desktop/electron/application/app-store.ts), and [Pi SDK driver](../packages/pi-sdk-driver/src/pi-sdk-driver.ts). Renderer, preload, and main remain separate bundles configured by [electron-vite](../apps/desktop/electron.vite.config.mjs).
 
-The store currently shares one catalog instance with the driver and worktree manager. Its method groups can access broad mutable store internals. Main also serializes actions while installing the sender window's selection into shared state. Preserve that serialization until explicit session targets and equivalent regression coverage replace the dependency; it is not safe to remove it as a folder cleanup.
+## Owners and boundaries
 
-## Ownership contract
+| Owner               | Responsibility                                                                 | Enforced interface                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Renderer features   | Interaction, presentation, and renderer-local view state                       | Depend on desktop contracts and the preload API; do not import Electron, Node, or host implementation.                     |
+| Desktop contracts   | Browser-safe requests, snapshots, and shared values                            | Depend on neither React nor host/runtime implementation.                                                                   |
+| IPC                 | Request validation and routing                                                 | Receives grouped state, workspace, conversation, orchestration, and settings operations plus narrow platform capabilities. |
+| Window owner        | Per-window selection, snapshot projection, and serialized actions              | Captures explicit session targets from the sender and never receives writable aggregate store state.                       |
+| Conversation owner  | Drafts, attachments, queued messages, session commands, and transcript updates | Receives only conversation maps, a runtime lookup, and conversation operations.                                            |
+| Workspace owner     | Workspace/session lifecycle and Git worktree use cases                         | Receives cloned workspace views, explicit session setup operations, and the catalog/worktree capabilities it needs.        |
+| Orchestration owner | Child-thread policy, supervision, transcript evidence, and orchestration tools | Receives cloned orchestration views and bounded transcript, error, conversation, and workspace operations.                 |
+| Persistence owners  | UI state, attachments, and catalog data                                        | Decode their own durable format before use or replacement.                                                                 |
+| Platform adapters   | Files, worktrees, terminal, dialogs, notifications, theme, and updates         | Stay in Electron main and expose only the required capability to IPC or an owner.                                          |
 
-| Boundary            | Responsibility                                            | Interface and dependency rule                                                                                                                |
-| ------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Renderer features   | Interaction, presentation, local view state               | Call the narrow preload API; never import Node, main, or runtime implementation.                                                             |
-| Desktop contracts   | Browser-safe IPC requests, snapshots, shared values       | Both sides depend on these definitions; contracts must not depend on React, Electron, or the Pi implementation.                              |
-| Preload and IPC     | Allowlisted transport, request validation, sender context | Route validated requests to owners; do not expose general filesystem or process access.                                                      |
-| Window owner        | Per-window selection and snapshot projection              | Session commands receive explicit validated targets; selection is not shared session identity.                                               |
-| Conversation owner  | Session commands, drafts, runtime-event projection        | Use session-driver contracts and the Pi adapter; keep mutable session state private.                                                         |
-| Workspace owner     | Add, rename, remove, worktree use cases                   | Coordinate catalog writers and in-flight work through bounded operations. Stale work must not undo accepted rename/removal.                  |
-| Orchestration owner | Child-thread policy, supervision, evidence                | Request conversation/workspace operations rather than mutating their internals.                                                              |
-| Persistence owners  | Decode and write their own durable values                 | Catalog backend owns metadata writes; desktop persistence owns UI state and attachments. Reject malformed data without destructive recovery. |
-| Platform adapters   | Terminal, dialogs, notifications, updates                 | Main-only narrow capabilities; renderer receives only the needed request/result shapes.                                                      |
+`DesktopAppStore` is the composition point. Its aggregate state, driver, catalogs, session maps, runtime maps, worktree services, and attachment store are private. It constructs conversation, workspace, and orchestration owners through bounded capability factories. The removed `AppStoreInternals` whole-store interface is prohibited by [the state-owner guard](../scripts/state-owner-boundary.test.mjs), which also rejects direct owner access to `store.state`, `store.sessionState`, and `store.runtimeByWorkspace`.
 
-The workspace lifecycle rule is an intended invariant. A previously observed intermittent removal failure does not establish a race as its root cause.
+The window owner keeps a separate view for every Electron window. Draft, send, attachment, queue-editing, model, thinking, tree-navigation, and Stop requests use a session target captured from the IPC sender. Attachment picking captures the target before opening the native dialog. Opening New thread flushes the outgoing conversation's pending draft before navigation.
 
-Keep `packages/session-driver` authoritative for portable session contracts, `packages/catalogs` for catalog contracts, and `packages/pi-sdk-driver` thin over upstream Pi. Do not redeclare owned package interfaces in ambient vendor files. A catalog backend move must first account for every writer and preserve the shared instance's coordination semantics.
+Window-scoped state actions remain serialized because the shared application projection is temporarily installed for the sender window while an action runs. Stop bypasses that queue and executes immediately against its captured target; placing cancellation behind the submitted prompt would prevent it from reaching the runtime until the run finished. Removing this serialization requires an equivalent multi-window regression proof, not a folder cleanup.
 
-## Placement and remaining ownership work
+## Persistent data
 
-The renderer now uses the feature groups below: conversation (including transcript search and session tree/fork), threads (sidebar and new-thread creation), workbench, settings, and extensions. `src/app` composes these surfaces, `src/ui` holds shared visual helpers, and `src/lib` holds general string formatting. CSS remains in `src/styles` with its existing load order. Renderer feature hooks still use the shared snapshot projection helpers in `src/app`; this relocation does not complete host state-owner extraction.
+Catalog storage owns workspace, session, worktree, and session-file metadata. Desktop persistence owns UI state and composer attachments. The driver and worktree manager share the same catalog instance so their writes use one coordination boundary.
 
-Host files are now grouped by responsibility, with `main.ts`, `preload.ts`, and their development probes retained as entrypoints. This is a relocation: `application/app-store-internals.ts` still exposes broad mutable state to conversation, workspace, and orchestration helpers. Narrowing those interfaces remains separate work. Window selection and IPC routing remain in `main.ts`; there are no placeholder window or IPC owner folders.
+UI-state and attachment decoders reject malformed fields, unsupported fields, and unsupported versions instead of dropping unknown data. Startup stops with a visible diagnostic when UI-state read, restoration, or legacy attachment migration fails, before workspace sync, pruning, or another persistence write can replace the saved bytes.
 
-Composer draft, send, stop, attachment, and queued-message commands now receive explicit session targets captured from the sender window at dispatch. Attachment picking captures the target before the dialog opens. Queue editing updates the target's draft rather than writing through selected-state refresh. The composer interface excludes the ambient session lookup; other store method groups remain transitional. Opening New thread flushes the outgoing conversation's pending draft before navigation.
+Writes are serialized per path and use a synced temporary file followed by rename. The prior valid file becomes a `.bak`. If the primary JSON is corrupt and the backup is valid, reads recover from the backup and a later valid write retains the damaged primary as a `.corrupt.<id>` sibling. Invalid saved data without a usable backup is not overwritten or pruned.
 
-Cancellation executes immediately against its captured target: waiting behind a submitted prompt would prevent Stop from reaching the runtime until that prompt finished. Other window-scoped actions retain their existing serialization.
+Workspace sync, rename, and removal share a per-workspace mutation queue. The queue covers the full scan and catalog replacement. Focus reconciliation rereads the current workspace inside that queue, preserves its name, and skips a removed workspace. Explicit registration can add a workspace again; background metadata touches cannot. Regression tests cover rename preservation and removal during blocked synchronization.
 
-Current placement:
+## Pi adapter and contracts
+
+`packages/session-driver` owns portable session contracts, `packages/catalogs` owns catalog contracts and backends, and `packages/pi-sdk-driver` adapts them to upstream Pi. Packages cannot depend on desktop implementation, and catalog code cannot depend back on the Pi adapter. [The host-boundary guard](../scripts/check-host-boundary.mjs) resolves imports, including type-only and dynamic edges, to enforce these directions.
+
+The Pi adapter stays thin over upstream behavior. Required access to private Pi 0.80 APIs is isolated in explicit compatibility seams under [`packages/pi-sdk-driver/src/compat`](../packages/pi-sdk-driver/src/compat): one forces the early session-file rewrite while maintaining Pi's flush bookkeeping, and one persists project-scoped settings. An upstream shape change should fail at these small seams instead of spreading private-runtime assumptions through the driver.
+
+Do not redeclare package-owned interfaces in ambient vendor files. Validate external data at the package or persistence boundary, then use the trusted contract internally.
+
+## Current placement
 
 ```text
 apps/desktop/
   contracts/             browser-safe desktop API and values
   electron/
-    main.ts              composition, window state, IPC routing
-    preload.ts           narrow transport adapter
-    application/         app store, internals, shared projection helpers
-    conversation/        session commands, drafts, events, visibility
-    workspace/           workspace/worktree use cases
+    main.ts              process composition and platform wiring
+    preload.ts           narrow renderer transport
+    application/         private aggregate store and projection helpers
+    windows/             per-window views and action serialization
+    ipc/                 validation and request routing
+    conversation/        session commands, drafts, transcript, visibility
+    workspace/           workspace, session, and worktree use cases
     orchestration/       child-thread policy and supervision
-    persistence/         UI state and attachment storage
-    platform/            theme, notifications, updates, terminal
-      files/             workspace paths, file reads, diffs
-      worktrees/         Git worktree adapter
+    persistence/         validated UI-state and attachment storage
+    platform/            main-only platform adapters
   src/
     app/                 screen composition
-    features/
-      conversation/      composer and transcript
-      threads/           sidebar, navigation, new-thread creation
-      workbench/         files, diffs, terminal presentation
-      settings/
-      extensions/
+    features/            conversation, threads, workbench, settings, extensions
     ui/                  shared visual primitives
     lib/                 general renderer helpers
     styles/              global tokens and base styles
+
+packages/
+  session-driver/        portable session contracts
+  catalogs/              catalog contracts and storage
+  pi-sdk-driver/         upstream Pi adapter and compatibility seams
 ```
 
-For example, a remove-workspace menu belongs in renderer `features/threads`. Its request crosses preload and IPC to the workspace owner, which coordinates pending work and the catalog mutation. The window owner then chooses a valid remaining selection. Background session activity must not independently recreate the removed workspace. This is the proposed ownership flow; existing entrypoints must be traced during migration.
+A workspace command starts in renderer `features/threads`, crosses preload and validated IPC, and runs through the workspace owner. The window owner then resolves a valid view for that window. Conversation and orchestration code cannot mutate workspace state through a shared store escape hatch.
 
-Keep desktop packaging with desktop, repository checks at root, website independent, and video/media generation explicitly owned as tooling. Do not remove packaging dependencies based only on missing direct imports: packaged runtime validation exists because bundling and pnpm dependency staging have additional requirements. Preserve historical media and user artifacts.
+## Product and support tooling
 
-## Migration and proof
+Desktop packaging and its test fixtures stay under `apps/desktop`; the marketing site stays under `apps/website`; repository policy and guard scripts stay at the root. Product captures are produced by desktop-owned scripts, while Remotion source and video rendering stay under `video`.
 
-1. **Protect saved data.** Validate provider and catalog input before mutation; retain invalid originals and actionable errors. Test malformed fixtures and exercise affected settings/catalog UI.
-2. **Unify contracts.** Remove owned ambient copies and move desktop-only contracts out of renderer implementation. Typecheck all consumers and prove forbidden dependencies fail.
-3. **Make session targets explicit.** Separate window selection from shared session state while retaining required serialization. Verify two-window/session switching, submit, stop, and background activity.
-4. **Extract owners.** Replace whole-store access with bounded operations, one responsibility at a time. Verify persistence/restart and lifecycle failures before changing writer placement.
-5. **Group renderer features.** Move coherent features and update imports without leaving parallel production paths. Exercise each changed user flow in Electron.
-6. **Consolidate support where useful.** Retain one Electron launcher, desktop-owned fixtures, and clear media producers/consumers. Native and packaged changes require their own evidence.
+The root commands make that ownership explicit: `marketing:demo` updates the README demo, `marketing:capture` produces showcase captures through the desktop app, and `marketing:render` renders the Remotion showcase. Generated historical media and user artifacts must not be removed as dependency cleanup. Packaging dependencies also require packaged-runtime verification before removal because bundling and pnpm staging can need packages that have no direct source import.
 
-Instruction corrections can land independently of these stages. Each implementation must report what actually moved and what remains proposed. Proposed guards require a representative rejected violation, restoration of valid code, and a passing normal check; prose alone does not enforce ownership.
+## Proof
 
-Use [baseline checks](ci-baseline.md), [desktop lane commands](../apps/desktop/README.md), and the [verification skill](../.agents/skills/verify-pi-gui/SKILL.md). Distinguish static/unit checks, fixture-backed Electron, deterministic runtime integration, real-provider conversations, native OS, and packaged-app evidence. A passing settings smoke or skipped real-auth test does not establish conversation behavior.
+Use [baseline checks](ci-baseline.md), [desktop lane commands](../apps/desktop/README.md), and the [verification skill](../.agents/skills/verify-pi-gui/SKILL.md). `check:architecture` enforces renderer, contract-authority, and host dependency rules. `test:guards` includes rejected fixtures for those boundaries and state-owner access.
+
+Report evidence at its actual level: static/type checks, unit tests, fixture-backed Electron, deterministic runtime integration, real-provider conversation, native OS behavior, or packaged artifact. Desktop user flows are complete only after the affected surface runs in Electron. A settings smoke, skipped provider test, or passing package build does not prove conversation behavior.

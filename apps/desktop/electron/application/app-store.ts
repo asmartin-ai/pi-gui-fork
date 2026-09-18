@@ -4,7 +4,7 @@ import type { SessionSchemaInfo } from "@pi-gui/session-driver";
 import type { BrowserWindow } from "electron";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   applyHostUiRequestToExtensionUiState,
   type GenerateThreadTitleOptions,
@@ -46,6 +46,7 @@ import {
   type CreateSessionInput,
   type CreateWorktreeInput,
   type DesktopAppState,
+  type DesktopAppViewState,
   type ForkThreadInput,
   type NotificationPreferences,
   type QueuedComposerMessage,
@@ -72,14 +73,14 @@ import {
   applySessionEventState,
   updateSessionRecord,
 } from "../conversation/app-store-session-state";
-import type { AppStoreInternals, RefreshStateOptions } from "./app-store-internals";
+import type { RefreshStateOptions } from "./refresh-state-options";
 import {
   readPersistedUiState,
   type LegacyPersistedUiState,
   type PersistedUiState,
   writePersistedUiState,
 } from "../persistence/app-store-persistence";
-import { JsonFileStore } from "../persistence/json-file-store";
+import { AttachmentStore } from "../persistence/attachment-store";
 import {
   type PendingRuntimeCommandExecution,
   getLearnedCommandCompatibility,
@@ -109,10 +110,16 @@ import {
   serializeExtensionUiState,
 } from "../conversation/session-state-map";
 import { GitWorktreeManager } from "../platform/worktrees/worktree-manager";
-import * as workspace from "../workspace/app-store-workspace";
-import * as worktree from "../workspace/app-store-worktree";
-import * as composer from "../conversation/app-store-composer";
+import { createWorkspaceOwner, type WorkspaceOwner } from "../workspace/app-store-workspace";
+import {
+  createConversationOwner,
+  type ConversationOwner,
+} from "../conversation/app-store-composer";
 import * as orchestration from "../orchestration/app-store-orchestration";
+import {
+  createOrchestrationOwner,
+  type OrchestrationOwner,
+} from "../orchestration/app-store-orchestration";
 import {
   isSessionActivelyViewed,
   isSessionVisibleInWindow,
@@ -146,15 +153,8 @@ export interface DesktopAppStoreOptions {
   ) => Promise<string | null | undefined>;
 }
 
-export interface DesktopAppViewState {
-  readonly selectedWorkspaceId?: string;
-  readonly selectedSessionId?: string;
-  readonly activeView?: AppView;
-  readonly sidebarCollapsed?: boolean;
-}
-
-export class DesktopAppStore implements AppStoreInternals {
-  state = createEmptyDesktopAppState();
+export class DesktopAppStore {
+  private state = createEmptyDesktopAppState();
   private readonly listeners = new Set<StateListener>();
   /** Monotonic publish counter; emit() stamps every published state with it. */
   private publishRevision = 1;
@@ -191,19 +191,22 @@ export class DesktopAppStore implements AppStoreInternals {
   /** Cached session schema info (version-skew flag) projected onto the transcript payload. */
   private readonly sessionSchemaInfoCache = new Map<string, SessionSchemaInfo>();
   private readonly sessionSchemaInfoInFlight = new Set<string>();
-  readonly driver: PiSdkDriver;
-  readonly catalogStore: JsonCatalogStore;
-  readonly worktreeManager: GitWorktreeManager;
-  readonly worktreeRoot: string;
+  private readonly driver: PiSdkDriver;
+  private readonly catalogStore: JsonCatalogStore;
+  private readonly worktreeManager: GitWorktreeManager;
+  private readonly worktreeRoot: string;
   private readonly uiStateFilePath: string;
-  readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
-  readonly sessionState = new SessionStateMap();
-  readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
-  readonly extensionCommandCompatibilityByWorkspace = new Map<
+  private readonly attachmentStore: AttachmentStore;
+  private readonly sessionState = new SessionStateMap();
+  private readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
+  private readonly extensionCommandCompatibilityByWorkspace = new Map<
     string,
     Map<string, ExtensionCommandCompatibilityRecord>
   >();
-  readonly pendingRuntimeCommandsBySession = new Map<string, PendingRuntimeCommandExecution>();
+  private readonly pendingRuntimeCommandsBySession = new Map<
+    string,
+    PendingRuntimeCommandExecution
+  >();
   private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
   private readonly initialWorkspacePaths: readonly string[];
   private readonly getWindow: () => BrowserWindow | null;
@@ -211,6 +214,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private composerDraftSyncTarget: SessionRef | undefined;
   private composerDraftProjectionNonce = 0;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
+  private persistenceReadiness: "pending" | "ready" | "blocked" = "pending";
   private orchestrationSupervisionTimer: NodeJS.Timeout | undefined;
   private scheduledOrchestrationSupervisionRunAt: string | undefined;
   private readonly extensionDialogTimeoutTimers = new Map<string, NodeJS.Timeout>();
@@ -218,6 +222,9 @@ export class DesktopAppStore implements AppStoreInternals {
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
   private refreshStateDepth = 0;
+  private readonly conversationOwner: ConversationOwner;
+  private readonly workspaceOwner: WorkspaceOwner;
+  private readonly orchestrationOwner: OrchestrationOwner;
 
   constructor(options: DesktopAppStoreOptions) {
     const catalogFilePath = join(options.userDataDir, "catalogs.json");
@@ -234,13 +241,216 @@ export class DesktopAppStore implements AppStoreInternals {
     this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
     this.worktreeRoot = join(options.userDataDir, "worktrees");
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
-    this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(
-      options.userDataDir,
-      "attachments",
-    );
+    this.attachmentStore = new AttachmentStore(options.userDataDir);
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
     this.shouldKeepSessionDialogs = options.shouldKeepSessionDialogs ?? (() => false);
+
+    this.conversationOwner = createConversationOwner({
+      driver: this.driver,
+      conversationState: {
+        activeAssistantMessageBySession: this.sessionState.activeAssistantMessageBySession,
+        composerAttachmentsBySession: this.sessionState.composerAttachmentsBySession,
+        composerDraftsBySession: this.sessionState.composerDraftsBySession,
+        loadedTranscriptKeys: this.sessionState.loadedTranscriptKeys,
+        sessionCommandsBySession: this.sessionState.sessionCommandsBySession,
+        sessionConfigBySession: this.sessionState.sessionConfigBySession,
+        sessionErrorsBySession: this.sessionState.sessionErrorsBySession,
+        transcriptCache: this.sessionState.transcriptCache,
+      },
+      runtimeForWorkspace: (workspaceId) => this.runtimeByWorkspace.get(workspaceId),
+      initialize: () => this.initialize(),
+      refreshState: (refreshOptions) => this.refreshState(refreshOptions),
+      emit: () => this.emit(),
+      withError: (error) => this.withError(error),
+      withSessionError: (sessionRef, error) => this.withSessionError(sessionRef, error),
+      withErrorHandling: (fn) => this.withErrorHandling(fn),
+      sessionFromState: (sessionRef) => this.sessionFromState(sessionRef),
+      describeSession: (sessionRef) => {
+        const workspaceEntry = this.state.workspaces.find(
+          (entry) => entry.id === sessionRef.workspaceId,
+        );
+        const session = workspaceEntry?.sessions.find((entry) => entry.id === sessionRef.sessionId);
+        return workspaceEntry && session
+          ? { workspaceName: workspaceEntry.name, title: session.title, status: session.status }
+          : undefined;
+      },
+      isSelectedSession: (sessionRef) =>
+        this.state.selectedWorkspaceId === sessionRef.workspaceId &&
+        this.state.selectedSessionId === sessionRef.sessionId,
+      clearConversationError: () => {
+        this.state = { ...this.state, lastError: undefined, revision: this.state.revision + 1 };
+      },
+      publishComposerAttachments: (sessionRef, attachments) => {
+        this.state = {
+          ...this.state,
+          composerAttachments:
+            this.state.selectedWorkspaceId === sessionRef.workspaceId &&
+            this.state.selectedSessionId === sessionRef.sessionId
+              ? cloneComposerAttachments(attachments)
+              : this.state.composerAttachments,
+          revision: this.state.revision + 1,
+        };
+      },
+      finishLocalComposerCommand: (sessionRef, update) => {
+        this.state = {
+          ...this.state,
+          workspaces: this.state.workspaces.map((workspaceEntry) =>
+            workspaceEntry.id === sessionRef.workspaceId
+              ? {
+                  ...workspaceEntry,
+                  sessions: workspaceEntry.sessions.map((session) =>
+                    session.id === sessionRef.sessionId
+                      ? {
+                          ...session,
+                          title: update.title ?? session.title,
+                          preview: update.preview ?? session.preview,
+                          config: update.config,
+                        }
+                      : session,
+                  ),
+                }
+              : workspaceEntry,
+          ),
+          composerAttachments:
+            this.state.selectedWorkspaceId === sessionRef.workspaceId &&
+            this.state.selectedSessionId === sessionRef.sessionId
+              ? []
+              : this.state.composerAttachments,
+          lastError: undefined,
+          revision: this.state.revision + 1,
+        };
+      },
+      setComposerDraftForSession: (sessionRef, draft, source) =>
+        this.setComposerDraftForSession(sessionRef, draft, source),
+      ensureSessionReady: (sessionRef) => this.ensureSessionReady(sessionRef),
+      refreshSessionCommandsFor: (sessionRef) => this.refreshSessionCommandsFor(sessionRef),
+      getLearnedRuntimeCommandCompatibility: (workspaceId, command) =>
+        this.getLearnedRuntimeCommandCompatibility(workspaceId, command),
+      beginRuntimeCommandExecution: (sessionRef, command) =>
+        this.beginRuntimeCommandExecution(sessionRef, command),
+      finishRuntimeCommandExecution: (sessionRef, timestamp) =>
+        this.finishRuntimeCommandExecution(sessionRef, timestamp),
+      clearExtensionUiForSession: (sessionRef) => this.clearExtensionUiForSession(sessionRef),
+      persistComposerAttachments: (key, attachments) =>
+        this.persistComposerAttachments(key, attachments),
+      schedulePersistUiState: () => this.schedulePersistUiState(),
+      getQueuedComposerMessages: (sessionRef) => this.getQueuedComposerMessages(sessionRef),
+      setQueuedComposerEditState: (sessionRef, editState) =>
+        this.setQueuedComposerEditState(sessionRef, editState),
+      getQueuedComposerEditState: (sessionRef) => this.getQueuedComposerEditState(sessionRef),
+      reloadTranscriptFromDriver: (sessionRef) => this.reloadTranscriptFromDriver(sessionRef),
+      publishSelectedTranscriptFor: (sessionRef) => this.publishSelectedTranscriptFor(sessionRef),
+      clearPendingAutoTitle: (sessionRef) => this.clearPendingAutoTitle(sessionRef),
+    });
+
+    this.workspaceOwner = createWorkspaceOwner({
+      driver: this.driver,
+      catalogStore: this.catalogStore,
+      worktreeManager: this.worktreeManager,
+      worktreeRoot: this.worktreeRoot,
+      setRuntimeSnapshot: (workspaceId, snapshot) => {
+        this.runtimeByWorkspace.set(workspaceId, snapshot);
+      },
+      refreshRuntime: (workspaceRef) => this.driver.runtimeSupervisor.refreshRuntime(workspaceRef),
+      initialize: () => this.initialize(),
+      workspaceState: () => ({
+        selectedWorkspaceId: this.state.selectedWorkspaceId,
+        selectedSessionId: this.state.selectedSessionId,
+        workspaces: structuredClone(this.state.workspaces),
+      }),
+      setActiveSession: (sessionRef) => {
+        this.state = {
+          ...this.state,
+          selectedWorkspaceId: sessionRef.workspaceId,
+          selectedSessionId: sessionRef.sessionId,
+        };
+      },
+      seedSession: (snapshot) => {
+        const key = sessionKey(snapshot.ref);
+        this.sessionState.transcriptCache.set(key, []);
+        this.sessionState.loadedTranscriptKeys.add(key);
+        this.updateSessionConfig(snapshot.ref, snapshot.config);
+      },
+      unpinSession: (sessionRef) => {
+        const key = sessionKey(sessionRef);
+        this.sessionState.pinnedAtBySession.delete(key);
+        this.sessionState.pinnedSessionOrder = this.sessionState.pinnedSessionOrder.filter(
+          (entry) => entry !== key,
+        );
+      },
+      refreshState: (refreshOptions) => this.refreshState(refreshOptions),
+      emit: () => this.emit(),
+      withError: (error) => this.withError(error),
+      withErrorHandling: (fn) => this.withErrorHandling(fn),
+      selectSessionFast: (target) => this.selectSessionFast(target),
+      workspaceRefFromState: (workspaceId) => this.workspaceRefFromState(workspaceId),
+      selectedSessionRef: () => this.selectedSessionRef(),
+      sessionFromState: (sessionRef) => this.sessionFromState(sessionRef),
+      ensureSessionReady: (sessionRef) => this.ensureSessionReady(sessionRef),
+      cancelPendingDialogsForSession: (sessionRef) =>
+        this.cancelPendingDialogsForSession(sessionRef),
+      clearPendingAutoTitle: (sessionRef) => this.clearPendingAutoTitle(sessionRef),
+      updateSessionConfig: (sessionRef, config) => this.updateSessionConfig(sessionRef, config),
+      buildCreateSessionOptions: (workspaceId) => this.buildCreateSessionOptions(workspaceId),
+      reloadTranscriptFromDriver: (sessionRef) => this.reloadTranscriptFromDriver(sessionRef),
+      setPendingAutoTitle: (sessionRef, pending) => this.setPendingAutoTitle(sessionRef, pending),
+      getPendingAutoTitle: (sessionRef) => this.getPendingAutoTitle(sessionRef),
+      sendMessageToSession: (sessionRef, text, attachments, sendOptions) =>
+        this.conversationOwner.sendMessageToSession(sessionRef, text, attachments, sendOptions),
+    });
+
+    this.orchestrationOwner = createOrchestrationOwner({
+      driver: this.driver,
+      initialize: () => this.initialize(),
+      orchestrationState: () => ({
+        selectedWorkspaceId: this.state.selectedWorkspaceId,
+        selectedSessionId: this.state.selectedSessionId,
+        workspaces: structuredClone(this.state.workspaces),
+        orchestrationChildren: structuredClone(this.state.orchestrationChildren),
+      }),
+      replaceOrchestrationChildren: (children) => {
+        this.state = { ...this.state, orchestrationChildren: [...children] };
+      },
+      refreshState: (refreshOptions) => this.refreshState(refreshOptions),
+      emit: () => this.emit(),
+      withError: (error) => this.withError(error),
+      persistUiState: () => this.persistUiState(),
+      workspaceRefFromState: (workspaceId) => this.workspaceRefFromState(workspaceId),
+      sessionFromState: (sessionRef) => this.sessionFromState(sessionRef),
+      ensureSessionReady: (sessionRef) => this.ensureSessionReady(sessionRef),
+      ensureSessionSubscription: (sessionRef) => this.ensureSessionSubscription(sessionRef),
+      subscribeToSessionEvents: (listener) => this.subscribeToSessionEvents(listener),
+      updateSessionConfig: (sessionRef, config) => this.updateSessionConfig(sessionRef, config),
+      buildCreateSessionOptions: (workspaceId) => this.buildCreateSessionOptions(workspaceId),
+      getQueuedComposerMessages: (sessionRef) => this.getQueuedComposerMessages(sessionRef),
+      seedSession: (snapshot) => {
+        const key = sessionKey(snapshot.ref);
+        this.sessionState.transcriptCache.set(key, []);
+        this.sessionState.loadedTranscriptKeys.add(key);
+        this.updateSessionConfig(snapshot.ref, snapshot.config);
+      },
+      transcriptFor: (sessionRef) =>
+        this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [],
+      transcriptForKey: (key) => this.sessionState.transcriptCache.get(key) ?? [],
+      replaceTranscript: (sessionRef, transcript) => {
+        this.sessionState.transcriptCache.set(sessionKey(sessionRef), [...transcript]);
+      },
+      isTranscriptLoaded: (sessionRef) =>
+        this.sessionState.loadedTranscriptKeys.has(sessionKey(sessionRef)),
+      getSessionError: (sessionRef) =>
+        this.sessionState.sessionErrorsBySession.get(sessionKey(sessionRef)),
+      setSessionError: (sessionRef, message) => {
+        this.sessionState.sessionErrorsBySession.set(sessionKey(sessionRef), message);
+      },
+      submitComposerToSession: (sessionRef, text, attachments, submitOptions) =>
+        this.conversationOwner.submitComposerToSession(
+          sessionRef,
+          text,
+          attachments,
+          submitOptions,
+        ),
+    });
   }
 
   /* ── Lifecycle ──────────────────────────────────────────── */
@@ -255,6 +465,22 @@ export class DesktopAppStore implements AppStoreInternals {
   async getState(): Promise<DesktopAppState> {
     await this.initialize();
     return structuredClone(this.state);
+  }
+
+  snapshot(): DesktopAppState {
+    return structuredClone(this.state);
+  }
+
+  applyView(view: DesktopAppViewState): DesktopAppState {
+    this.state = this.projectStateForView(view);
+    return structuredClone(this.state);
+  }
+
+  findSessionRefByCwdAndSessionId(cwd: string, sessionId: string): SessionRef | undefined {
+    const workspace = this.state.workspaces.find((entry) => resolve(entry.path) === resolve(cwd));
+    return workspace?.sessions.some((session) => session.id === sessionId)
+      ? { workspaceId: workspace.id, sessionId }
+      : undefined;
   }
 
   async getStateForView(view: DesktopAppViewState): Promise<DesktopAppState> {
@@ -391,7 +617,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async runOrchestrationSupervisionTick(): Promise<void> {
     await this.initialize();
-    const result = orchestration.reconcileDueSupervisionLoops(this);
+    const result = this.orchestrationOwner.reconcileDueSupervisionLoops();
     if (result.changed) {
       await this.persistUiState();
       this.emit();
@@ -434,7 +660,7 @@ export class DesktopAppStore implements AppStoreInternals {
   /* ── Workspace methods (delegated) ─────────────────────── */
 
   async addWorkspace(path: string): Promise<DesktopAppState> {
-    return workspace.addWorkspace(this, path);
+    return this.workspaceOwner.addWorkspace(path);
   }
 
   getWorkspacePath(workspaceId: string): string | undefined {
@@ -453,11 +679,11 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState> {
-    return workspace.renameWorkspace(this, workspaceId, displayName);
+    return this.workspaceOwner.renameWorkspace(workspaceId, displayName);
   }
 
   async removeWorkspace(workspaceId: string): Promise<DesktopAppState> {
-    return workspace.removeWorkspace(this, workspaceId);
+    return this.workspaceOwner.removeWorkspace(workspaceId);
   }
 
   async reorderWorkspaces(order: readonly string[]): Promise<DesktopAppState> {
@@ -494,11 +720,11 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async selectWorkspace(workspaceId: string): Promise<DesktopAppState> {
-    return workspace.selectWorkspace(this, workspaceId);
+    return this.workspaceOwner.selectWorkspace(workspaceId);
   }
 
   async selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
-    return workspace.selectSession(this, target);
+    return this.workspaceOwner.selectSession(target);
   }
 
   async selectSessionFast(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
@@ -530,15 +756,15 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState> {
-    return workspace.renameSession(this, target, title);
+    return this.workspaceOwner.renameSession(target, title);
   }
 
   async archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
-    return workspace.archiveSession(this, target);
+    return this.workspaceOwner.archiveSession(target);
   }
 
   async unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
-    return workspace.unarchiveSession(this, target);
+    return this.workspaceOwner.unarchiveSession(target);
   }
 
   async markSessionRead(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
@@ -627,21 +853,21 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async syncCurrentWorkspace(): Promise<DesktopAppState> {
-    return workspace.syncCurrentWorkspace(this);
+    return this.workspaceOwner.syncCurrentWorkspace();
   }
 
   /* ── Worktree methods (delegated) ──────────────────────── */
 
   async createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState> {
-    return worktree.createWorktree(this, input);
+    return this.workspaceOwner.createWorktree(input);
   }
 
   async forkThread(input: ForkThreadInput): Promise<DesktopAppState> {
-    return worktree.forkThread(this, input);
+    return this.workspaceOwner.forkThread(input);
   }
 
   async removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState> {
-    return worktree.removeWorktree(this, input);
+    return this.workspaceOwner.removeWorktree(input);
   }
 
   /* ── Composer methods (delegated) ──────────────────────── */
@@ -650,21 +876,21 @@ export class DesktopAppStore implements AppStoreInternals {
     sessionRef: SessionRef | undefined,
     composerDraft: string,
   ): Promise<DesktopAppState> {
-    return composer.updateComposerDraft(this, sessionRef, composerDraft);
+    return this.conversationOwner.updateComposerDraft(sessionRef, composerDraft);
   }
 
   async addComposerAttachments(
     sessionRef: SessionRef | undefined,
     attachments: readonly ComposerAttachment[],
   ): Promise<DesktopAppState> {
-    return composer.addComposerAttachments(this, sessionRef, attachments);
+    return this.conversationOwner.addComposerAttachments(sessionRef, attachments);
   }
 
   async removeComposerAttachment(
     sessionRef: SessionRef | undefined,
     attachmentId: string,
   ): Promise<DesktopAppState> {
-    return composer.removeComposerAttachment(this, sessionRef, attachmentId);
+    return this.conversationOwner.removeComposerAttachment(sessionRef, attachmentId);
   }
 
   async submitComposer(
@@ -672,7 +898,7 @@ export class DesktopAppStore implements AppStoreInternals {
     textInput: string,
     options?: { readonly deliverAs?: "steer" | "followUp" },
   ): Promise<DesktopAppState> {
-    return composer.submitComposer(this, sessionRef, textInput, options);
+    return this.conversationOwner.submitComposer(sessionRef, textInput, options);
   }
 
   async editQueuedComposerMessage(
@@ -680,25 +906,25 @@ export class DesktopAppStore implements AppStoreInternals {
     messageId: string,
     currentDraft?: string,
   ): Promise<DesktopAppState> {
-    return composer.editQueuedComposerMessage(this, sessionRef, messageId, currentDraft);
+    return this.conversationOwner.editQueuedComposerMessage(sessionRef, messageId, currentDraft);
   }
 
   async cancelQueuedComposerEdit(sessionRef: SessionRef | undefined): Promise<DesktopAppState> {
-    return composer.cancelQueuedComposerEdit(this, sessionRef);
+    return this.conversationOwner.cancelQueuedComposerEdit(sessionRef);
   }
 
   async removeQueuedComposerMessage(
     sessionRef: SessionRef | undefined,
     messageId: string,
   ): Promise<DesktopAppState> {
-    return composer.removeQueuedComposerMessage(this, sessionRef, messageId);
+    return this.conversationOwner.removeQueuedComposerMessage(sessionRef, messageId);
   }
 
   async steerQueuedComposerMessage(
     sessionRef: SessionRef | undefined,
     messageId: string,
   ): Promise<DesktopAppState> {
-    return composer.steerQueuedComposerMessage(this, sessionRef, messageId);
+    return this.conversationOwner.steerQueuedComposerMessage(sessionRef, messageId);
   }
 
   async cancelCurrentRun(sessionRef: SessionRef | undefined): Promise<DesktopAppState> {
@@ -706,8 +932,8 @@ export class DesktopAppStore implements AppStoreInternals {
     if (!sessionRef || !this.sessionFromState(sessionRef)) {
       return this.emit();
     }
-    await orchestration.cancelChildRunsForParent(this, sessionRef);
-    return composer.cancelCurrentRun(this, sessionRef);
+    await this.orchestrationOwner.cancelChildRunsForParent(sessionRef);
+    return this.conversationOwner.cancelCurrentRun(sessionRef);
   }
 
   async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {
@@ -748,21 +974,46 @@ export class DesktopAppStore implements AppStoreInternals {
   /* ── Session / thread methods (delegated) ───────────────── */
 
   async startThread(input: StartThreadInput): Promise<DesktopAppState> {
-    return worktree.startThread(this, input);
+    return this.workspaceOwner.startThread(input);
   }
 
   async createSession(input: CreateSessionInput): Promise<DesktopAppState> {
-    return workspace.createSession(this, input);
+    return this.workspaceOwner.createSession(input);
   }
 
   async sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState> {
-    const state = await orchestration.sendChildThreadFollowUp(this, input);
+    const state = await this.orchestrationOwner.sendChildThreadFollowUp(input);
     this.scheduleOrchestrationSupervision();
     return state;
   }
 
+  async createChildThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly prompt: string; readonly toolCallId: string },
+  ) {
+    await this.initialize();
+    return this.orchestrationOwner.createChildThreadToolResult(parentRef, input);
+  }
+
+  listThreadsToolResult(parentRef: SessionRef) {
+    return this.orchestrationOwner.listThreadsToolResult(parentRef);
+  }
+
+  async readThreadToolResult(parentRef: SessionRef, threadId: string) {
+    await this.initialize();
+    return this.orchestrationOwner.readThreadToolResult(parentRef, threadId);
+  }
+
+  async sendMessageToThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly threadId: string; readonly message: string },
+  ) {
+    await this.initialize();
+    return this.orchestrationOwner.sendMessageToThreadToolResult(parentRef, input);
+  }
+
   async setChildSupervisionLoop(input: SetChildSupervisionLoopInput): Promise<DesktopAppState> {
-    const state = await orchestration.setChildSupervisionLoopGate(this, input);
+    const state = await this.orchestrationOwner.setChildSupervisionLoopGate(input);
     this.scheduleOrchestrationSupervision();
     return state;
   }
@@ -934,7 +1185,7 @@ export class DesktopAppStore implements AppStoreInternals {
     provider: string,
     modelId: string,
   ): Promise<DesktopAppState> {
-    return composer.setSessionModel(this, target, provider, modelId);
+    return this.conversationOwner.setSessionModel(target, provider, modelId);
   }
 
   async setDefaultModel(
@@ -994,7 +1245,7 @@ export class DesktopAppStore implements AppStoreInternals {
     sessionRef: SessionRef,
     thinkingLevel: NonNullable<RuntimeSettingsSnapshot["defaultThinkingLevel"]>,
   ): Promise<DesktopAppState> {
-    return composer.setSessionThinkingLevel(this, sessionRef, thinkingLevel);
+    return this.conversationOwner.setSessionThinkingLevel(sessionRef, thinkingLevel);
   }
 
   async loginProvider(
@@ -1272,31 +1523,88 @@ export class DesktopAppStore implements AppStoreInternals {
     });
   }
 
-  /* ── Internal infrastructure (AppStoreInternals) ───────── */
+  /* ── Internal application infrastructure ──────────────── */
 
   private async initializeInternal(): Promise<void> {
-    const persisted = await this.readUiState();
     const startupDiagnostics: StartupDiagnostic[] = [];
+    let persisted: LegacyPersistedUiState;
+    try {
+      persisted = await this.readUiState();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[app-store] persisted UI state is invalid; startup stopped", error);
+      this.blockPersistence();
+      startupDiagnostics.push({
+        scope: "application",
+        message,
+      });
+      this.state = {
+        ...this.state,
+        startupDiagnostics,
+        lastError: message,
+        revision: this.state.revision + 1,
+      };
+      this.emit();
+      return;
+    }
     try {
       this.restorePersistedUiState(persisted);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn("[app-store] ignoring malformed persisted UI state", error);
+      console.error("[app-store] persisted UI state restoration failed; startup stopped", error);
+      this.blockPersistence();
       startupDiagnostics.push({
         scope: "application",
         message: `Persisted UI state could not be fully restored: ${message}`,
       });
+      this.state = {
+        ...this.state,
+        startupDiagnostics,
+        lastError: message,
+        revision: this.state.revision + 1,
+      };
+      this.emit();
+      return;
+    }
+    try {
+      await this.validatePersistedAttachments();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[app-store] saved attachment validation failed; startup stopped", error);
+      this.blockPersistence();
+      startupDiagnostics.push({
+        scope: "application",
+        message: `Saved attachments could not be validated: ${message}`,
+      });
+      this.state = {
+        ...this.state,
+        startupDiagnostics,
+        lastError: message,
+        revision: this.state.revision + 1,
+      };
+      this.emit();
+      return;
     }
     try {
       await this.migrateLegacyPersistence(persisted);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn("[app-store] ignoring malformed legacy UI state", error);
+      console.error("[app-store] legacy UI state migration failed; startup stopped", error);
+      this.blockPersistence();
       startupDiagnostics.push({
         scope: "application",
         message: `Legacy UI state could not be fully migrated: ${message}`,
       });
+      this.state = {
+        ...this.state,
+        startupDiagnostics,
+        lastError: message,
+        revision: this.state.revision + 1,
+      };
+      this.emit();
+      return;
     }
+    this.persistenceReadiness = "ready";
 
     try {
       const initialWorkspacePaths = this.initialWorkspacePaths
@@ -1335,7 +1643,7 @@ export class DesktopAppStore implements AppStoreInternals {
       });
       // Startup GC of leaked pi/* worktrees and branches; self-contained and
       // error-swallowing, so fire-and-forget without blocking initialization.
-      void worktree.reconcileWorktrees(this).catch((error: unknown) => {
+      void this.workspaceOwner.reconcileWorktrees().catch((error: unknown) => {
         console.error("[app-store] reconcileWorktrees failed", error);
       });
       const restoredSessionRef = this.selectedSessionRef();
@@ -1467,6 +1775,11 @@ export class DesktopAppStore implements AppStoreInternals {
     );
   }
 
+  private async validatePersistedAttachments(): Promise<void> {
+    const keys = await this.attachmentStore.listKeys();
+    await Promise.all(keys.map((key) => this.attachmentStore.read(key)));
+  }
+
   async refreshState(options: RefreshStateOptions = {}): Promise<DesktopAppState> {
     const previousRefresh = this.refreshStateQueue;
     const refresh = previousRefresh
@@ -1488,7 +1801,7 @@ export class DesktopAppStore implements AppStoreInternals {
         this.driver.listSessions(),
       ]);
       const worktreeEntries = options.refreshWorktrees
-        ? await worktree.syncAndListWorktrees(this, workspacesSnapshot.workspaces)
+        ? await this.workspaceOwner.syncAndListWorktrees(workspacesSnapshot.workspaces)
         : (await this.catalogStore.worktrees.listWorktrees()).worktrees;
 
       await this.pruneStaleSessionSubscriptions(sessionsSnapshot.sessions);
@@ -1657,10 +1970,10 @@ export class DesktopAppStore implements AppStoreInternals {
         ),
         revision: this.state.revision + 1,
       };
-      await orchestration.hydrateOrchestrationChildren(this);
+      await this.orchestrationOwner.hydrateOrchestrationChildren();
       this.state = {
         ...this.state,
-        orchestrationChildren: orchestration.projectOrchestrationChildren(this),
+        orchestrationChildren: this.orchestrationOwner.projectOrchestrationChildren(),
       };
       this.scheduleOrchestrationSupervision();
 
@@ -2548,24 +2861,17 @@ export class DesktopAppStore implements AppStoreInternals {
         this.sessionState.lastViewedAtBySession,
       );
       if (event.type === "toolFinished") {
-        await orchestration.handleOrchestrationThreadToolResult(this, event);
+        await this.orchestrationOwner.handleOrchestrationThreadToolResult(event);
       }
       this.markSessionViewedIfActivelyViewed(event.sessionRef);
       this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
       if (
-        orchestration.hasOrchestrationChildSession(
-          this.state.orchestrationChildren,
-          event.sessionRef,
-        ) ||
-        orchestration.hasOrchestrationParentSession(
-          this.state.orchestrationChildren,
-          event.sessionRef,
-        )
+        this.orchestrationOwner.hasOrchestrationChildSession(event.sessionRef) ||
+        this.orchestrationOwner.hasOrchestrationParentSession(event.sessionRef)
       ) {
         this.state = {
           ...this.state,
-          orchestrationChildren: orchestration.projectOrchestrationChildrenForSession(
-            this,
+          orchestrationChildren: this.orchestrationOwner.projectOrchestrationChildrenForSession(
             event.sessionRef,
           ),
         };
@@ -2960,6 +3266,9 @@ export class DesktopAppStore implements AppStoreInternals {
       clearTimeout(this.persistUiStateTimer);
       this.persistUiStateTimer = undefined;
     }
+    if (this.persistenceReadiness !== "ready") {
+      return;
+    }
     const payload: PersistedUiState = {
       selectedWorkspaceId: this.state.selectedWorkspaceId || undefined,
       selectedSessionId: this.state.selectedSessionId || undefined,
@@ -3003,6 +3312,9 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   schedulePersistUiState(): void {
+    if (this.persistenceReadiness !== "ready") {
+      return;
+    }
     if (this.persistUiStateTimer) {
       clearTimeout(this.persistUiStateTimer);
     }
@@ -3013,6 +3325,14 @@ export class DesktopAppStore implements AppStoreInternals {
         console.error("[app-store] persistUiState failed", error);
       });
     }, 250);
+  }
+
+  private blockPersistence(): void {
+    this.persistenceReadiness = "blocked";
+    if (this.persistUiStateTimer) {
+      clearTimeout(this.persistUiStateTimer);
+      this.persistUiStateTimer = undefined;
+    }
   }
 
   private currentSelectedSessionKey(): string {

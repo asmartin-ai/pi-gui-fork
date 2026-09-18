@@ -390,6 +390,13 @@ export function getSelectedWorkspace(state: DesktopAppState): WorkspaceRecord | 
   return state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
 }
 
+export interface DesktopAppViewState {
+  readonly selectedWorkspaceId?: string;
+  readonly selectedSessionId?: string;
+  readonly activeView?: AppView;
+  readonly sidebarCollapsed?: boolean;
+}
+
 export function getSelectedSession(state: DesktopAppState): SessionRecord | undefined {
   return getSelectedWorkspace(state)?.sessions.find(
     (session) => session.id === state.selectedSessionId,

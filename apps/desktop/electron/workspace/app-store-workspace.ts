@@ -1,15 +1,135 @@
 import { sessionKey } from "@pi-gui/session-driver";
+import type { PiSdkDriver } from "@pi-gui/pi-sdk-driver";
+import type { JsonCatalogStore } from "@pi-gui/catalogs/node";
+import type {
+  CreateSessionOptions,
+  SessionConfig,
+  SessionRef,
+  SessionSnapshot,
+  WorkspaceRef,
+} from "@pi-gui/session-driver";
+import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   CreateSessionInput,
+  CreateWorktreeInput,
   DesktopAppState,
+  ForkThreadInput,
+  RemoveWorktreeInput,
+  StartThreadInput,
+  ComposerAttachment,
   WorkspaceSessionTarget,
 } from "../../contracts/desktop-state";
 import { toSessionRef } from "../application/app-store-utils";
-import type { AppStoreInternals, RefreshStateOptions } from "../application/app-store-internals";
+import type { RefreshStateOptions } from "../application/refresh-state-options";
+import type { GitWorktreeManager } from "../platform/worktrees/worktree-manager";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "../conversation/thread-title-constants";
+import type { PendingAutoTitle } from "../conversation/session-state-map";
+import * as worktree from "./app-store-worktree";
+
+export interface WorkspaceStateView {
+  readonly selectedWorkspaceId?: string;
+  readonly selectedSessionId?: string;
+  readonly workspaces: DesktopAppState["workspaces"];
+}
+
+type WorkspaceDriver = Pick<
+  PiSdkDriver,
+  | "archiveSession"
+  | "createSession"
+  | "forkSession"
+  | "generateThreadTitle"
+  | "removeWorkspace"
+  | "renameSession"
+  | "renameWorkspace"
+  | "syncWorkspace"
+  | "unarchiveSession"
+  | "validateForkSession"
+>;
+
+export interface WorkspaceOwnerHost {
+  readonly driver: WorkspaceDriver;
+  readonly catalogStore: JsonCatalogStore;
+  readonly worktreeManager: GitWorktreeManager;
+  readonly worktreeRoot: string;
+  setRuntimeSnapshot(workspaceId: string, snapshot: RuntimeSnapshot): void;
+  refreshRuntime(workspace: WorkspaceRef): Promise<RuntimeSnapshot>;
+  initialize(): Promise<void>;
+  workspaceState(): WorkspaceStateView;
+  setActiveSession(sessionRef: SessionRef): void;
+  seedSession(snapshot: SessionSnapshot): void;
+  unpinSession(sessionRef: SessionRef): void;
+  refreshState(options?: RefreshStateOptions): Promise<DesktopAppState>;
+  emit(): DesktopAppState;
+  withError(error: unknown): Promise<DesktopAppState>;
+  withErrorHandling(fn: () => Promise<DesktopAppState>): Promise<DesktopAppState>;
+  selectSessionFast(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined;
+  selectedSessionRef(): SessionRef | undefined;
+  sessionFromState(
+    sessionRef: SessionRef,
+  ):
+    | { archivedAt?: string; updatedAt: string; title: string; status: string; preview?: string }
+    | undefined;
+  ensureSessionReady(sessionRef: SessionRef): Promise<SessionSnapshot | undefined>;
+  cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void>;
+  clearPendingAutoTitle(sessionRef: SessionRef): void;
+  updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
+  buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
+  reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void>;
+  setPendingAutoTitle(sessionRef: SessionRef, pending: PendingAutoTitle): void;
+  getPendingAutoTitle(sessionRef: SessionRef): PendingAutoTitle | undefined;
+  sendMessageToSession(
+    sessionRef: SessionRef,
+    text: string,
+    attachments: readonly ComposerAttachment[],
+    options?: { readonly rollbackOptimisticMessageOnError?: boolean },
+  ): Promise<void>;
+}
+
+export interface WorkspaceOwner {
+  addWorkspace(path: string): Promise<DesktopAppState>;
+  renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
+  removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
+  selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
+  selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState>;
+  archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  createSession(input: CreateSessionInput): Promise<DesktopAppState>;
+  syncCurrentWorkspace(): Promise<DesktopAppState>;
+  createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
+  removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
+  startThread(input: StartThreadInput): Promise<DesktopAppState>;
+  forkThread(input: ForkThreadInput): Promise<DesktopAppState>;
+  reconcileWorktrees(): Promise<void>;
+  syncAndListWorktrees(
+    workspaces: Parameters<typeof worktree.syncAndListWorktrees>[1],
+  ): ReturnType<typeof worktree.syncAndListWorktrees>;
+}
+
+export function createWorkspaceOwner(store: WorkspaceOwnerHost): WorkspaceOwner {
+  return {
+    addWorkspace: (path) => addWorkspace(store, path),
+    renameWorkspace: (workspaceId, displayName) => renameWorkspace(store, workspaceId, displayName),
+    removeWorkspace: (workspaceId) => removeWorkspace(store, workspaceId),
+    selectWorkspace: (workspaceId) => selectWorkspace(store, workspaceId),
+    selectSession: (target) => selectSession(store, target),
+    renameSession: (target, title) => renameSession(store, target, title),
+    archiveSession: (target) => archiveSession(store, target),
+    unarchiveSession: (target) => unarchiveSession(store, target),
+    createSession: (input) => createSession(store, input),
+    syncCurrentWorkspace: () => syncCurrentWorkspace(store),
+    createWorktree: (input) => worktree.createWorktree(store, input),
+    removeWorktree: (input) => worktree.removeWorktree(store, input),
+    startThread: (input) => worktree.startThread(store, input),
+    forkThread: (input) => worktree.forkThread(store, input),
+    reconcileWorktrees: () => worktree.reconcileWorktrees(store),
+    syncAndListWorktrees: (workspaces) => worktree.syncAndListWorktrees(store, workspaces),
+  };
+}
 
 function fallbackSelectionAfterWorkspaceRemoval(
-  state: DesktopAppState,
+  state: WorkspaceStateView,
   removedWorkspaceId: string,
 ): RefreshStateOptions {
   const remaining = state.workspaces.filter((workspace) => workspace.id !== removedWorkspaceId);
@@ -22,22 +142,20 @@ function fallbackSelectionAfterWorkspaceRemoval(
   };
 }
 
-export async function addWorkspace(
-  store: AppStoreInternals,
-  path: string,
-): Promise<DesktopAppState> {
+async function addWorkspace(store: WorkspaceOwnerHost, path: string): Promise<DesktopAppState> {
   await store.initialize();
   const normalizedPath = path.trim();
   if (!normalizedPath) {
     return store.emit();
   }
-  const hadNoWorkspaces = store.state.workspaces.length === 0;
+  const state = store.workspaceState();
+  const hadNoWorkspaces = state.workspaces.length === 0;
 
-  const existing = store.state.workspaces.find((workspace) => workspace.path === normalizedPath);
+  const existing = state.workspaces.find((workspace) => workspace.path === normalizedPath);
   if (existing) {
     return syncWorkspace(store, existing.id, {
       selectedWorkspaceId: existing.id,
-      selectedSessionId: store.state.selectedSessionId,
+      selectedSessionId: state.selectedSessionId,
       clearLastError: true,
       refreshWorktrees: true,
     });
@@ -50,8 +168,8 @@ export async function addWorkspace(
       await store.ensureSessionReady(firstSession.sessionRef);
     }
     if (hadNoWorkspaces) {
-      const snapshot = await store.driver.runtimeSupervisor.refreshRuntime(synced.workspace);
-      store.runtimeByWorkspace.set(synced.workspace.workspaceId, snapshot);
+      const snapshot = await store.refreshRuntime(synced.workspace);
+      store.setRuntimeSnapshot(synced.workspace.workspaceId, snapshot);
     }
 
     return store.refreshState({
@@ -64,8 +182,8 @@ export async function addWorkspace(
   });
 }
 
-export async function renameWorkspace(
-  store: AppStoreInternals,
+async function renameWorkspace(
+  store: WorkspaceOwnerHost,
   workspaceId: string,
   displayName: string,
 ): Promise<DesktopAppState> {
@@ -77,32 +195,36 @@ export async function renameWorkspace(
 
   return store.withErrorHandling(async () => {
     await store.driver.renameWorkspace(workspaceId, nextName);
+    const state = store.workspaceState();
     return store.refreshState({
-      selectedWorkspaceId: store.state.selectedWorkspaceId,
-      selectedSessionId: store.state.selectedSessionId,
+      selectedWorkspaceId: state.selectedWorkspaceId,
+      selectedSessionId: state.selectedSessionId,
       clearLastError: true,
     });
   });
 }
 
-export async function removeWorkspace(
-  store: AppStoreInternals,
+async function removeWorkspace(
+  store: WorkspaceOwnerHost,
   workspaceId: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
 
   return store.withErrorHandling(async () => {
     await store.driver.removeWorkspace(workspaceId);
-    return store.refreshState(fallbackSelectionAfterWorkspaceRemoval(store.state, workspaceId));
+    return store.refreshState(
+      fallbackSelectionAfterWorkspaceRemoval(store.workspaceState(), workspaceId),
+    );
   });
 }
 
-export async function selectWorkspace(
-  store: AppStoreInternals,
+async function selectWorkspace(
+  store: WorkspaceOwnerHost,
   workspaceId: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const workspace = store.state.workspaces.find((entry) => entry.id === workspaceId);
+  const state = store.workspaceState();
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
   if (!workspace) {
     return store.emit();
   }
@@ -114,16 +236,15 @@ export async function selectWorkspace(
 
   return syncWorkspace(store, workspaceId, {
     selectedWorkspaceId: workspaceId,
-    selectedSessionId:
-      store.state.selectedWorkspaceId === workspaceId ? store.state.selectedSessionId : "",
+    selectedSessionId: state.selectedWorkspaceId === workspaceId ? state.selectedSessionId : "",
     clearLastError: true,
     refreshWorktrees: true,
     activeView: "threads",
   });
 }
 
-export async function selectSession(
-  store: AppStoreInternals,
+async function selectSession(
+  store: WorkspaceOwnerHost,
   target: WorkspaceSessionTarget,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -139,8 +260,8 @@ export async function selectSession(
   return store.selectSessionFast(target);
 }
 
-export async function renameSession(
-  store: AppStoreInternals,
+async function renameSession(
+  store: WorkspaceOwnerHost,
   target: WorkspaceSessionTarget,
   title: string,
 ): Promise<DesktopAppState> {
@@ -157,16 +278,17 @@ export async function renameSession(
     }
     store.clearPendingAutoTitle(sessionRef);
     await store.driver.renameSession(sessionRef, nextTitle);
+    const state = store.workspaceState();
     return store.refreshState({
-      selectedWorkspaceId: store.state.selectedWorkspaceId,
-      selectedSessionId: store.state.selectedSessionId,
+      selectedWorkspaceId: state.selectedWorkspaceId,
+      selectedSessionId: state.selectedSessionId,
       clearLastError: true,
     });
   });
 }
 
-export async function archiveSession(
-  store: AppStoreInternals,
+async function archiveSession(
+  store: WorkspaceOwnerHost,
   target: WorkspaceSessionTarget,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -174,18 +296,14 @@ export async function archiveSession(
   return store.withErrorHandling(async () => {
     const sessionRef = toSessionRef(target);
     store.clearPendingAutoTitle(sessionRef);
-    const key = sessionKey(sessionRef);
-    store.sessionState.pinnedAtBySession.delete(key);
-    store.sessionState.pinnedSessionOrder = store.sessionState.pinnedSessionOrder.filter(
-      (entry) => entry !== key,
-    );
+    store.unpinSession(sessionRef);
     await store.driver.archiveSession(sessionRef);
-    return store.refreshState(selectionAfterArchiving(store.state, target));
+    return store.refreshState(selectionAfterArchiving(store.workspaceState(), target));
   });
 }
 
 function selectionAfterArchiving(
-  state: DesktopAppState,
+  state: WorkspaceStateView,
   target: WorkspaceSessionTarget,
 ): RefreshStateOptions {
   if (
@@ -242,8 +360,8 @@ function selectionAfterArchiving(
   };
 }
 
-export async function unarchiveSession(
-  store: AppStoreInternals,
+async function unarchiveSession(
+  store: WorkspaceOwnerHost,
   target: WorkspaceSessionTarget,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -252,20 +370,21 @@ export async function unarchiveSession(
     const sessionRef = toSessionRef(target);
     store.clearPendingAutoTitle(sessionRef);
     await store.driver.unarchiveSession(sessionRef);
+    const state = store.workspaceState();
     return store.refreshState({
-      selectedWorkspaceId: store.state.selectedWorkspaceId,
+      selectedWorkspaceId: state.selectedWorkspaceId,
       selectedSessionId:
-        store.state.selectedWorkspaceId === target.workspaceId && !store.state.selectedSessionId
+        state.selectedWorkspaceId === target.workspaceId && !state.selectedSessionId
           ? target.sessionId
-          : store.state.selectedSessionId,
+          : state.selectedSessionId,
       clearLastError: true,
       activeView: "threads",
     });
   });
 }
 
-export async function createSession(
-  store: AppStoreInternals,
+async function createSession(
+  store: WorkspaceOwnerHost,
   input: CreateSessionInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -280,15 +399,8 @@ export async function createSession(
       ...createOptions,
       title: input.title?.trim() || NEW_THREAD_PLACEHOLDER_TITLE,
     });
-    const key = sessionKey(snapshot.ref);
-    store.sessionState.transcriptCache.set(key, []);
-    store.sessionState.loadedTranscriptKeys.add(key);
-    store.updateSessionConfig(snapshot.ref, snapshot.config);
-    store.state = {
-      ...store.state,
-      selectedWorkspaceId: snapshot.ref.workspaceId,
-      selectedSessionId: snapshot.ref.sessionId,
-    };
+    store.seedSession(snapshot);
+    store.setActiveSession(snapshot.ref);
     return store.refreshState({
       selectedWorkspaceId: snapshot.ref.workspaceId,
       selectedSessionId: snapshot.ref.sessionId,
@@ -299,26 +411,27 @@ export async function createSession(
   });
 }
 
-export async function syncCurrentWorkspace(store: AppStoreInternals): Promise<DesktopAppState> {
+async function syncCurrentWorkspace(store: WorkspaceOwnerHost): Promise<DesktopAppState> {
   await store.initialize();
-  if (!store.state.selectedWorkspaceId) {
+  const state = store.workspaceState();
+  if (!state.selectedWorkspaceId) {
     return store.refreshState({ clearLastError: true, refreshWorktrees: true });
   }
 
-  return syncWorkspace(store, store.state.selectedWorkspaceId, {
-    selectedWorkspaceId: store.state.selectedWorkspaceId,
-    selectedSessionId: store.state.selectedSessionId,
+  return syncWorkspace(store, state.selectedWorkspaceId, {
+    selectedWorkspaceId: state.selectedWorkspaceId,
+    selectedSessionId: state.selectedSessionId,
     clearLastError: true,
     refreshWorktrees: true,
   });
 }
 
-export async function syncWorkspace(
-  store: AppStoreInternals,
+async function syncWorkspace(
+  store: WorkspaceOwnerHost,
   workspaceId: string,
   refreshOptions: RefreshStateOptions,
 ): Promise<DesktopAppState> {
-  const workspace = store.state.workspaces.find((entry) => entry.id === workspaceId);
+  const workspace = store.workspaceState().workspaces.find((entry) => entry.id === workspaceId);
   if (!workspace) {
     return store.emit();
   }

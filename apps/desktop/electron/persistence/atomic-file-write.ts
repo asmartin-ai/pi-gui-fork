@@ -13,8 +13,19 @@ const writeQueueByPath = new Map<string, Promise<void>>();
  * bytes take its place, so {@link readJsonWithBackup} can recover from it if the
  * primary file is ever found truncated or corrupt.
  */
-export async function writeFileAtomicQueued(filePath: string, contents: string): Promise<void> {
+export async function writeFileAtomicQueued(
+  filePath: string,
+  contents: string,
+  validateExisting: (value: unknown) => unknown,
+): Promise<void> {
   await enqueueWrite(filePath, async () => {
+    const existing = await readJsonWithBackup(filePath);
+    if (existing.corrupted && !existing.recovered) {
+      throw new Error(
+        `Cannot overwrite invalid saved data at ${filePath}; repair or restore it first.`,
+      );
+    }
+    if (existing.value !== undefined) validateExisting(existing.value);
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     const tmpPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -28,7 +39,7 @@ export async function writeFileAtomicQueued(filePath: string, contents: string):
     }
 
     try {
-      await promoteToTarget(tmpPath, filePath);
+      await promoteToTarget(tmpPath, filePath, existing.corrupted);
     } catch (error) {
       await cleanupTempFile(tmpPath);
       throw error;
@@ -55,46 +66,60 @@ export interface AtomicReadResult<T> {
  * "never written" case and is reported without the `corrupted` flag so callers
  * do not log noise on first run.
  */
-export async function readJsonWithBackup<T>(filePath: string): Promise<AtomicReadResult<T>> {
-  const primary = await tryReadParse<T>(filePath);
+export async function readJsonWithBackup(filePath: string): Promise<AtomicReadResult<unknown>> {
+  const primary = await tryReadParse(filePath);
   if (primary.status === "ok") {
     return { value: primary.value, corrupted: false, recovered: false };
   }
 
-  const backup = await tryReadParse<T>(`${filePath}.bak`);
+  const backup = await tryReadParse(`${filePath}.bak`);
   if (backup.status === "ok") {
     return { value: backup.value, corrupted: primary.status === "corrupt", recovered: true };
   }
 
-  return { value: undefined, corrupted: primary.status === "corrupt", recovered: false };
+  return {
+    value: undefined,
+    corrupted: primary.status === "corrupt" || backup.status === "corrupt",
+    recovered: false,
+  };
 }
 
-type ReadParseResult<T> =
-  | { readonly status: "ok"; readonly value: T }
+type ReadParseResult =
+  | { readonly status: "ok"; readonly value: unknown }
   | { readonly status: "missing" }
   | { readonly status: "corrupt" };
 
-async function tryReadParse<T>(filePath: string): Promise<ReadParseResult<T>> {
+async function tryReadParse(filePath: string): Promise<ReadParseResult> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
   } catch (error) {
-    return isMissingFileError(error) ? { status: "missing" } : { status: "corrupt" };
+    if (isMissingFileError(error)) return { status: "missing" };
+    throw error;
   }
 
   try {
-    return { status: "ok", value: JSON.parse(raw) as T };
+    return { status: "ok", value: JSON.parse(raw) as unknown };
   } catch {
     return { status: "corrupt" };
   }
 }
 
-async function promoteToTarget(tmpPath: string, filePath: string): Promise<void> {
+async function promoteToTarget(
+  tmpPath: string,
+  filePath: string,
+  preserveCorrupt: boolean,
+): Promise<void> {
   // Preserve the current good file as a `.bak` before overwriting so a truncated
   // or corrupt target can be recovered on read. On the first write there is no
   // target yet, so a missing-file error here is expected and ignored.
   try {
-    await renameReplace(filePath, `${filePath}.bak`);
+    // Recovery never replaces the good backup with corrupt bytes. Retain the
+    // damaged primary separately before installing the recovered state.
+    await renameReplace(
+      filePath,
+      preserveCorrupt ? `${filePath}.corrupt.${randomUUID()}` : `${filePath}.bak`,
+    );
   } catch (error) {
     if (!isMissingFileError(error)) {
       throw error;

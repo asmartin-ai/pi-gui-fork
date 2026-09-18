@@ -353,6 +353,53 @@ test("opens multiple app windows with independent workspace and thread selection
   }
 });
 
+test("keeps each window selection when a background window changes transparency", async () => {
+  test.setTimeout(120_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("multi-window-transparency");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const workspaceName = basename(workspacePath);
+    const firstWindow = await harness.firstWindow();
+    await waitForWorkspaceByPath(firstWindow, workspacePath);
+    await createNamedThread(firstWindow, "Transparency first", { workspaceName });
+    await createNamedThread(firstWindow, "Transparency second", { workspaceName });
+    await selectSession(firstWindow, "Transparency first");
+
+    const secondWindow = await openWindowViaShortcut(harness, firstWindow);
+    await selectSession(secondWindow, "Transparency second");
+    await expectSelected(firstWindow, workspacePath, "Transparency first");
+    await expectSelected(secondWindow, workspacePath, "Transparency second");
+
+    const returnedSelection = await secondWindow.evaluate(async () => {
+      const app = globalThis.window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      const state = await app.setEnableTransparency(true);
+      const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
+      return workspace?.sessions.find((entry) => entry.id === state.selectedSessionId)?.title ?? "";
+    });
+
+    expect(returnedSelection).toBe("Transparency second");
+    await expectSelected(firstWindow, workspacePath, "Transparency first");
+    await expectSelected(secondWindow, workspacePath, "Transparency second");
+    await expect
+      .poll(async () => [
+        (await getDesktopState(firstWindow)).enableTransparency,
+        (await getDesktopState(secondWindow)).enableTransparency,
+      ])
+      .toEqual([true, true]);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("projects sender state emissions from the in-flight selection", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("multi-window-sender-projection");

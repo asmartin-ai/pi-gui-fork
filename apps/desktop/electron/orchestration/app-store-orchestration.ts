@@ -3,7 +3,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { sessionKey } from "@pi-gui/session-driver";
-import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
+import type {
+  CreateSessionOptions,
+  SessionConfig,
+  SessionDriverEvent,
+  SessionRef,
+  SessionSnapshot,
+  WorkspaceRef,
+} from "@pi-gui/session-driver";
+import type { PiSdkDriver } from "@pi-gui/pi-sdk-driver";
 import type {
   DesktopAppState,
   OrchestrationEvidenceRecord,
@@ -17,9 +25,8 @@ import type {
   TimelineToolCall,
   TranscriptMessage,
 } from "../../contracts/desktop-state";
-import { submitComposerToSession } from "../conversation/app-store-composer";
-import type { AppStoreInternals } from "../application/app-store-internals";
 import { latestSessionActivityAt, previewFromTranscript } from "../application/app-store-utils";
+import type { RefreshStateOptions } from "../application/refresh-state-options";
 import {
   createChildThreadAction,
   createChildThreadPromptFromToolOutput,
@@ -53,6 +60,114 @@ const CHILD_RUNNING_FAILURE_GRACE_MS = 1_000;
 const pendingCreateChildThreadToolCalls = new Set<string>();
 const execFileAsync = promisify(execFile);
 
+interface OrchestrationStateView {
+  readonly selectedWorkspaceId?: string;
+  readonly selectedSessionId?: string;
+  readonly workspaces: DesktopAppState["workspaces"];
+  readonly orchestrationChildren: readonly OrchestrationChildThread[];
+}
+
+type OrchestrationDriver = Pick<PiSdkDriver, "cancelCurrentRun" | "createSession">;
+
+interface OrchestrationOwnerHost {
+  readonly driver: OrchestrationDriver;
+  initialize(): Promise<void>;
+  orchestrationState(): OrchestrationStateView;
+  replaceOrchestrationChildren(children: readonly OrchestrationChildThread[]): void;
+  refreshState(options?: RefreshStateOptions): Promise<DesktopAppState>;
+  emit(): DesktopAppState;
+  withError(error: unknown): Promise<DesktopAppState>;
+  persistUiState(): Promise<void>;
+  workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined;
+  sessionFromState(
+    sessionRef: SessionRef,
+  ):
+    | { archivedAt?: string; updatedAt: string; title: string; status: string; preview?: string }
+    | undefined;
+  ensureSessionReady(sessionRef: SessionRef): Promise<SessionSnapshot | undefined>;
+  ensureSessionSubscription(sessionRef: SessionRef): Promise<void>;
+  subscribeToSessionEvents(
+    listener: (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>,
+  ): () => void;
+  updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
+  buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
+  getQueuedComposerMessages(
+    sessionRef: SessionRef,
+  ): readonly import("../../contracts/desktop-state").QueuedComposerMessage[];
+  seedSession(snapshot: SessionSnapshot): void;
+  transcriptFor(sessionRef: SessionRef): readonly TranscriptMessage[];
+  transcriptForKey(key: string): readonly TranscriptMessage[];
+  replaceTranscript(sessionRef: SessionRef, transcript: readonly TranscriptMessage[]): void;
+  isTranscriptLoaded(sessionRef: SessionRef): boolean;
+  getSessionError(sessionRef: SessionRef): string | undefined;
+  setSessionError(sessionRef: SessionRef, message: string): void;
+  submitComposerToSession(
+    sessionRef: SessionRef,
+    text: string,
+    attachments: readonly import("../../contracts/desktop-state").ComposerAttachment[],
+    options?: { readonly deliverAs?: "steer" | "followUp"; readonly allowCommands?: boolean },
+  ): Promise<DesktopAppState>;
+}
+
+export interface OrchestrationOwner {
+  reconcileDueSupervisionLoops(): { readonly changed: boolean };
+  cancelChildRunsForParent(parentRef: SessionRef): Promise<void>;
+  sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState>;
+  setChildSupervisionLoopGate(input: SetChildSupervisionLoopInput): Promise<DesktopAppState>;
+  hydrateOrchestrationChildren(): Promise<void>;
+  hydrateVisibleOrchestrationChildren(): Promise<void>;
+  projectOrchestrationChildren(
+    children?: readonly OrchestrationChildThread[],
+  ): readonly OrchestrationChildThread[];
+  projectOrchestrationChildrenForSession(
+    sessionRef: SessionRef,
+  ): readonly OrchestrationChildThread[];
+  handleOrchestrationThreadToolResult(
+    event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
+  ): Promise<boolean>;
+  hasOrchestrationChildSession(sessionRef: SessionRef): boolean;
+  hasOrchestrationParentSession(sessionRef: SessionRef): boolean;
+  createChildThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly prompt: string; readonly toolCallId: string },
+  ): Promise<AgentToolResult<CreateChildThreadToolDetails>>;
+  listThreadsToolResult(parentRef: SessionRef): AgentToolResult<ListThreadsToolDetails>;
+  readThreadToolResult(
+    parentRef: SessionRef,
+    threadId: string,
+  ): Promise<AgentToolResult<ReadThreadToolDetails>>;
+  sendMessageToThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly threadId: string; readonly message: string },
+  ): Promise<AgentToolResult<SendMessageToThreadToolDetails>>;
+}
+
+export function createOrchestrationOwner(store: OrchestrationOwnerHost): OrchestrationOwner {
+  return {
+    reconcileDueSupervisionLoops: () => reconcileDueSupervisionLoops(store),
+    cancelChildRunsForParent: (parentRef) => cancelChildRunsForParent(store, parentRef),
+    sendChildThreadFollowUp: (input) => sendChildThreadFollowUp(store, input),
+    setChildSupervisionLoopGate: (input) => setChildSupervisionLoopGate(store, input),
+    hydrateOrchestrationChildren: () => hydrateOrchestrationChildren(store),
+    hydrateVisibleOrchestrationChildren: () => hydrateVisibleOrchestrationChildren(store),
+    projectOrchestrationChildren: (children) => projectOrchestrationChildren(store, children),
+    projectOrchestrationChildrenForSession: (sessionRef) =>
+      projectOrchestrationChildrenForSession(store, sessionRef),
+    handleOrchestrationThreadToolResult: (event) =>
+      handleOrchestrationThreadToolResult(store, event),
+    hasOrchestrationChildSession: (sessionRef) =>
+      hasOrchestrationChildSession(store.orchestrationState().orchestrationChildren, sessionRef),
+    hasOrchestrationParentSession: (sessionRef) =>
+      hasOrchestrationParentSession(store.orchestrationState().orchestrationChildren, sessionRef),
+    createChildThreadToolResult: (parentRef, input) =>
+      createChildThreadToolResult(store, parentRef, input),
+    listThreadsToolResult: (parentRef) => listThreadsToolResult(store, parentRef),
+    readThreadToolResult: (parentRef, threadId) => readThreadToolResult(store, parentRef, threadId),
+    sendMessageToThreadToolResult: (parentRef, input) =>
+      sendMessageToThreadToolResult(store, parentRef, input),
+  };
+}
+
 interface SpawnChildThreadInput {
   readonly parentWorkspaceId: string;
   readonly parentSessionId: string;
@@ -66,7 +181,7 @@ interface CreatedChildThreadResult {
 }
 
 async function createChildThreadRecord(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   input: SpawnChildThreadInput,
 ): Promise<CreatedChildThreadResult> {
   await store.initialize();
@@ -116,10 +231,7 @@ async function createChildThreadRecord(
       title: titleFromPrompt(prompt),
     });
     const childRef = session.ref;
-    const key = sessionKey(childRef);
-    store.sessionState.transcriptCache.set(key, []);
-    store.sessionState.loadedTranscriptKeys.add(key);
-    store.updateSessionConfig(childRef, session.config);
+    store.seedSession(session);
     await store.ensureSessionSubscription(childRef);
 
     const now = new Date().toISOString();
@@ -161,13 +273,12 @@ async function createChildThreadRecord(
       evidence: child.evidence.map((record) => ({ ...record, childThreadId: child.id })),
     };
 
-    store.state = {
-      ...store.state,
-      orchestrationChildren: projectOrchestrationChildren(store, [
+    store.replaceOrchestrationChildren(
+      projectOrchestrationChildren(store, [
         childWithEvidence,
-        ...store.state.orchestrationChildren,
+        ...store.orchestrationState().orchestrationChildren,
       ]),
-    };
+    );
     await store.refreshState({
       selectedWorkspaceId: input.parentWorkspaceId,
       selectedSessionId: input.parentSessionId,
@@ -189,7 +300,7 @@ async function createChildThreadRecord(
 
     return {
       child:
-        store.state.orchestrationChildren.find((entry) => entry.id === child.id) ??
+        store.orchestrationState().orchestrationChildren.find((entry) => entry.id === child.id) ??
         childWithEvidence,
       deliveryStatus,
     };
@@ -201,7 +312,7 @@ async function createChildThreadRecord(
 }
 
 async function handleCreateChildThreadToolResult(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): Promise<boolean> {
   if (!event.success) {
@@ -257,8 +368,8 @@ async function handleCreateChildThreadToolResult(
   return true;
 }
 
-export async function handleOrchestrationThreadToolResult(
-  store: AppStoreInternals,
+async function handleOrchestrationThreadToolResult(
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): Promise<boolean> {
   if (!event.success) {
@@ -295,8 +406,8 @@ export async function handleOrchestrationThreadToolResult(
   return false;
 }
 
-export async function sendChildThreadFollowUp(
-  store: AppStoreInternals,
+async function sendChildThreadFollowUp(
+  store: OrchestrationOwnerHost,
   input: SendChildThreadFollowUpInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -305,7 +416,9 @@ export async function sendChildThreadFollowUp(
     return store.withError("Child thread follow-up cannot be empty.");
   }
 
-  const child = store.state.orchestrationChildren.find((entry) => entry.id === input.childThreadId);
+  const child = store
+    .orchestrationState()
+    .orchestrationChildren.find((entry) => entry.id === input.childThreadId);
   if (!child) {
     return store.withError("Unknown child thread.");
   }
@@ -318,7 +431,7 @@ export async function sendChildThreadFollowUp(
     return store.withError("Child thread session is no longer available.");
   }
 
-  await submitComposerToSession(store, childRef, text, [], {
+  await store.submitComposerToSession(childRef, text, [], {
     deliverAs: "followUp",
     allowCommands: false,
   });
@@ -332,12 +445,14 @@ export async function sendChildThreadFollowUp(
   return store.emit();
 }
 
-export async function setChildSupervisionLoopGate(
-  store: AppStoreInternals,
+async function setChildSupervisionLoopGate(
+  store: OrchestrationOwnerHost,
   input: SetChildSupervisionLoopInput,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const child = store.state.orchestrationChildren.find((entry) => entry.id === input.childThreadId);
+  const child = store
+    .orchestrationState()
+    .orchestrationChildren.find((entry) => entry.id === input.childThreadId);
   if (!child) {
     return store.withError("Unknown child thread.");
   }
@@ -361,7 +476,7 @@ export async function setChildSupervisionLoopGate(
 }
 
 async function cancelChildRun(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   child: OrchestrationChildThread,
 ): Promise<void> {
   if (!child.childSessionId) {
@@ -375,20 +490,22 @@ async function cancelChildRun(
  * when the parent's own run is cancelled so children don't keep running
  * unsupervised. Best-effort per child.
  */
-export async function cancelChildRunsForParent(
-  store: AppStoreInternals,
+async function cancelChildRunsForParent(
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
 ): Promise<void> {
-  const children = store.state.orchestrationChildren.filter(
-    (child) =>
-      child.parentWorkspaceId === parentRef.workspaceId &&
-      child.parentSessionId === parentRef.sessionId,
-  );
+  const children = store
+    .orchestrationState()
+    .orchestrationChildren.filter(
+      (child) =>
+        child.parentWorkspaceId === parentRef.workspaceId &&
+        child.parentSessionId === parentRef.sessionId,
+    );
   await Promise.all(children.map((child) => cancelChildRun(store, child)));
 }
 
-export async function createChildThreadToolResult(
-  store: AppStoreInternals,
+async function createChildThreadToolResult(
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
   input: { readonly prompt: string; readonly toolCallId: string },
 ): Promise<AgentToolResult<CreateChildThreadToolDetails>> {
@@ -415,7 +532,7 @@ export async function createChildThreadToolResult(
 }
 
 function updateListThreadsToolOutput(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): void {
   updateThreadToolOutput(
@@ -427,7 +544,7 @@ function updateListThreadsToolOutput(
 }
 
 async function updateReadThreadToolOutput(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): Promise<void> {
   const finalOutput = finalThreadToolProjectionFromOutput(event.output);
@@ -454,7 +571,7 @@ async function updateReadThreadToolOutput(
 }
 
 async function updateSendMessageToThreadToolOutput(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): Promise<void> {
   const finalOutput = finalThreadToolProjectionFromOutput(event.output);
@@ -486,14 +603,11 @@ async function updateSendMessageToThreadToolOutput(
   );
 }
 
-export function listThreadsToolResult(
-  store: AppStoreInternals,
+function listThreadsToolResult(
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
 ): AgentToolResult<ListThreadsToolDetails> {
-  store.state = {
-    ...store.state,
-    orchestrationChildren: projectOrchestrationChildren(store),
-  };
+  store.replaceOrchestrationChildren(projectOrchestrationChildren(store));
   const threads = listThreadsForContext(store, parentRef);
   return {
     content: [{ type: "text", text: formatThreadList(threads) }],
@@ -504,8 +618,8 @@ export function listThreadsToolResult(
   };
 }
 
-export async function readThreadToolResult(
-  store: AppStoreInternals,
+async function readThreadToolResult(
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
   threadId: string,
 ): Promise<AgentToolResult<ReadThreadToolDetails>> {
@@ -515,7 +629,7 @@ export async function readThreadToolResult(
   }
 
   await store.ensureSessionReady(target.sessionRef);
-  const transcript = store.sessionState.transcriptCache.get(sessionKey(target.sessionRef)) ?? [];
+  const transcript = store.transcriptFor(target.sessionRef);
   const session = store.sessionFromState(target.sessionRef);
   const messages = toThreadReadMessages(transcript);
   const title = session?.title ?? target.child?.title ?? target.sessionRef.sessionId;
@@ -544,8 +658,8 @@ export async function readThreadToolResult(
   };
 }
 
-export async function sendMessageToThreadToolResult(
-  store: AppStoreInternals,
+async function sendMessageToThreadToolResult(
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
   input: { readonly threadId: string; readonly message: string },
 ): Promise<AgentToolResult<SendMessageToThreadToolDetails>> {
@@ -558,7 +672,7 @@ export async function sendMessageToThreadToolResult(
     );
   }
 
-  await submitComposerToSession(store, target.sessionRef, input.message, [], {
+  await store.submitComposerToSession(target.sessionRef, input.message, [], {
     deliverAs: "followUp",
     allowCommands: false,
   });
@@ -590,9 +704,9 @@ export async function sendMessageToThreadToolResult(
   };
 }
 
-export function projectOrchestrationChildren(
-  store: AppStoreInternals,
-  children: readonly OrchestrationChildThread[] = store.state.orchestrationChildren,
+function projectOrchestrationChildren(
+  store: OrchestrationOwnerHost,
+  children: readonly OrchestrationChildThread[] = store.orchestrationState().orchestrationChildren,
 ): readonly OrchestrationChildThread[] {
   const now = new Date().toISOString();
   const parentEvidenceByChild = parentEvidenceIndex(store, children);
@@ -601,13 +715,14 @@ export function projectOrchestrationChildren(
   );
 }
 
-export function projectOrchestrationChildrenForSession(
-  store: AppStoreInternals,
+function projectOrchestrationChildrenForSession(
+  store: OrchestrationOwnerHost,
   sessionRef: SessionRef,
 ): readonly OrchestrationChildThread[] {
   const now = new Date().toISOString();
-  const parentEvidenceByChild = parentEvidenceIndex(store, store.state.orchestrationChildren);
-  return store.state.orchestrationChildren.map((child) =>
+  const children = store.orchestrationState().orchestrationChildren;
+  const parentEvidenceByChild = parentEvidenceIndex(store, children);
+  return children.map((child) =>
     child.childWorkspaceId === sessionRef.workspaceId &&
     child.childSessionId === sessionRef.sessionId
       ? projectOrchestrationChild(store, child, now, parentEvidenceByChild.get(child.id) ?? [])
@@ -615,15 +730,16 @@ export function projectOrchestrationChildrenForSession(
   );
 }
 
-export function reconcileDueSupervisionLoops(
-  store: AppStoreInternals,
+function reconcileDueSupervisionLoops(
+  store: OrchestrationOwnerHost,
   now: Date = new Date(),
 ): { readonly changed: boolean; readonly nextRunAt?: string } {
   let shouldPublish = false;
   const nowMs = now.getTime();
   const nowIso = now.toISOString();
-  const parentEvidenceByChild = parentEvidenceIndex(store, store.state.orchestrationChildren);
-  const children = store.state.orchestrationChildren.map((child) => {
+  const currentChildren = store.orchestrationState().orchestrationChildren;
+  const parentEvidenceByChild = parentEvidenceIndex(store, currentChildren);
+  const children = currentChildren.map((child) => {
     const beforeKey = supervisionPublishKey(child);
     const projectedChild = projectOrchestrationChild(
       store,
@@ -657,10 +773,7 @@ export function reconcileDueSupervisionLoops(
     return advancedChild;
   });
 
-  store.state = {
-    ...store.state,
-    orchestrationChildren: children,
-  };
+  store.replaceOrchestrationChildren(children);
 
   return {
     changed: shouldPublish,
@@ -668,15 +781,16 @@ export function reconcileDueSupervisionLoops(
   };
 }
 
-export async function hydrateOrchestrationChildren(store: AppStoreInternals): Promise<void> {
+async function hydrateOrchestrationChildren(store: OrchestrationOwnerHost): Promise<void> {
   await hydrateVisibleOrchestrationChildren(store);
 }
 
-export async function hydrateVisibleOrchestrationChildren(store: AppStoreInternals): Promise<void> {
-  const visibleChildren = store.state.orchestrationChildren.filter(
+async function hydrateVisibleOrchestrationChildren(store: OrchestrationOwnerHost): Promise<void> {
+  const state = store.orchestrationState();
+  const visibleChildren = state.orchestrationChildren.filter(
     (child) =>
-      child.parentWorkspaceId === store.state.selectedWorkspaceId &&
-      child.parentSessionId === store.state.selectedSessionId,
+      child.parentWorkspaceId === state.selectedWorkspaceId &&
+      child.parentSessionId === state.selectedSessionId,
   );
   const seen = new Set<string>();
   const hydrationTasks: Promise<unknown>[] = [];
@@ -686,24 +800,20 @@ export async function hydrateVisibleOrchestrationChildren(store: AppStoreInterna
     }
     const childRef = childSessionRef(child);
     const key = sessionKey(childRef);
-    if (
-      seen.has(key) ||
-      !store.sessionFromState(childRef) ||
-      store.sessionState.loadedTranscriptKeys.has(key)
-    ) {
+    if (seen.has(key) || !store.sessionFromState(childRef) || store.isTranscriptLoaded(childRef)) {
       continue;
     }
     seen.add(key);
     hydrationTasks.push(
       store.ensureSessionReady(childRef).catch((error) => {
-        store.sessionState.sessionErrorsBySession.set(key, errorMessage(error));
+        store.setSessionError(childRef, errorMessage(error));
       }),
     );
   }
   await Promise.all(hydrationTasks);
 }
 
-export function hasOrchestrationChildSession(
+function hasOrchestrationChildSession(
   children: readonly OrchestrationChildThread[],
   sessionRef: SessionRef,
 ): boolean {
@@ -715,7 +825,7 @@ export function hasOrchestrationChildSession(
   );
 }
 
-export function hasOrchestrationParentSession(
+function hasOrchestrationParentSession(
   children: readonly OrchestrationChildThread[],
   sessionRef: SessionRef,
 ): boolean {
@@ -762,7 +872,7 @@ function childSessionRef(child: OrchestrationChildThread): SessionRef {
 }
 
 async function launchInitialChildPrompt(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   childRef: SessionRef,
   prompt: string,
 ): Promise<CreatedChildThreadResult["deliveryStatus"]> {
@@ -828,7 +938,7 @@ async function launchInitialChildPrompt(
       }
     }
 
-    const submission = submitComposerToSession(store, childRef, prompt, [], {
+    const submission = store.submitComposerToSession(childRef, prompt, [], {
       deliverAs: "followUp",
       allowCommands: false,
     });
@@ -852,7 +962,7 @@ async function launchInitialChildPrompt(
 }
 
 function requireInitialPromptRun(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   childRef: SessionRef,
   prompt: string,
 ): CreatedChildThreadResult["deliveryStatus"] {
@@ -866,12 +976,12 @@ function requireInitialPromptRun(
 }
 
 function initialPromptDeliveryStatus(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   childRef: SessionRef,
   prompt: string,
 ): CreatedChildThreadResult["deliveryStatus"] | undefined {
   const key = sessionKey(childRef);
-  const sessionError = store.sessionState.sessionErrorsBySession.get(key);
+  const sessionError = store.getSessionError(childRef);
   if (sessionError) {
     throw new Error(`Failed to start child thread: ${sessionError}`);
   }
@@ -883,7 +993,7 @@ function initialPromptDeliveryStatus(
     );
   }
 
-  const transcript = store.sessionState.transcriptCache.get(key) ?? [];
+  const transcript = store.transcriptFor(childRef);
   const promptIndex = transcript.findIndex(
     (item) => item.kind === "message" && item.role === "user" && item.text === prompt,
   );
@@ -901,15 +1011,14 @@ function isWorkerResponse(item: TranscriptMessage): boolean {
 }
 
 function markInitialPromptDeliveryFailed(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   childThreadId: string,
   error: unknown,
 ): void {
   const now = new Date().toISOString();
   const message = errorMessage(error);
-  store.state = {
-    ...store.state,
-    orchestrationChildren: store.state.orchestrationChildren.map((child) =>
+  store.replaceOrchestrationChildren(
+    store.orchestrationState().orchestrationChildren.map((child) =>
       child.id === childThreadId
         ? {
             ...child,
@@ -933,11 +1042,11 @@ function markInitialPromptDeliveryFailed(
           }
         : child,
     ),
-  };
+  );
 }
 
 function projectOrchestrationChild(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   child: OrchestrationChildThread,
   nowIso: string,
   parentEvidence: readonly OrchestrationEvidenceRecord[],
@@ -948,7 +1057,7 @@ function projectOrchestrationChild(
   const childRef = childSessionRef(child);
   const key = sessionKey(childRef);
   const session = store.sessionFromState(childRef);
-  const rawTranscript = recentTranscriptItems(store.sessionState.transcriptCache.get(key) ?? []);
+  const rawTranscript = recentTranscriptItems(store.transcriptFor(childRef));
   const transcript = toChildTranscript(rawTranscript, MAX_CHILD_TRANSCRIPT_MESSAGES);
   const latestTranscript = session?.preview || previewFromTranscript(rawTranscript) || child.goal;
   const updatedAt = latestSessionActivityAt(session?.updatedAt ?? child.updatedAt, rawTranscript);
@@ -1077,15 +1186,14 @@ function supervisionPublishKey(child: OrchestrationChildThread): string {
 }
 
 function updateChildSupervisionLoop(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   childThreadId: string,
   gate: SetChildSupervisionLoopInput["gate"],
   reason: string,
 ): void {
   const nowIso = new Date().toISOString();
-  store.state = {
-    ...store.state,
-    orchestrationChildren: store.state.orchestrationChildren.map((child) => {
+  store.replaceOrchestrationChildren(
+    store.orchestrationState().orchestrationChildren.map((child) => {
       if (child.id !== childThreadId) {
         return child;
       }
@@ -1107,7 +1215,7 @@ function updateChildSupervisionLoop(
         },
       };
     }),
-  };
+  );
 }
 
 function supervisionIntervalMs(): number {
@@ -1123,7 +1231,7 @@ function nextIso(fromIso: string, intervalMs: number): string {
 }
 
 function updateCreateChildThreadToolOutput(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
   prompt: string,
   child: OrchestrationChildThread,
@@ -1145,7 +1253,7 @@ function updateCreateChildThreadToolOutput(
 }
 
 function updateThreadToolOutput(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
   output: {
     readonly detail: string;
@@ -1155,7 +1263,7 @@ function updateThreadToolOutput(
   },
 ): void {
   const key = sessionKey(event.sessionRef);
-  const transcript = [...(store.sessionState.transcriptCache.get(key) ?? [])];
+  const transcript = [...store.transcriptFor(event.sessionRef)];
   const index = transcript.findIndex(
     (item) => item.kind === "tool" && item.callId === event.callId,
   );
@@ -1177,30 +1285,32 @@ function updateThreadToolOutput(
       details: output.details,
     },
   };
-  store.sessionState.transcriptCache.set(key, transcript);
+  store.replaceTranscript(event.sessionRef, transcript);
 }
 
-function refreshParentOrchestrationEvidence(store: AppStoreInternals, parentRef: SessionRef): void {
+function refreshParentOrchestrationEvidence(
+  store: OrchestrationOwnerHost,
+  parentRef: SessionRef,
+): void {
   if (
-    !store.state.orchestrationChildren.some(
-      (child) =>
-        child.parentWorkspaceId === parentRef.workspaceId &&
-        child.parentSessionId === parentRef.sessionId,
-    )
+    !store
+      .orchestrationState()
+      .orchestrationChildren.some(
+        (child) =>
+          child.parentWorkspaceId === parentRef.workspaceId &&
+          child.parentSessionId === parentRef.sessionId,
+      )
   ) {
     return;
   }
-  store.state = {
-    ...store.state,
-    orchestrationChildren: projectOrchestrationChildren(store),
-  };
+  store.replaceOrchestrationChildren(projectOrchestrationChildren(store));
 }
 
 function toolCallForFinishedEvent(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
 ): TimelineToolCall | undefined {
-  const transcript = store.sessionState.transcriptCache.get(sessionKey(event.sessionRef));
+  const transcript = store.transcriptFor(event.sessionRef);
   return transcript?.find(
     (item): item is TimelineToolCall => isTimelineToolCall(item) && item.callId === event.callId,
   );
@@ -1374,11 +1484,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function listThreadsForContext(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
 ): readonly ThreadListEntry[] {
   const entries = new Map<string, ThreadListEntry>();
-  const parentChildren = store.state.orchestrationChildren.filter(
+  const state = store.orchestrationState();
+  const parentChildren = state.orchestrationChildren.filter(
     (child) =>
       child.parentWorkspaceId === parentRef.workspaceId &&
       child.parentSessionId === parentRef.sessionId,
@@ -1387,7 +1498,7 @@ function listThreadsForContext(
     parentChildren.map((child) => [sessionKey(childSessionRef(child)), child] as const),
   );
 
-  for (const workspace of store.state.workspaces) {
+  for (const workspace of state.workspaces) {
     if (
       workspace.id !== parentRef.workspaceId &&
       !parentChildren.some((child) => child.childWorkspaceId === workspace.id)
@@ -1476,7 +1587,7 @@ function threadListSupervisionFields(
 }
 
 function resolveThreadTarget(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   parentRef: SessionRef,
   threadId: string,
 ): ResolvedThreadTarget | undefined {
@@ -1497,7 +1608,9 @@ function resolveThreadTarget(
   }
 
   const child = visibleThread.childThreadId
-    ? store.state.orchestrationChildren.find((entry) => entry.id === visibleThread.childThreadId)
+    ? store
+        .orchestrationState()
+        .orchestrationChildren.find((entry) => entry.id === visibleThread.childThreadId)
     : undefined;
   return {
     sessionRef: {
@@ -1608,7 +1721,7 @@ function capEvidenceRecords(
 }
 
 function parentEvidenceIndex(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   children: readonly OrchestrationChildThread[],
 ): ReadonlyMap<string, readonly OrchestrationEvidenceRecord[]> {
   const childById = new Map(children.map((child) => [child.id, child] as const));
@@ -1622,7 +1735,7 @@ function parentEvidenceIndex(
   );
   const index = new Map<string, OrchestrationEvidenceRecord[]>();
   for (const key of parentKeys) {
-    const transcript = store.sessionState.transcriptCache.get(key) ?? [];
+    const transcript = store.transcriptForKey(key);
     for (const record of evidenceFromParentTranscript(childById, transcript)) {
       const bucket = index.get(record.childThreadId) ?? [];
       bucket.push(record);
@@ -1881,18 +1994,20 @@ async function gitOutputLines(
 }
 
 function childForToolCall(
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
   input: Pick<SpawnChildThreadInput, "parentWorkspaceId" | "parentSessionId" | "sourceToolCallId">,
 ): OrchestrationChildThread | undefined {
   if (!input.sourceToolCallId) {
     return undefined;
   }
-  return store.state.orchestrationChildren.find(
-    (child) =>
-      child.sourceToolCallId === input.sourceToolCallId &&
-      child.parentWorkspaceId === input.parentWorkspaceId &&
-      child.parentSessionId === input.parentSessionId,
-  );
+  return store
+    .orchestrationState()
+    .orchestrationChildren.find(
+      (child) =>
+        child.sourceToolCallId === input.sourceToolCallId &&
+        child.parentWorkspaceId === input.parentWorkspaceId &&
+        child.parentSessionId === input.parentSessionId,
+    );
 }
 
 function childToolCallKey(
@@ -1915,7 +2030,7 @@ function isTimelineToolCall(value: TranscriptMessage): value is TimelineToolCall
 function toOrchestrationStatus(
   status: string,
   sessionRef: SessionRef,
-  store: AppStoreInternals,
+  store: OrchestrationOwnerHost,
 ): OrchestrationChildThreadStatus {
   if (store.getQueuedComposerMessages(sessionRef).length > 0) {
     return "waiting";
@@ -1935,8 +2050,8 @@ function toOrchestrationStatus(
   return "complete";
 }
 
-function hasStartedRun(store: AppStoreInternals, sessionRef: SessionRef): boolean {
-  const transcript = store.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [];
+function hasStartedRun(store: OrchestrationOwnerHost, sessionRef: SessionRef): boolean {
+  const transcript = store.transcriptFor(sessionRef);
   return transcript.some(isWorkerResponse);
 }
 
