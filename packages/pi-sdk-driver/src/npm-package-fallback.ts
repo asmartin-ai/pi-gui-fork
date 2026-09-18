@@ -128,13 +128,6 @@ async function createAgentSessionResultWithNpmFallback(
   };
 }
 
-export async function createAgentSessionWithNpmFallback(options?: PiCreateAgentSessionOptions) {
-  const cwd = options?.cwd ?? process.cwd();
-  const agentDir = options?.agentDir ?? getAgentDir();
-  const sessionManager = options?.sessionManager ?? SessionManager.create(cwd);
-  return createAgentSessionResultWithNpmFallback(cwd, agentDir, sessionManager, options);
-}
-
 export async function createAgentSessionRuntimeWithNpmFallback(
   options?: PiCreateAgentSessionOptions,
 ): Promise<AgentSessionRuntime> {

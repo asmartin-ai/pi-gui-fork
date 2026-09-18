@@ -80,7 +80,6 @@ import {
   deriveWorkspaceTitle,
   determineRunOutcome,
   extractPreview,
-  forcePersistSession,
   injectFileAttachmentPreamble,
   messageText,
   nowIso,
@@ -93,6 +92,7 @@ import {
   truncate,
   workspaceToRef,
 } from "./session-supervisor-utils.js";
+import { forcePersistPiSession } from "./compat/pi-session-persistence.js";
 import {
   createAgentSessionRuntimeWithNpmFallback,
   type PiCreateAgentSessionOptions,
@@ -186,6 +186,8 @@ export class SessionSupervisor {
   private readonly modelRegistry: ModelRegistry | undefined;
   private readonly records = new Map<string, ManagedSessionRecord>();
   private readonly ensureRecordInFlight = new Map<string, Promise<ManagedSessionRecord>>();
+  /** Preserve invocation order so stale touches cannot undo a later rename or removal. */
+  private readonly workspaceMutationQueues = new Map<WorkspaceId, Promise<void>>();
   private readonly leaseIdentity: LeaseIdentity = currentLeaseIdentity();
   private readonly leaseTtlMs = DEFAULT_LEASE_TTL_MS;
   private readonly isPidAlive = defaultIsPidAlive;
@@ -221,7 +223,7 @@ export class SessionSupervisor {
 
   async registerWorkspace(path: string, displayName?: string): Promise<WorkspaceRef> {
     const workspace = await createCanonicalWorkspaceRef(path, displayName);
-    await this.touchWorkspace(workspace);
+    await this.registerWorkspaceRef(workspace);
     return workspace;
   }
 
@@ -344,41 +346,45 @@ export class SessionSupervisor {
   }
 
   async renameWorkspace(workspaceId: WorkspaceId, displayName: string): Promise<void> {
-    const existing = await this.catalogs.workspaces.getWorkspace(workspaceId);
-    if (!existing) {
-      throw new Error(`Unknown workspace: ${workspaceId}`);
-    }
-
-    const nextWorkspace = await createCanonicalWorkspaceRef(
-      existing.path,
-      displayName.trim() || undefined,
-    );
-    await this.touchWorkspace(nextWorkspace);
-
-    for (const record of this.records.values()) {
-      if (record.workspace.workspaceId === workspaceId) {
-        record.workspace = nextWorkspace;
+    await this.runWorkspaceMutation(workspaceId, async () => {
+      const existing = await this.catalogs.workspaces.getWorkspace(workspaceId);
+      if (!existing) {
+        throw new Error(`Unknown workspace: ${workspaceId}`);
       }
-    }
+
+      const nextWorkspace = await createCanonicalWorkspaceRef(
+        existing.path,
+        displayName.trim() || undefined,
+      );
+      await this.registerWorkspaceRefNow(nextWorkspace);
+
+      for (const record of this.records.values()) {
+        if (record.workspace.workspaceId === workspaceId) {
+          record.workspace = nextWorkspace;
+        }
+      }
+    });
   }
 
   async removeWorkspace(workspaceId: WorkspaceId): Promise<void> {
-    const sessions = (await this.catalogs.sessions.listSessions(workspaceId)).sessions;
-    await this.catalogs.workspaces.deleteWorkspace(workspaceId);
+    await this.runWorkspaceMutation(workspaceId, async () => {
+      const sessions = (await this.catalogs.sessions.listSessions(workspaceId)).sessions;
+      await this.catalogs.workspaces.deleteWorkspace(workspaceId);
 
-    for (const session of sessions) {
-      const key = sessionKey(session.sessionRef);
-      const record = this.records.get(key);
-      if (!record) {
-        continue;
+      for (const session of sessions) {
+        const key = sessionKey(session.sessionRef);
+        const record = this.records.get(key);
+        if (!record) {
+          continue;
+        }
+
+        record.unsubscribeAgent?.();
+        record.unsubscribeAgent = undefined;
+        record.listeners.clear();
+        await this.disposeRecordRuntimeSafely(record);
+        this.records.delete(key);
       }
-
-      record.unsubscribeAgent?.();
-      record.unsubscribeAgent = undefined;
-      record.listeners.clear();
-      await this.disposeRecordRuntimeSafely(record);
-      this.records.delete(key);
-    }
+    });
   }
 
   async getTranscript(sessionRef: SessionRef): Promise<SessionTranscriptItem[]> {
@@ -482,7 +488,7 @@ export class SessionSupervisor {
     workspace: WorkspaceRef,
     options?: CreateSessionOptions,
   ): Promise<SessionSnapshot> {
-    await this.touchWorkspace(workspace);
+    await this.registerWorkspaceRef(workspace);
 
     const initialModel = options?.initialModel
       ? this.resolveModel(options.initialModel.provider, options.initialModel.modelId)
@@ -510,7 +516,7 @@ export class SessionSupervisor {
       options?.title ?? deriveWorkspaceTitle(workspace),
     );
     session.sessionManager.appendSessionInfo(record.title);
-    forcePersistSession(session.sessionManager);
+    forcePersistPiSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
     const sessionFile = record.sessionFile ?? session.sessionManager.getSessionFile();
     if (sessionFile) {
@@ -583,7 +589,7 @@ export class SessionSupervisor {
     }
 
     const targetWorkspace = options.targetWorkspace;
-    await this.touchWorkspace(targetWorkspace);
+    await this.registerWorkspaceRef(targetWorkspace);
     const sameWorkspace = resolve(targetWorkspace.path) === resolve(sourceRecord.workspace.path);
 
     // Build a branched SessionManager containing only the history up to the fork point.
@@ -640,7 +646,7 @@ export class SessionSupervisor {
 
     const title = options.title ?? sourceRecord.title;
     const record = this.createRecord(targetWorkspace, runtime, title);
-    forcePersistSession(session.sessionManager);
+    forcePersistPiSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
     const sessionFile = record.sessionFile ?? session.sessionManager.getSessionFile();
     if (sessionFile) {
@@ -697,7 +703,7 @@ export class SessionSupervisor {
 
   async openSession(sessionRef: SessionRef): Promise<SessionSnapshot> {
     const record = await this.ensureRecord(sessionRef);
-    await this.touchWorkspace(record.workspace);
+    await this.touchWorkspace(record.workspace.workspaceId);
     const snapshot = buildSnapshot(record);
     await this.emit(record, {
       type: "sessionOpened",
@@ -882,7 +888,7 @@ export class SessionSupervisor {
     session.sessionManager.appendModelChange(model.provider, model.id);
     this.applySessionThinkingLevel(session, previousThinkingLevel);
     await this.emitModelSelection(session, model, previousModel);
-    forcePersistSession(session.sessionManager);
+    forcePersistPiSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -892,7 +898,7 @@ export class SessionSupervisor {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
     this.applySessionThinkingLevel(session, thinkingLevel);
-    forcePersistSession(session.sessionManager);
+    forcePersistPiSession(session.sessionManager);
     record.config = deriveSessionConfig(session.sessionManager);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -907,7 +913,7 @@ export class SessionSupervisor {
 
     const sessionManager = this.getWritableSessionManager(record);
     sessionManager.appendSessionInfo(nextTitle);
-    forcePersistSession(sessionManager);
+    forcePersistPiSession(sessionManager);
     record.title = nextTitle;
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -1056,7 +1062,7 @@ export class SessionSupervisor {
     if (!workspace) {
       throw new Error(`Workspace ${sessionEntry.workspaceId} is not in the catalog.`);
     }
-    await this.touchWorkspace(workspaceToRef(workspace));
+    await this.touchWorkspace(workspace.workspaceId);
 
     const sessionFile =
       existing?.sessionFile ??
@@ -2113,7 +2119,27 @@ export class SessionSupervisor {
     return listing.workspaces.length;
   }
 
-  private async touchWorkspace(workspace: WorkspaceRef): Promise<void> {
+  private async touchWorkspace(workspaceId: WorkspaceId): Promise<void> {
+    await this.runWorkspaceMutation(workspaceId, async () => {
+      const current = await this.catalogs.workspaces.getWorkspace(workspaceId);
+      if (!current) {
+        return;
+      }
+
+      await this.catalogs.workspaces.upsertWorkspace({
+        ...current,
+        lastOpenedAt: nowIso(),
+      });
+    });
+  }
+
+  private async registerWorkspaceRef(workspace: WorkspaceRef): Promise<void> {
+    await this.runWorkspaceMutation(workspace.workspaceId, () =>
+      this.registerWorkspaceRefNow(workspace),
+    );
+  }
+
+  private async registerWorkspaceRefNow(workspace: WorkspaceRef): Promise<void> {
     await this.catalogs.workspaces.upsertWorkspace({
       workspaceId: workspace.workspaceId,
       path: workspace.path,
@@ -2122,6 +2148,27 @@ export class SessionSupervisor {
       sortOrder: await this.deriveWorkspaceSortOrder(workspace.workspaceId),
       pinned: false,
     });
+  }
+
+  private async runWorkspaceMutation<T>(
+    workspaceId: WorkspaceId,
+    mutation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.workspaceMutationQueues.get(workspaceId) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(mutation);
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.workspaceMutationQueues.set(workspaceId, settled);
+
+    try {
+      return await result;
+    } finally {
+      if (this.workspaceMutationQueues.get(workspaceId) === settled) {
+        this.workspaceMutationQueues.delete(workspaceId);
+      }
+    }
   }
 
   private sessionEntryFromInfo(

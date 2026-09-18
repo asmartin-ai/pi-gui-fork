@@ -38,6 +38,7 @@ import {
   type CustomProviderEntry,
   type CustomProviderInput,
 } from "./custom-provider-store.js";
+import { savePiProjectSettings } from "./compat/pi-project-settings.js";
 
 export {
   BUILT_IN_PROVIDER_IDS,
@@ -68,11 +69,6 @@ interface RuntimeContext {
 export interface RuntimeInlineExtensionMetadata {
   readonly displayName: string;
   readonly description?: string;
-}
-
-interface ProjectWritableSettingsManager {
-  markProjectModified(field: string, nestedKey?: string): void;
-  saveProjectSettings(settings: Record<string, unknown>): void;
 }
 
 export interface RuntimeSupervisorOptions {
@@ -223,13 +219,13 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     },
   ): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
     const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
     projectSettings.defaultProvider = selection.provider;
     projectSettings.defaultModel = selection.modelId;
-    settingsManager.markProjectModified("defaultProvider");
-    settingsManager.markProjectModified("defaultModel");
-    settingsManager.saveProjectSettings(projectSettings);
+    savePiProjectSettings(context.settingsManager, projectSettings, [
+      "defaultProvider",
+      "defaultModel",
+    ]);
     await context.settingsManager.flush();
     await context.settingsManager.reload();
     return this.buildSnapshot(context);
@@ -256,11 +252,9 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     if (!thinkingLevel) {
       throw new Error("Thinking level is required.");
     }
-    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
     const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
     projectSettings.defaultThinkingLevel = thinkingLevel;
-    settingsManager.markProjectModified("defaultThinkingLevel");
-    settingsManager.saveProjectSettings(projectSettings);
+    savePiProjectSettings(context.settingsManager, projectSettings, ["defaultThinkingLevel"]);
     await context.settingsManager.flush();
     await context.settingsManager.reload();
     return this.buildSnapshot(context);
@@ -292,11 +286,9 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     patterns: readonly string[],
   ): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    const settingsManager = context.settingsManager as unknown as ProjectWritableSettingsManager;
     const projectSettings = context.settingsManager.getProjectSettings() as Record<string, unknown>;
     projectSettings.enabledModels = patterns.length > 0 ? [...patterns] : undefined;
-    settingsManager.markProjectModified("enabledModels");
-    settingsManager.saveProjectSettings(projectSettings);
+    savePiProjectSettings(context.settingsManager, projectSettings, ["enabledModels"]);
     await context.settingsManager.flush();
     await context.settingsManager.reload();
     return this.buildSnapshot(context);
