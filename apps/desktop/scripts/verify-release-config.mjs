@@ -400,6 +400,10 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
     const job = jobs[jobName];
     assert(job?.needs === "stage-draft", `${jobName} must wait for draft staging`);
     assert(
+      job.permissions?.contents === "write",
+      `${jobName} needs push access to read draft releases`,
+    );
+    assert(
       runText(stepNamed(job, "Download draft release")).includes("gh release download"),
       `${jobName} must download the draft release`,
     );
@@ -485,8 +489,9 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
     .filter(([, job]) => job.permissions?.contents === "write")
     .map(([jobName]) => jobName);
   assert(
-    JSON.stringify(writeJobs) === JSON.stringify(["stage-draft", "publish"]),
-    "Only draft staging and final publication may have release write permission",
+    JSON.stringify(writeJobs) ===
+      JSON.stringify(["stage-draft", ...draftVerifiers.map(([jobName]) => jobName), "publish"]),
+    "Only draft staging, draft verification, and final publication may have release write permission",
   );
 
   const publishedVerifiers = [

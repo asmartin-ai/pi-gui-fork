@@ -315,6 +315,9 @@ jobs:
   verify-draft-macos:
     needs: stage-draft
     runs-on: macos-latest
+    # GitHub requires push access even to read unpublished draft assets.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -352,6 +355,9 @@ jobs:
   verify-draft-linux:
     needs: stage-draft
     runs-on: ubuntu-latest
+    # GitHub requires push access even to read unpublished draft assets.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -390,6 +396,9 @@ jobs:
   verify-draft-windows:
     needs: stage-draft
     runs-on: windows-latest
+    # GitHub requires push access even to read unpublished draft assets.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
