@@ -201,6 +201,7 @@ export default function App() {
     finalizeTimelineVirtualizationDisable,
     handleTimelineScroll,
     handleTimelineScrollIntent,
+    handleTimelineNavigateAway,
     handleTimelineContentHeightChange,
     showJumpToLatest,
     jumpToLatest,
@@ -1056,6 +1057,7 @@ export default function App() {
                       onDisableVirtualizationReady={finalizeTimelineVirtualizationDisable}
                       onTimelineScroll={handleTimelineScroll}
                       onTimelineScrollIntent={handleTimelineScrollIntent}
+                      onTimelineNavigateAway={handleTimelineNavigateAway}
                       threadSearch={threadSearch}
                       showJumpToLatest={showJumpToLatest}
                       onJumpToLatest={jumpToLatest}
