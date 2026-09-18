@@ -12,7 +12,17 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
 
 test("the real lint config rejects shortcuts across source and script scopes", async () => {
-  const eslint = new ESLint({ cwd: root });
+  const eslint = new ESLint({
+    cwd: root,
+    // These repeated lintText calls replace project members in memory. CI's
+    // single-run optimization otherwise reads their unchanged disk contents.
+    // Keep every production rule/project; use the parser's editable program mode.
+    overrideConfig: {
+      languageOptions: {
+        parserOptions: { disallowAutomaticSingleRunInference: true },
+      },
+    },
+  });
   for (const filePath of [
     "apps/desktop/src/App.tsx",
     "apps/desktop/electron/main.ts",

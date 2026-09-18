@@ -20,7 +20,17 @@ const paths = [
 ];
 
 test("each workspace and desktop execution context rejects unsafe values and unhandled promises", async () => {
-  const eslint = new ESLint({ cwd: root });
+  const eslint = new ESLint({
+    cwd: root,
+    // These repeated lintText calls replace project members in memory. CI's
+    // single-run optimization otherwise reads their unchanged disk contents.
+    // Keep every production rule/project; use the parser's editable program mode.
+    overrideConfig: {
+      languageOptions: {
+        parserOptions: { disallowAutomaticSingleRunInference: true },
+      },
+    },
+  });
   const invalid = `
     declare const unsafe: any;
     const copy = unsafe;
