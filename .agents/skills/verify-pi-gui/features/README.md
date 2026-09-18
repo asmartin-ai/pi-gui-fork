@@ -21,7 +21,7 @@ Record exact feature/entry point, command, result and evidence directory. `compl
 | Core       | [Conversations](conversations.md)               | Default real-provider proof: send, streaming, completion, tool, stop                                    |
 | Core       | [Thread continuity](thread-continuity.md)       | Default proof: switch while running, isolation, background completion, drafts, restart, archive/restore |
 | Next       | [Queued follow-ups and steering](follow-ups.md) | Existing real-auth recipe; separate, not in default proof                                               |
-| Next       | [Folders and threads](navigation.md)            | Sidebar/shortcut/native-folder recipes; setup fixture is not picker proof                               |
+| Next       | [Folders and threads](navigation.md)            | Sidebar/shortcut/native-folder recipes; pin ordering, restart, and pin/unpin during a pending prompt    |
 | Next       | [Archive and restore](archive.md)               | Default proof on a real conversation; core spec adds hover/group checks                                 |
 | Supporting | [Settings](settings.md)                         | `--smoke`: visible navigation and preference restart                                                    |
 | Supporting | [Skills](skills.md)                             | `--smoke` covers opening only; separate recipe tests Try and aliases                                    |
