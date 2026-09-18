@@ -116,7 +116,7 @@ function validateBuilderConfig(config, desktopPackage, afterRemoveSource) {
   assert(config.mac?.notarize === true, "electron-builder must notarize the macOS app");
   assert(
     config.win?.signAndEditExecutable === true,
-    "electron-builder must sign and edit the packaged Windows executable",
+    "Windows packaging must preserve executable icon and version metadata",
   );
 
   const targets = new Set((config.win?.target ?? []).map(({ target }) => target));
@@ -317,28 +317,26 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
   }
 
   const windowsJob = jobs["build-windows"];
-  const signingCheck = stepNamed(windowsJob, "Validate Windows signing credentials");
   const packageStep = stepNamed(windowsJob, "Package Windows");
   assert(
-    JSON.stringify(signingCheck.env).includes("secrets.WINDOWS_CSC_LINK") &&
-      JSON.stringify(signingCheck.env).includes("secrets.WINDOWS_CSC_KEY_PASSWORD"),
-    "Windows build must require dedicated signing secrets",
+    !JSON.stringify(windowsJob).includes("WINDOWS_CSC_"),
+    "Unsigned Windows releases must not depend on signing secrets",
   );
   assert(
-    JSON.stringify(packageStep.env).includes("secrets.WINDOWS_CSC_LINK") &&
-      JSON.stringify(packageStep.env).includes("secrets.WINDOWS_CSC_KEY_PASSWORD"),
-    "Windows signing secrets must map to electron-builder CSC variables",
+    runText(packageStep).includes("package-windows.mjs"),
+    "Windows release must use the canonical packaging command",
   );
   const windowsBuildVerification = stepNamed(
     windowsJob,
-    "Verify Windows signatures and architecture",
+    "Verify Windows packages and architecture",
   );
   assert(
     runText(windowsBuildVerification).includes("-SmokePackages"),
     "Windows build must smoke-test both downloadable packages",
   );
   for (const marker of [
-    "Get-AuthenticodeSignature",
+    "Assert-ArtifactFile $setup",
+    "Assert-ArtifactFile $portable",
     "Start-Process `",
     '"/S"',
     '"t", $setup',
@@ -392,7 +390,7 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
   const draftVerifiers = [
     ["verify-draft-macos", "Verify draft macOS trust"],
     ["verify-draft-linux", "Verify draft Linux packages"],
-    ["verify-draft-windows", "Verify draft Windows signatures"],
+    ["verify-draft-windows", "Verify draft Windows packages"],
   ];
   for (const [jobName, trustStep] of draftVerifiers) {
     const job = jobs[jobName];
@@ -417,7 +415,7 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
     "Downloaded draft Linux packages must be installed and validated",
   );
   assert(
-    runText(stepNamed(jobs["verify-draft-windows"], "Verify draft Windows signatures")).includes(
+    runText(stepNamed(jobs["verify-draft-windows"], "Verify draft Windows packages")).includes(
       "-SmokePackages",
     ),
     "Downloaded draft Windows packages must be installed and extracted",
@@ -490,7 +488,7 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
   const publishedVerifiers = [
     ["verify-published-macos", "Verify published macOS trust"],
     ["verify-published-linux", "Verify published Linux packages"],
-    ["verify-published-windows", "Verify published Windows signatures"],
+    ["verify-published-windows", "Verify published Windows packages"],
   ];
   for (const [jobName, trustStep] of publishedVerifiers) {
     const job = jobs[jobName];
@@ -516,7 +514,7 @@ function validateWorkflow(workflow, finalizerSource, linuxVerifierSource, window
   );
   assert(
     runText(
-      stepNamed(jobs["verify-published-windows"], "Verify published Windows signatures"),
+      stepNamed(jobs["verify-published-windows"], "Verify published Windows packages"),
     ).includes("-SmokePackages"),
     "Published Windows packages must be installed and extracted",
   );
