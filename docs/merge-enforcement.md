@@ -20,9 +20,10 @@ required checks and the requirement that the branch be up to date. Bind checks
 to the observed GitHub Actions app identity where supported; inspect bypass
 permissions separately. Do not replace existing rules with a partial payload.
 
-Remote activation and a real pull-request run remain unverified until valid
-GitHub authentication is available. Locally passing tests prove the result
-decision and workflow configuration, not that GitHub blocks a merge.
+Verify activation against the live ruleset and a real pull-request run. Locally
+passing tests prove the result decision and workflow configuration, not that
+GitHub blocks a merge. The existing repository-admin bypass is an explicit
+policy exception; this rollout does not remove it.
 
 Whole-workflow cancellation can interrupt even an `always()` job. In that case
 the required aggregate must remain non-successful; branch rules supply the merge
