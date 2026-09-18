@@ -29,7 +29,9 @@ async function waitForWindowCount(harness: DesktopHarness, count: number): Promi
     .poll(
       async () => {
         try {
-          return await harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+          return await harness.electronApp.evaluate(
+            ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+          );
         } catch (error) {
           const message = String(error);
           if (
@@ -73,13 +75,16 @@ async function browserWindowIndexForPage(harness: DesktopHarness, source: Page):
 async function openWindowViaShortcut(harness: DesktopHarness, source: Page): Promise<Page> {
   const existing = new Set(harness.electronApp.windows());
   const sourceIndex = await browserWindowIndexForPage(harness, source);
-  await harness.electronApp.evaluate(({ BrowserWindow }, payload) => {
-    BrowserWindow.getAllWindows()[payload.sourceIndex]?.webContents.sendInputEvent({
-      type: "keyDown",
-      keyCode: "n",
-      modifiers: [payload.modifier],
-    });
-  }, { sourceIndex, modifier: platformModifier });
+  await harness.electronApp.evaluate(
+    ({ BrowserWindow }, payload) => {
+      BrowserWindow.getAllWindows()[payload.sourceIndex]?.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode: "n",
+        modifiers: [payload.modifier],
+      });
+    },
+    { sourceIndex, modifier: platformModifier },
+  );
   await waitForWindowCount(harness, existing.size + 1);
   const opened = harness.electronApp.windows().find((candidate) => !existing.has(candidate));
   if (!opened) {
@@ -89,7 +94,10 @@ async function openWindowViaShortcut(harness: DesktopHarness, source: Page): Pro
   return opened;
 }
 
-async function expectSecondInstanceRestoresExistingWindow(harness: DesktopHarness, source: Page): Promise<void> {
+async function expectSecondInstanceRestoresExistingWindow(
+  harness: DesktopHarness,
+  source: Page,
+): Promise<void> {
   const existingWindowCount = harness.electronApp.windows().length;
   const sourceIndex = await browserWindowIndexForPage(harness, source);
   await harness.electronApp.evaluate(({ app, BrowserWindow }, index) => {
@@ -129,11 +137,17 @@ async function selectedSummary(window: Page): Promise<{
   };
 }
 
-async function expectSelected(window: Page, workspacePath: string, sessionTitle: string): Promise<void> {
-  await expect.poll(() => selectedSummary(window), { timeout: 15_000 }).toEqual({
-    workspacePath,
-    sessionTitle,
-  });
+async function expectSelected(
+  window: Page,
+  workspacePath: string,
+  sessionTitle: string,
+): Promise<void> {
+  await expect
+    .poll(() => selectedSummary(window), { timeout: 15_000 })
+    .toEqual({
+      workspacePath,
+      sessionTitle,
+    });
   await expect(window.locator(".topbar__session")).toHaveText(sessionTitle);
 }
 
@@ -142,7 +156,10 @@ async function pendingDialogCount(
   sessionRef: { readonly workspaceId: string; readonly sessionId: string },
 ): Promise<number> {
   const state = await getDesktopState(window);
-  return state.sessionExtensionUiBySession[`${sessionRef.workspaceId}:${sessionRef.sessionId}`]?.pendingDialogs.length ?? 0;
+  return (
+    state.sessionExtensionUiBySession[`${sessionRef.workspaceId}:${sessionRef.sessionId}`]
+      ?.pendingDialogs.length ?? 0
+  );
 }
 
 async function selectSessionViaIpc(window: Page, title: string): Promise<void> {
@@ -164,7 +181,10 @@ async function selectSessionViaIpc(window: Page, title: string): Promise<void> {
   }, title);
 }
 
-async function selectSessionViaIpcAndCaptureStateEvents(window: Page, title: string): Promise<readonly string[]> {
+async function selectSessionViaIpcAndCaptureStateEvents(
+  window: Page,
+  title: string,
+): Promise<readonly string[]> {
   return window.evaluate(async (targetTitle) => {
     const app = (window as PiAppWindow).piApp;
     if (!app) {
@@ -172,7 +192,9 @@ async function selectSessionViaIpcAndCaptureStateEvents(window: Page, title: str
     }
     const stateEvents: string[] = [];
     const unsubscribe = app.onStateChanged((nextState) => {
-      const workspace = nextState.workspaces.find((entry) => entry.id === nextState.selectedWorkspaceId);
+      const workspace = nextState.workspaces.find(
+        (entry) => entry.id === nextState.selectedWorkspaceId,
+      );
       const session = workspace?.sessions.find((entry) => entry.id === nextState.selectedSessionId);
       stateEvents.push(session?.title ?? "");
     });
@@ -194,7 +216,10 @@ async function selectSessionViaIpcAndCaptureStateEvents(window: Page, title: str
   }, title);
 }
 
-async function stubDelayedOpenDialog(harness: DesktopHarness, filePaths: readonly string[]): Promise<void> {
+async function stubDelayedOpenDialog(
+  harness: DesktopHarness,
+  filePaths: readonly string[],
+): Promise<void> {
   await harness.electronApp.evaluate(({ dialog }, nextFilePaths) => {
     const original = dialog.showOpenDialog;
     const globals = globalThis as {
@@ -218,7 +243,9 @@ async function waitForDelayedOpenDialog(harness: DesktopHarness): Promise<void> 
   await expect
     .poll(() =>
       harness.electronApp.evaluate(() => {
-        return (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT ?? 0;
+        return (
+          (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT ?? 0
+        );
       }),
     )
     .toBe(1);
@@ -250,12 +277,16 @@ test("selects an empty workspace from the sidebar row", async () => {
     await waitForWorkspaceByPath(window, betaPath);
 
     await window.locator(".workspace-row__select", { hasText: basename(betaPath) }).click();
-    await expect.poll(() => selectedSummary(window), { timeout: 15_000 }).toEqual({
-      workspacePath: betaPath,
-      sessionTitle: "",
-    });
+    await expect
+      .poll(() => selectedSummary(window), { timeout: 15_000 })
+      .toEqual({
+        workspacePath: betaPath,
+        sessionTitle: "",
+      });
     await expect(window.locator(".topbar__workspace")).toContainText(basename(betaPath));
-    await expect(window.getByRole("heading", { name: basename(betaPath), exact: true })).toBeVisible();
+    await expect(
+      window.getByRole("heading", { name: basename(betaPath), exact: true }),
+    ).toBeVisible();
   } finally {
     await harness.close();
   }
@@ -297,9 +328,11 @@ test("opens multiple app windows with independent workspace and thread selection
     await expect
       .poll(async () => {
         const state = await getDesktopState(firstWindow);
-        return state.workspaces
-          .find((workspace) => workspace.path === betaPath)
-          ?.sessions.some((session) => session.title === "Beta follow-up") ?? false;
+        return (
+          state.workspaces
+            .find((workspace) => workspace.path === betaPath)
+            ?.sessions.some((session) => session.title === "Beta follow-up") ?? false
+        );
       })
       .toBe(true);
 
@@ -337,7 +370,10 @@ test("projects sender state emissions from the in-flight selection", async () =>
     await createNamedThread(window, "Fast target thread", { workspaceName });
     await selectSession(window, "Fast source thread");
 
-    const stateEvents = await selectSessionViaIpcAndCaptureStateEvents(window, "Fast target thread");
+    const stateEvents = await selectSessionViaIpcAndCaptureStateEvents(
+      window,
+      "Fast target thread",
+    );
     expect(stateEvents[0]).toBe("Fast target thread");
   } finally {
     await harness.close();
@@ -387,7 +423,9 @@ test("keeps sender dialog actions scoped without blocking another window", async
       await Promise.race([
         selectSessionViaIpc(secondWindow, "Attachment sender thread"),
         secondWindow.waitForTimeout(2_000).then(() => {
-          throw new Error("Second window selection was blocked by the first window attachment dialog.");
+          throw new Error(
+            "Second window selection was blocked by the first window attachment dialog.",
+          );
         }),
       ]);
       await expectSelected(secondWindow, workspacePath, "Attachment sender thread");
@@ -407,10 +445,14 @@ test("keeps sender dialog actions scoped without blocking another window", async
     }
     await settlePick();
 
-    await expect.poll(async () => (await getDesktopState(firstWindow)).composerAttachments.map((entry) => entry.name)).toEqual([
-      "sender-attachment.txt",
-    ]);
-    await expect.poll(async () => (await getDesktopState(secondWindow)).composerAttachments.length).toBe(0);
+    await expect
+      .poll(async () =>
+        (await getDesktopState(firstWindow)).composerAttachments.map((entry) => entry.name),
+      )
+      .toEqual(["sender-attachment.txt"]);
+    await expect
+      .poll(async () => (await getDesktopState(secondWindow)).composerAttachments.length)
+      .toBe(0);
   } finally {
     await harness.close();
   }
@@ -539,7 +581,9 @@ test("applies editor text sync to the window showing the target session", async 
     });
 
     await expect(secondWindow.getByTestId("composer")).toHaveValue("replacement for target window");
-    await expect(firstWindow.getByTestId("composer")).not.toHaveValue("replacement for target window");
+    await expect(firstWindow.getByTestId("composer")).not.toHaveValue(
+      "replacement for target window",
+    );
   } finally {
     await harness.close();
   }
@@ -587,17 +631,27 @@ test("cancels pending dialogs when the last visible same-session window closes",
       },
     });
 
-    await expect(secondWindow.getByTestId("extension-dialog")).toContainText("Confirm shared dialog?");
-    await expect.poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 }).toBe(1);
+    await expect(secondWindow.getByTestId("extension-dialog")).toContainText(
+      "Confirm shared dialog?",
+    );
+    await expect
+      .poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 })
+      .toBe(1);
 
     await selectSessionViaIpc(firstWindow, "Other dialog thread");
     await expectSelected(firstWindow, workspacePath, "Other dialog thread");
-    await expect(secondWindow.getByTestId("extension-dialog")).toContainText("Confirm shared dialog?");
-    await expect.poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 }).toBe(1);
+    await expect(secondWindow.getByTestId("extension-dialog")).toContainText(
+      "Confirm shared dialog?",
+    );
+    await expect
+      .poll(() => pendingDialogCount(secondWindow, sessionRef), { timeout: 5_000 })
+      .toBe(1);
 
     await secondWindow.close();
     await waitForWindowCount(harness, 1);
-    await expect.poll(() => pendingDialogCount(firstWindow, sessionRef), { timeout: 5_000 }).toBe(0);
+    await expect
+      .poll(() => pendingDialogCount(firstWindow, sessionRef), { timeout: 5_000 })
+      .toBe(0);
   } finally {
     await harness.close();
   }
@@ -626,7 +680,9 @@ test("mirrors composer draft updates when the same thread is open twice", async 
     await firstWindow.getByTestId("composer").fill(sharedDraft);
     await expect(secondWindow.getByTestId("composer")).toHaveValue(sharedDraft, { timeout: 5_000 });
     await secondWindow.waitForTimeout(600);
-    await expect.poll(async () => (await getDesktopState(firstWindow)).composerDraft).toBe(sharedDraft);
+    await expect
+      .poll(async () => (await getDesktopState(firstWindow)).composerDraft)
+      .toBe(sharedDraft);
   } finally {
     await harness.close();
   }

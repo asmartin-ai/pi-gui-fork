@@ -17,7 +17,9 @@ async function readModelsJson(agentDir: string): Promise<Record<string, unknown>
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
-async function openProvidersSettings(window: Awaited<ReturnType<Awaited<ReturnType<typeof launchDesktop>>["firstWindow"]>>) {
+async function openProvidersSettings(
+  window: Awaited<ReturnType<Awaited<ReturnType<typeof launchDesktop>>["firstWindow"]>>,
+) {
   await window.keyboard.press(desktopShortcut(","));
   await expect(window.getByTestId("settings-surface")).toBeVisible();
   await window.getByRole("button", { name: "Providers", exact: true }).click();
@@ -76,13 +78,16 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
       piGuiCustomEndpoint: true,
       models: [{ id: "llama3.1" }],
     });
-    await expect.poll(async () => {
-      const state = await getDesktopState(window);
-      return (
-        state.runtimeByWorkspace[otherWorkspace.id]?.providers.some((provider) => provider.id === "ollama-local")
-        ?? false
-      );
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return (
+          state.runtimeByWorkspace[otherWorkspace.id]?.providers.some(
+            (provider) => provider.id === "ollama-local",
+          ) ?? false
+        );
+      })
+      .toBe(true);
 
     // Edit flow: change base URL.
     await entryRow.getByRole("button", { name: "Edit", exact: true }).click();
@@ -108,13 +113,16 @@ test("settings lets the user add, edit, and delete an OpenAI-compatible custom e
     const afterDelete = await readModelsJson(agentDir);
     const afterDeleteProviders = (afterDelete.providers as Record<string, unknown>) ?? {};
     expect(afterDeleteProviders["ollama-local"]).toBeUndefined();
-    await expect.poll(async () => {
-      const state = await getDesktopState(window);
-      return (
-        state.runtimeByWorkspace[otherWorkspace.id]?.providers.some((provider) => provider.id === "ollama-local")
-        ?? false
-      );
-    }).toBe(false);
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return (
+          state.runtimeByWorkspace[otherWorkspace.id]?.providers.some(
+            (provider) => provider.id === "ollama-local",
+          ) ?? false
+        );
+      })
+      .toBe(false);
   } finally {
     await harness.close();
   }
@@ -184,26 +192,32 @@ test("custom endpoints keep legacy managed entries separate from built-in overri
       }),
     ).toHaveCount(0);
 
-    const blockedState = await window.evaluate(async ({ workspaceId }) => {
-      const app = (window as PiAppWindow).piApp;
-      if (!app) {
-        throw new Error("piApp IPC bridge is unavailable");
-      }
-      return app.setCustomProvider(workspaceId, {
-        providerId: "openai",
-        baseUrl: "http://localhost:11434/v1",
-        models: [{ id: "should-not-save" }],
-      });
-    }, { workspaceId: workspace.id });
+    const blockedState = await window.evaluate(
+      async ({ workspaceId }) => {
+        const app = (window as PiAppWindow).piApp;
+        if (!app) {
+          throw new Error("piApp IPC bridge is unavailable");
+        }
+        return app.setCustomProvider(workspaceId, {
+          providerId: "openai",
+          baseUrl: "http://localhost:11434/v1",
+          models: [{ id: "should-not-save" }],
+        });
+      },
+      { workspaceId: workspace.id },
+    );
     expect(blockedState.lastError).toContain("conflicts with a built-in provider");
 
-    await window.evaluate(async ({ workspaceId }) => {
-      const app = (window as PiAppWindow).piApp;
-      if (!app) {
-        throw new Error("piApp IPC bridge is unavailable");
-      }
-      await app.deleteCustomProvider(workspaceId, "openai");
-    }, { workspaceId: workspace.id });
+    await window.evaluate(
+      async ({ workspaceId }) => {
+        const app = (window as PiAppWindow).piApp;
+        if (!app) {
+          throw new Error("piApp IPC bridge is unavailable");
+        }
+        await app.deleteCustomProvider(workspaceId, "openai");
+      },
+      { workspaceId: workspace.id },
+    );
     const afterBlockedDelete = await readModelsJson(agentDir);
     expect((afterBlockedDelete.providers as Record<string, unknown>).openai).toBeDefined();
     expect((afterBlockedDelete.providers as Record<string, unknown>).deepseek).toBeDefined();

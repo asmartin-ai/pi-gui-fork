@@ -8,15 +8,27 @@ test("event queue keeps delivering after a work item throws", async () => {
   const onError = (error: unknown) => errors.push(error);
 
   let queue: Promise<void> = Promise.resolve();
-  queue = chainRecoveringEventQueue(queue, async () => {
-    delivered.push("a");
-  }, onError);
-  queue = chainRecoveringEventQueue(queue, async () => {
-    throw new Error("listener boom");
-  }, onError);
-  queue = chainRecoveringEventQueue(queue, async () => {
-    delivered.push("c");
-  }, onError);
+  queue = chainRecoveringEventQueue(
+    queue,
+    async () => {
+      delivered.push("a");
+    },
+    onError,
+  );
+  queue = chainRecoveringEventQueue(
+    queue,
+    async () => {
+      throw new Error("listener boom");
+    },
+    onError,
+  );
+  queue = chainRecoveringEventQueue(
+    queue,
+    async () => {
+      delivered.push("c");
+    },
+    onError,
+  );
 
   await queue;
 

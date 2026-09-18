@@ -46,8 +46,14 @@ test("desktop and driver catalog owners preserve each other's records", async ()
       workspaces: Array<{ workspaceId: string }>;
       worktrees: Array<{ worktreeId: string }>;
     };
-    assert.deepEqual(persisted.workspaces.map((entry) => entry.workspaceId), [workspace.workspaceId]);
-    assert.deepEqual(persisted.worktrees.map((entry) => entry.worktreeId), [join(dir, "worktree")]);
+    assert.deepEqual(
+      persisted.workspaces.map((entry) => entry.workspaceId),
+      [workspace.workspaceId],
+    );
+    assert.deepEqual(
+      persisted.worktrees.map((entry) => entry.worktreeId),
+      [join(dir, "worktree")],
+    );
   });
 });
 
@@ -165,12 +171,14 @@ test("new stores reload an externally replaced catalog and preserve it on mutati
     const persisted = JSON.parse(await readFile(catalogFilePath, "utf8")) as {
       workspaces: Array<{ workspaceId: string }>;
     };
+    assert.deepEqual(persisted.workspaces.map((entry) => entry.workspaceId).sort(), [
+      "new-workspace",
+      "repaired-workspace",
+    ]);
     assert.deepEqual(
-      persisted.workspaces.map((entry) => entry.workspaceId).sort(),
-      ["new-workspace", "repaired-workspace"],
-    );
-    assert.deepEqual(
-      (await firstStore.workspaces.listWorkspaces()).workspaces.map((entry) => entry.workspaceId).sort(),
+      (await firstStore.workspaces.listWorkspaces()).workspaces
+        .map((entry) => entry.workspaceId)
+        .sort(),
       ["new-workspace", "repaired-workspace"],
     );
   });
@@ -188,14 +196,16 @@ test("an interrupted temp write leaves the last committed catalog readable", asy
       sortOrder: 0,
     });
 
-    await writeFile(`${catalogFilePath}.interrupted.tmp`, "{\"version\":2,\"workspaces\":[", "utf8");
+    await writeFile(`${catalogFilePath}.interrupted.tmp`, '{"version":2,"workspaces":[', "utf8");
 
     const reopened = new JsonCatalogStore({ catalogFilePath });
     assert.deepEqual(
       (await reopened.workspaces.listWorkspaces()).workspaces.map((entry) => entry.workspaceId),
       ["workspace"],
     );
-    const persisted = JSON.parse(await readFile(catalogFilePath, "utf8")) as { workspaces: unknown[] };
+    const persisted = JSON.parse(await readFile(catalogFilePath, "utf8")) as {
+      workspaces: unknown[];
+    };
     assert.equal(persisted.workspaces.length, 1);
   });
 });

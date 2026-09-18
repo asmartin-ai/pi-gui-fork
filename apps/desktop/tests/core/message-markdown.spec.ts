@@ -68,18 +68,30 @@ test("renders markdown formatting in assistant responses", async () => {
     const window = await secondRun.firstWindow();
     await waitForWorkspaceByPath(window, workspacePath);
 
-    const messageRow = window.locator(".timeline-item--assistant", { hasText: "Markdown rendering proof" });
+    const messageRow = window.locator(".timeline-item--assistant", {
+      hasText: "Markdown rendering proof",
+    });
     await expect(messageRow).toBeVisible();
-    await expect(messageRow.getByRole("heading", { level: 2, name: "Markdown rendering proof" })).toBeVisible();
+    await expect(
+      messageRow.getByRole("heading", { level: 2, name: "Markdown rendering proof" }),
+    ).toBeVisible();
     await expect(messageRow.locator("strong")).toHaveText("strong text");
     await expect(messageRow.locator("em")).toHaveText("emphasis");
     await expect(messageRow.locator(":not(pre) > code")).toHaveText("inline code");
     await expect(messageRow.locator("ul > li")).toHaveText(["First bullet", "Second bullet"]);
-    await expect(messageRow.locator("ol > li")).toHaveText(["First numbered item", "Second numbered item"]);
-    await expect(messageRow.locator("pre code")).toContainText('const rendered: string = "markdown";');
+    await expect(messageRow.locator("ol > li")).toHaveText([
+      "First numbered item",
+      "Second numbered item",
+    ]);
+    await expect(messageRow.locator("pre code")).toContainText(
+      'const rendered: string = "markdown";',
+    );
 
     const issueLink = messageRow.getByRole("link", { name: "issue" });
-    await expect(issueLink).toHaveAttribute("href", "https://github.com/minghinmatthewlam/pi-gui/issues/19");
+    await expect(issueLink).toHaveAttribute(
+      "href",
+      "https://github.com/minghinmatthewlam/pi-gui/issues/19",
+    );
     await expect(messageRow).not.toContainText("## Markdown rendering proof");
     await expect(messageRow).not.toContainText("```ts");
 

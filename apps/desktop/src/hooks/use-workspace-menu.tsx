@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type Dispatch, type MouseEvent as ReactMouseEvent, type RefObject, type SetStateAction } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import type { DesktopAppState, WorkspaceRecord, WorktreeRecord } from "../desktop-state";
 import type { PiDesktopApi } from "../ipc";
 
@@ -34,10 +42,17 @@ export interface WorkspaceMenuState {
   readonly toggleArchived: (workspaceId: string, open: boolean) => void;
   readonly toggleWorkspaceCollapsed: (workspaceId: string) => void;
   readonly expandWorkspace: (workspaceId: string) => void;
-  readonly createWorktree: (workspaceId: string, fromSessionWorkspaceId?: string, fromSessionId?: string) => void;
+  readonly createWorktree: (
+    workspaceId: string,
+    fromSessionWorkspaceId?: string,
+    fromSessionId?: string,
+  ) => void;
   readonly removeWorktree: (workspaceId: string, worktree: WorktreeRecord) => void;
   readonly selectWorkspace: (workspaceId: string) => void;
-  readonly runWorkspaceMenuAction: (event: ReactMouseEvent<HTMLElement>, action: () => void) => void;
+  readonly runWorkspaceMenuAction: (
+    event: ReactMouseEvent<HTMLElement>,
+    action: () => void,
+  ) => void;
 }
 
 export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuState {
@@ -46,7 +61,9 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
   const [workspaceRenameDraft, setWorkspaceRenameDraft] = useState("");
-  const [expandedArchivedByWorkspace, setExpandedArchivedByWorkspace] = useState<Record<string, boolean>>({});
+  const [expandedArchivedByWorkspace, setExpandedArchivedByWorkspace] = useState<
+    Record<string, boolean>
+  >({});
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Record<string, boolean>>({});
   const [environmentMenuOpen, setEnvironmentMenuOpen] = useState(false);
 
@@ -134,7 +151,9 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
   };
 
   const removeWorkspace = (workspace: WorkspaceRecord) => {
-    const confirmed = window.confirm(`Remove ${workspace.name} from pi-gui? This will not delete any files.`);
+    const confirmed = window.confirm(
+      `Remove ${workspace.name} from pi-gui? This will not delete any files.`,
+    );
     setWorkspaceMenuId(null);
     setWorkspaceRenameId(null);
     if (!confirmed || !api) {
@@ -158,7 +177,11 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     });
   };
 
-  const createWorktree = (workspaceId: string, fromSessionWorkspaceId?: string, fromSessionId?: string) => {
+  const createWorktree = (
+    workspaceId: string,
+    fromSessionWorkspaceId?: string,
+    fromSessionId?: string,
+  ) => {
     setWorkspaceMenuId(null);
     setEnvironmentMenuOpen(false);
     if (!api) {
@@ -170,7 +193,9 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
   };
 
   const removeWorktree = (workspaceId: string, worktree: WorktreeRecord) => {
-    const confirmed = window.confirm(`Remove worktree ${worktree.name}? This removes the git worktree from disk.`);
+    const confirmed = window.confirm(
+      `Remove worktree ${worktree.name}? This removes the git worktree from disk.`,
+    );
     setEnvironmentMenuOpen(false);
     if (!confirmed || !api) {
       return;
@@ -188,10 +213,7 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspaceId));
   };
 
-  const runWorkspaceMenuAction = (
-    event: ReactMouseEvent<HTMLElement>,
-    action: () => void,
-  ) => {
+  const runWorkspaceMenuAction = (event: ReactMouseEvent<HTMLElement>, action: () => void) => {
     event.preventDefault();
     event.stopPropagation();
     setWorkspaceMenuId(null);

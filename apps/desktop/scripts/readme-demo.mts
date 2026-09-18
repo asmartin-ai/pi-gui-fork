@@ -124,7 +124,9 @@ async function waitForLiveResponse(
     const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
     const session = workspace?.sessions.find((entry) => entry.id === state.selectedSessionId);
     const transcript = session?.transcript ?? [];
-    const assistantMessages = transcript.filter((item) => item.kind === "message" && item.role === "assistant");
+    const assistantMessages = transcript.filter(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
     const latestAssistant = assistantMessages.at(-1);
 
     if (state.lastError) {

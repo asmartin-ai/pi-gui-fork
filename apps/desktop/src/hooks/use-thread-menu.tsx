@@ -40,7 +40,11 @@ export interface ThreadMenuState {
   readonly runMenuAction: (event: ReactMouseEvent<HTMLElement>, action: () => void) => void;
 }
 
-export function useThreadMenu({ api, setSnapshot, updateSnapshot }: UseThreadMenuParams): ThreadMenuState {
+export function useThreadMenu({
+  api,
+  setSnapshot,
+  updateSnapshot,
+}: UseThreadMenuParams): ThreadMenuState {
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -122,7 +126,9 @@ export function useThreadMenu({ api, setSnapshot, updateSnapshot }: UseThreadMen
     },
     archiveOrRestore: (thread) => {
       const target = targetFor(thread);
-      mutate(() => thread.session.archivedAt ? api.unarchiveSession(target) : api.archiveSession(target));
+      mutate(() =>
+        thread.session.archivedAt ? api.unarchiveSession(target) : api.archiveSession(target),
+      );
     },
     markRead: (thread) => mutate(() => api.markSessionRead(targetFor(thread))),
     copySessionId: (thread) => {

@@ -83,7 +83,9 @@ export function Topbar(props: TopbarProps) {
                 type="button"
                 onClick={() => wsMenu.setEnvironmentMenuOpen((current) => !current)}
               >
-                {selectedWorkspace.kind === "worktree" ? selectedWorktree?.name ?? selectedWorkspace.name : "Local"}
+                {selectedWorkspace.kind === "worktree"
+                  ? (selectedWorktree?.name ?? selectedWorkspace.name)
+                  : "Local"}
               </button>
               {wsMenu.environmentMenuOpen && rootWorkspace ? (
                 <div className="workspace-menu environment-picker__menu">
@@ -98,7 +100,8 @@ export function Topbar(props: TopbarProps) {
                     const linkedWorkspace = workspaces.find(
                       (workspace) => workspace.id === worktree.linkedWorkspaceId,
                     );
-                    const worktreeSelectable = Boolean(linkedWorkspace) && worktree.status === "ready";
+                    const worktreeSelectable =
+                      Boolean(linkedWorkspace) && worktree.status === "ready";
                     return (
                       <button
                         className="workspace-menu__item"
@@ -112,7 +115,9 @@ export function Topbar(props: TopbarProps) {
                         }}
                       >
                         {worktree.name}
-                        {!worktreeSelectable ? ` (${worktree.status !== "ready" ? worktree.status : "unavailable"})` : ""}
+                        {!worktreeSelectable
+                          ? ` (${worktree.status !== "ready" ? worktree.status : "unavailable"})`
+                          : ""}
                       </button>
                     );
                   })}

@@ -59,7 +59,9 @@ test("toggles and restores window transparency", async () => {
     await expect.poll(() => hasTransparencyClass(window)).toBe(true);
     await expect
       .poll(async () => {
-        const persisted = JSON.parse(await readFile(join(userDataDir, "ui-state.json"), "utf8")) as {
+        const persisted = JSON.parse(
+          await readFile(join(userDataDir, "ui-state.json"), "utf8"),
+        ) as {
           readonly enableTransparency?: unknown;
         };
         return persisted.enableTransparency;
@@ -112,7 +114,7 @@ test("selects and restores theme presets", async () => {
       count: 2,
       textFactory: (index) =>
         index === 0
-          ? "Theme surface proof with `inline code` and a small block:\n\n```ts\nconst preset = \"visible\";\n```"
+          ? 'Theme surface proof with `inline code` and a small block:\n\n```ts\nconst preset = "visible";\n```'
           : "Controlled surfaces should show the selected row, composer border, code accents, and message bubble treatment.",
     });
     await expect(window.getByTestId("transcript")).toContainText("inline code");
@@ -121,7 +123,10 @@ test("selects and restores theme presets", async () => {
     await window.keyboard.press(desktopShortcut(","));
     await expect(window.getByTestId("settings-surface")).toBeVisible();
     await window.getByRole("button", { name: "Appearance", exact: true }).click();
-    await window.locator(".settings-row", { hasText: "Light" }).locator('input[type="radio"]').click();
+    await window
+      .locator(".settings-row", { hasText: "Light" })
+      .locator('input[type="radio"]')
+      .click();
     await selectThemePreset(window, "Default");
     await expect(window.locator(".view-header__title")).toHaveText("Appearance");
     await window.getByRole("button", { name: "Back to app" }).click();
@@ -149,7 +154,9 @@ test("selects and restores theme presets", async () => {
     await expect.poll(() => rootInlineCssVariable(window, "--main")).toBe("#f3e8cf");
     await expect.poll(() => rootInlineCssVariable(window, "--sidebar")).toBe("#dfc99f");
     await expect.poll(() => rootInlineCssVariable(window, "--theme-selection-bg")).toBe("#ebd29a");
-    await expect.poll(() => rootInlineCssVariable(window, "--theme-control-border")).toBe("#b58a43");
+    await expect
+      .poll(() => rootInlineCssVariable(window, "--theme-control-border"))
+      .toBe("#b58a43");
     await window.getByRole("button", { name: "Back to app" }).click();
     await expect(window.locator(".main")).toBeVisible();
     await expectThemedAppSurface(window);
@@ -159,13 +166,17 @@ test("selects and restores theme presets", async () => {
     await expect(window.getByTestId("settings-surface")).toBeVisible();
     await window.getByRole("button", { name: "Appearance", exact: true }).click();
     await selectThemePreset(window, "Tokyo Night");
-    await expect.poll(async () => (await getDesktopState(window)).themePresetId).toBe("tokyo-night");
+    await expect
+      .poll(async () => (await getDesktopState(window)).themePresetId)
+      .toBe("tokyo-night");
     await expect.poll(() => rootThemePreset(window)).toBe("tokyo-night");
     await expect.poll(() => rootCssVariable(window, "--accent")).toBe("#34548a");
     await expect.poll(() => rootInlineCssVariable(window, "--main")).toBe("#eef3fb");
     await expect.poll(() => rootInlineCssVariable(window, "--sidebar")).toBe("#d6deef");
     await expect.poll(() => rootInlineCssVariable(window, "--theme-selection-bg")).toBe("#dbe8ff");
-    await expect.poll(() => rootInlineCssVariable(window, "--theme-control-border")).toBe("#98b7e5");
+    await expect
+      .poll(() => rootInlineCssVariable(window, "--theme-control-border"))
+      .toBe("#98b7e5");
     await window.getByRole("button", { name: "Back to app" }).click();
     await expect(window.locator(".main")).toBeVisible();
     await expectThemedAppSurface(window);
@@ -174,8 +185,13 @@ test("selects and restores theme presets", async () => {
     await window.keyboard.press(desktopShortcut(","));
     await expect(window.getByTestId("settings-surface")).toBeVisible();
     await window.getByRole("button", { name: "Appearance", exact: true }).click();
-    await window.locator(".settings-row", { hasText: "Dark" }).locator('input[type="radio"]').click();
-    await expect.poll(() => window.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
+    await window
+      .locator(".settings-row", { hasText: "Dark" })
+      .locator('input[type="radio"]')
+      .click();
+    await expect
+      .poll(() => window.evaluate(() => document.documentElement.classList.contains("dark")))
+      .toBe(true);
     await expect.poll(() => rootCssVariable(window, "--accent")).toBe("#7aa2f7");
 
     await window.getByRole("button", { name: "Back to app" }).click();
@@ -200,13 +216,17 @@ test("selects and restores theme presets", async () => {
   try {
     const window = await harness.firstWindow();
     await waitForWorkspaceByPath(window, workspacePath);
-    await expect.poll(async () => (await getDesktopState(window)).themePresetId).toBe("tokyo-night");
+    await expect
+      .poll(async () => (await getDesktopState(window)).themePresetId)
+      .toBe("tokyo-night");
     await expect.poll(async () => (await getDesktopState(window)).themeMode).toBe("dark");
     await expect.poll(() => rootThemePreset(window)).toBe("tokyo-night");
     await expect.poll(() => rootCssVariable(window, "--accent")).toBe("#7aa2f7");
     await expect
       .poll(async () => {
-        const persisted = JSON.parse(await readFile(join(userDataDir, "ui-state.json"), "utf8")) as {
+        const persisted = JSON.parse(
+          await readFile(join(userDataDir, "ui-state.json"), "utf8"),
+        ) as {
           readonly themeMode?: unknown;
           readonly themePresetId?: unknown;
         };
@@ -232,15 +252,21 @@ test("light theme presets apply coordinated workbench palettes", async () => {
     await createNamedThread(window, "Preset assertion thread");
     await seedTranscriptMessages(harness, window, {
       count: 1,
-      textFactory: () => "Preset assertion surface with `inline code`.\n\n```ts\nconst surface = \"workbench\";\n```",
+      textFactory: () =>
+        'Preset assertion surface with `inline code`.\n\n```ts\nconst surface = "workbench";\n```',
     });
     await expect(window.getByTestId("transcript")).toContainText("inline code");
 
     await window.keyboard.press(desktopShortcut(","));
     await expect(window.getByTestId("settings-surface")).toBeVisible();
     await window.getByRole("button", { name: "Appearance", exact: true }).click();
-    await window.locator(".settings-row", { hasText: "Light" }).locator('input[type="radio"]').click();
-    await expect.poll(() => window.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false);
+    await window
+      .locator(".settings-row", { hasText: "Light" })
+      .locator('input[type="radio"]')
+      .click();
+    await expect
+      .poll(() => window.evaluate(() => document.documentElement.classList.contains("dark")))
+      .toBe(false);
 
     const baseline = await rootComputedCssVariables(window, pageLightTokenNames);
     const paletteSignatures = new Set<string>();
@@ -255,12 +281,22 @@ test("light theme presets apply coordinated workbench palettes", async () => {
       const controlledTokens = await rootInlineCssVariables(window, controlledLightTokenNames);
       expect(pageTokens.every((value) => value.length > 0)).toBe(true);
       expect(controlledTokens.every((value) => value.length > 0)).toBe(true);
-      expect(new Set([pageTokens[1], pageTokens[2], pageTokens[3], controlledTokens[4]]).size).toBeGreaterThan(1);
+      expect(
+        new Set([pageTokens[1], pageTokens[2], pageTokens[3], controlledTokens[4]]).size,
+      ).toBeGreaterThan(1);
       paletteSignatures.add([...pageTokens, ...controlledTokens].join("|"));
-      await expect.poll(() => rootComputedCssVariables(window, pageLightTokenNames)).not.toEqual(baseline);
+      await expect
+        .poll(() => rootComputedCssVariables(window, pageLightTokenNames))
+        .not.toEqual(baseline);
 
-      const activeCardBg = await elementCssProperty(window, ".theme-preset-card--active", "background-color");
-      await expect.poll(() => rootCssVariableAsColor(window, "--theme-selection-bg")).toBe(activeCardBg);
+      const activeCardBg = await elementCssProperty(
+        window,
+        ".theme-preset-card--active",
+        "background-color",
+      );
+      await expect
+        .poll(() => rootCssVariableAsColor(window, "--theme-selection-bg"))
+        .toBe(activeCardBg);
     }
     expect(paletteSignatures.size).toBe(themePresets.length - 1);
 
@@ -273,11 +309,15 @@ test("light theme presets apply coordinated workbench palettes", async () => {
   }
 });
 
-async function hasTransparencyClass(window: { evaluate<R>(pageFunction: () => R): Promise<R> }): Promise<boolean> {
+async function hasTransparencyClass(window: {
+  evaluate<R>(pageFunction: () => R): Promise<R>;
+}): Promise<boolean> {
   return window.evaluate(() => document.documentElement.classList.contains("enable-transparency"));
 }
 
-async function rootThemePreset(window: { evaluate<R>(pageFunction: () => R): Promise<R> }): Promise<string | undefined> {
+async function rootThemePreset(window: {
+  evaluate<R>(pageFunction: () => R): Promise<R>;
+}): Promise<string | undefined> {
   return window.evaluate(() => document.documentElement.dataset.themePreset);
 }
 
@@ -295,7 +335,10 @@ async function rootInlineCssVariable(
   window: { evaluate<R>(pageFunction: () => R): Promise<R> },
   name: string,
 ): Promise<string> {
-  return window.evaluate((tokenName) => document.documentElement.style.getPropertyValue(tokenName).trim(), name);
+  return window.evaluate(
+    (tokenName) => document.documentElement.style.getPropertyValue(tokenName).trim(),
+    name,
+  );
 }
 
 async function rootInlineCssVariables(
@@ -303,7 +346,10 @@ async function rootInlineCssVariables(
   names: readonly string[],
 ): Promise<readonly string[]> {
   return window.evaluate(
-    (tokenNames) => tokenNames.map((tokenName) => document.documentElement.style.getPropertyValue(tokenName).trim()),
+    (tokenNames) =>
+      tokenNames.map((tokenName) =>
+        document.documentElement.style.getPropertyValue(tokenName).trim(),
+      ),
     [...names],
   );
 }
@@ -314,7 +360,9 @@ async function rootComputedCssVariables(
 ): Promise<readonly string[]> {
   return window.evaluate(
     (tokenNames) =>
-      tokenNames.map((tokenName) => getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim()),
+      tokenNames.map((tokenName) =>
+        getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim(),
+      ),
     [...names],
   );
 }
@@ -334,7 +382,11 @@ async function rootCssVariableAsColor(
   }, name);
 }
 
-async function elementCssProperty(window: Page, selector: string, property: string): Promise<string> {
+async function elementCssProperty(
+  window: Page,
+  selector: string,
+  property: string,
+): Promise<string> {
   return window.evaluate(
     ({ targetSelector, targetProperty }) => {
       const element = document.querySelector<HTMLElement>(targetSelector);
@@ -352,11 +404,19 @@ async function expectControlledAppSurface(
   selectionTokenName: string,
   controlBorderTokenName: string,
 ): Promise<void> {
-  const selectedRowBackground = await elementCssProperty(window, ".session-row--active", "background-color");
-  await expect.poll(() => rootCssVariableAsColor(window, selectionTokenName)).toBe(selectedRowBackground);
+  const selectedRowBackground = await elementCssProperty(
+    window,
+    ".session-row--active",
+    "background-color",
+  );
+  await expect
+    .poll(() => rootCssVariableAsColor(window, selectionTokenName))
+    .toBe(selectedRowBackground);
 
   const composerBorder = await elementCssProperty(window, ".composer__surface", "border-top-color");
-  await expect.poll(() => rootCssVariableAsColor(window, controlBorderTokenName)).toBe(composerBorder);
+  await expect
+    .poll(() => rootCssVariableAsColor(window, controlBorderTokenName))
+    .toBe(composerBorder);
 }
 
 async function expectThemedAppSurface(window: Page): Promise<void> {
@@ -369,8 +429,14 @@ async function expectThemedAppSurface(window: Page): Promise<void> {
   const topbarBackground = await elementCssProperty(window, ".topbar", "background-color");
   await expect.poll(() => rootCssVariableAsColor(window, "--surface")).toBe(topbarBackground);
 
-  const codeBlockBackground = await elementCssProperty(window, ".message__content pre", "background-color");
-  await expect.poll(() => rootCssVariableAsColor(window, "--theme-code-bg")).toBe(codeBlockBackground);
+  const codeBlockBackground = await elementCssProperty(
+    window,
+    ".message__content pre",
+    "background-color",
+  );
+  await expect
+    .poll(() => rootCssVariableAsColor(window, "--theme-code-bg"))
+    .toBe(codeBlockBackground);
 
   await expectControlledAppSurface(window, "--theme-selection-bg", "--theme-control-border");
 }

@@ -22,7 +22,13 @@ const TTL = 60_000;
 
 function foreignSnapshot(overrides: Partial<LeaseInfo> = {}, mtimeMs = 1_000): LeaseSnapshot {
   return {
-    info: { pid: 9999, hostname: "other-host", startedAt: "2026-07-03T00:00:00.000Z", surface: "pi-gui", ...overrides },
+    info: {
+      pid: 9999,
+      hostname: "other-host",
+      startedAt: "2026-07-03T00:00:00.000Z",
+      surface: "pi-gui",
+      ...overrides,
+    },
     mtimeMs,
   };
 }
@@ -61,8 +67,14 @@ test("cross-host lease falls back to TTL: fresh mtime alive, stale mtime dead", 
   const boom = () => {
     throw new Error("pid check must not run cross-host");
   };
-  assert.equal(isLeaseDead(snap, { now: 10_000 + TTL - 1, ttlMs: TTL, self: SELF, isPidAlive: boom }), false);
-  assert.equal(isLeaseDead(snap, { now: 10_000 + TTL + 1, ttlMs: TTL, self: SELF, isPidAlive: boom }), true);
+  assert.equal(
+    isLeaseDead(snap, { now: 10_000 + TTL - 1, ttlMs: TTL, self: SELF, isPidAlive: boom }),
+    false,
+  );
+  assert.equal(
+    isLeaseDead(snap, { now: 10_000 + TTL + 1, ttlMs: TTL, self: SELF, isPidAlive: boom }),
+    true,
+  );
 });
 
 test("leaseBlocksBinding: own lease never blocks, foreign+alive blocks, foreign+dead does not", () => {
@@ -117,7 +129,12 @@ test("stale takeover: a dead foreign lease can be overwritten by our own", async
     const stale = await readLeaseSnapshot(leasePath);
     assert.ok(stale);
     // Same host, pid reported dead → does not block, so we take over.
-    const blocks = leaseBlocksBinding(stale!, { now: Date.now(), ttlMs: TTL, self: SELF, isPidAlive: () => false });
+    const blocks = leaseBlocksBinding(stale!, {
+      now: Date.now(),
+      ttlMs: TTL,
+      self: SELF,
+      isPidAlive: () => false,
+    });
     assert.equal(blocks, false);
 
     await writeLeaseFile(leasePath, buildOwnLease(SELF, Date.now()));

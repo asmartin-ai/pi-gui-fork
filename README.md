@@ -19,12 +19,12 @@ execution all run through upstream `pi`.
 
 ## Screenshots
 
-| Thread timeline (dark) | Thread timeline (light) |
-| --- | --- |
+| Thread timeline (dark)                                    | Thread timeline (light)                                     |
+| --------------------------------------------------------- | ----------------------------------------------------------- |
 | ![Thread view, dark theme](./docs/assets/thread-dark.png) | ![Thread view, light theme](./docs/assets/thread-light.png) |
 
-| Inline diff viewer | Integrated terminal |
-| --- | --- |
+| Inline diff viewer                         | Integrated terminal                                     |
+| ------------------------------------------ | ------------------------------------------------------- |
 | ![Diff panel](./docs/assets/diff-dark.png) | ![Integrated terminal](./docs/assets/terminal-dark.png) |
 
 ## Features

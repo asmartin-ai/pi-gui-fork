@@ -3,7 +3,9 @@ import type { DesktopAppState, SelectedTranscriptRecord } from "../desktop-state
 
 export function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
-  const [selectedTranscript, setSelectedTranscript] = useState<SelectedTranscriptRecord | null>(null);
+  const [selectedTranscript, setSelectedTranscript] = useState<SelectedTranscriptRecord | null>(
+    null,
+  );
 
   useEffect(() => {
     let active = true;

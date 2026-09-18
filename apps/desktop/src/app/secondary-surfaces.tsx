@@ -3,10 +3,7 @@ import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AppView, DesktopAppState, WorkspaceRecord } from "../desktop-state";
 import { updateSnapshot } from "./desktop-app-state";
 import { getEffectiveModelRuntime } from "../model-settings";
-import {
-  type CustomProviderConfig,
-  type DesktopNotificationPermissionStatus,
-} from "../ipc";
+import { type CustomProviderConfig, type DesktopNotificationPermissionStatus } from "../ipc";
 import { SkillsView } from "../skills-view";
 import { ExtensionsView } from "../extensions-view";
 import { SettingsView, type SettingsSection } from "../settings-view";
@@ -68,12 +65,18 @@ export function SecondarySurfaces({
   const extensionsWorkspace = extensionsWorkspaceId
     ? rootWorkspaceOptions.find((workspace) => workspace.id === extensionsWorkspaceId)
     : undefined;
-  const settingsRuntime = settingsWorkspace ? snapshot.runtimeByWorkspace[settingsWorkspace.id] : undefined;
+  const settingsRuntime = settingsWorkspace
+    ? snapshot.runtimeByWorkspace[settingsWorkspace.id]
+    : undefined;
   const settingsModelRuntime = getEffectiveModelRuntime(snapshot, settingsWorkspace);
-  const skillsRuntime = skillsWorkspace ? snapshot.runtimeByWorkspace[skillsWorkspace.id] : undefined;
-  const extensionsRuntime = extensionsWorkspace ? snapshot.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
+  const skillsRuntime = skillsWorkspace
+    ? snapshot.runtimeByWorkspace[skillsWorkspace.id]
+    : undefined;
+  const extensionsRuntime = extensionsWorkspace
+    ? snapshot.runtimeByWorkspace[extensionsWorkspace.id]
+    : undefined;
   const extensionsCommandCompatibility = extensionsWorkspace
-    ? snapshot.extensionCommandCompatibilityByWorkspace[extensionsWorkspace.id] ?? []
+    ? (snapshot.extensionCommandCompatibilityByWorkspace[extensionsWorkspace.id] ?? [])
     : [];
 
   useEffect(() => {
@@ -107,28 +110,38 @@ export function SecondarySurfaces({
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setDefaultModel(settingsWorkspace.id, provider, modelId));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setDefaultModel(settingsWorkspace.id, provider, modelId),
+    );
   };
 
-  const handleSetThinkingLevel = (thinkingLevel: RuntimeSnapshot["settings"]["defaultThinkingLevel"]) => {
+  const handleSetThinkingLevel = (
+    thinkingLevel: RuntimeSnapshot["settings"]["defaultThinkingLevel"],
+  ) => {
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setDefaultThinkingLevel(settingsWorkspace.id, thinkingLevel));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setDefaultThinkingLevel(settingsWorkspace.id, thinkingLevel),
+    );
   };
 
   const handleToggleSkillCommands = (enabled: boolean) => {
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setEnableSkillCommands(settingsWorkspace.id, enabled));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setEnableSkillCommands(settingsWorkspace.id, enabled),
+    );
   };
 
   const handleSetScopedModelPatterns = (patterns: readonly string[]) => {
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(settingsWorkspace.id, patterns));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setScopedModelPatterns(settingsWorkspace.id, patterns),
+    );
   };
 
   const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
@@ -139,17 +152,24 @@ export function SecondarySurfaces({
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.loginProvider(settingsWorkspace.id, providerId));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.loginProvider(settingsWorkspace.id, providerId),
+    );
   };
 
   const handleLogoutProvider = (providerId: string) => {
     if (!settingsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.logoutProvider(settingsWorkspace.id, providerId));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.logoutProvider(settingsWorkspace.id, providerId),
+    );
   };
 
-  const handleSetProviderApiKey = async (providerId: string, apiKey: string): Promise<string | undefined> => {
+  const handleSetProviderApiKey = async (
+    providerId: string,
+    apiKey: string,
+  ): Promise<string | undefined> => {
     if (!settingsWorkspace) {
       return "Select a workspace first.";
     }
@@ -163,15 +183,21 @@ export function SecondarySurfaces({
     if (!settingsWorkspace) {
       return "Select a workspace first.";
     }
-    const state = await updateSnapshot(api, setSnapshot, () => api.logoutProvider(settingsWorkspace.id, providerId));
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.logoutProvider(settingsWorkspace.id, providerId),
+    );
     return state.lastError;
   };
 
-  const handleSaveCustomProvider = async (config: CustomProviderConfig): Promise<string | undefined> => {
+  const handleSaveCustomProvider = async (
+    config: CustomProviderConfig,
+  ): Promise<string | undefined> => {
     if (!settingsWorkspace) {
       return "Select a workspace first.";
     }
-    const state = await updateSnapshot(api, setSnapshot, () => api.setCustomProvider(settingsWorkspace.id, config));
+    const state = await updateSnapshot(api, setSnapshot, () =>
+      api.setCustomProvider(settingsWorkspace.id, config),
+    );
     return state.lastError;
   };
 
@@ -189,7 +215,9 @@ export function SecondarySurfaces({
     if (!skillsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setSkillEnabled(skillsWorkspace.id, filePath, enabled));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setSkillEnabled(skillsWorkspace.id, filePath, enabled),
+    );
   };
 
   const handleOpenSkillFolder = (filePath: string) => {
@@ -203,7 +231,9 @@ export function SecondarySurfaces({
     if (!extensionsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(extensionsWorkspace.id, filePath, enabled));
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setExtensionEnabled(extensionsWorkspace.id, filePath, enabled),
+    );
   };
 
   const handleOpenExtensionFolder = (filePath: string) => {
@@ -221,7 +251,9 @@ export function SecondarySurfaces({
     void updateSnapshot(api, setSnapshot, () => api.setThemePresetId(presetId));
   };
 
-  const handleSetNotificationPreferences = (preferences: Partial<DesktopAppState["notificationPreferences"]>) => {
+  const handleSetNotificationPreferences = (
+    preferences: Partial<DesktopAppState["notificationPreferences"]>,
+  ) => {
     void updateSnapshot(api, setSnapshot, () => api.setNotificationPreferences(preferences));
   };
 

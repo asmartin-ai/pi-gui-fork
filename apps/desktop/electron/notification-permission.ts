@@ -12,7 +12,8 @@ const TEST_REQUEST_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_REQUEST_L
 const TEST_SETTINGS_LOG_PATH_ENV = "PI_APP_TEST_NOTIFICATION_SETTINGS_LOG_PATH";
 const TEST_HELPER_STATUS_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS";
 const TEST_HELPER_STATUS_FILE_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_STATUS_FILE";
-const TEST_HELPER_FOLLOWS_REQUEST_ENV = "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST";
+const TEST_HELPER_FOLLOWS_REQUEST_ENV =
+  "PI_APP_TEST_NOTIFICATION_PERMISSION_HELPER_FOLLOWS_REQUEST";
 const NOTIFICATION_STATUS_HELPER_NAME = "pi-gui-notification-status-helper";
 const RECONCILIATION_POLL_INTERVAL_MS = 500;
 const RECONCILIATION_MAX_POLLS = 20;
@@ -231,7 +232,9 @@ async function requestNotificationPermissionInternal(
   }
 }
 
-async function requestPackagedMacOsNotificationPermission(): Promise<DesktopNotificationPermissionStatus | undefined> {
+async function requestPackagedMacOsNotificationPermission(): Promise<
+  DesktopNotificationPermissionStatus | undefined
+> {
   const helperPath = resolveNotificationStatusHelperPath();
   if (!helperPath) {
     return undefined;
@@ -256,7 +259,9 @@ async function openSystemNotificationSettingsInternal(): Promise<void> {
   }
 
   if (process.platform !== "darwin") {
-    await shell.openExternal("https://support.apple.com/guide/mac-help/change-notifications-settings-mh40583/mac");
+    await shell.openExternal(
+      "https://support.apple.com/guide/mac-help/change-notifications-settings-mh40583/mac",
+    );
     return;
   }
 
@@ -295,7 +300,9 @@ async function readRendererNotificationPermission(
   }
 }
 
-async function readPackagedMacOsNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus | undefined> {
+async function readPackagedMacOsNotificationPermissionStatus(): Promise<
+  DesktopNotificationPermissionStatus | undefined
+> {
   const helperPath = resolveNotificationStatusHelperPath();
   if (!helperPath) {
     return undefined;
@@ -328,7 +335,9 @@ async function logPermissionRequestAttempt(): Promise<void> {
   await appendFile(testLogPath, `${new Date().toISOString()}\n`, "utf8");
 }
 
-async function updatePackagedHelperOverrideStatus(status: DesktopNotificationPermissionStatus): Promise<void> {
+async function updatePackagedHelperOverrideStatus(
+  status: DesktopNotificationPermissionStatus,
+): Promise<void> {
   if (process.env[TEST_HELPER_FOLLOWS_REQUEST_ENV] !== "1") {
     return;
   }
@@ -339,13 +348,18 @@ async function updatePackagedHelperOverrideStatus(status: DesktopNotificationPer
     return;
   }
 
-  if (!(TEST_HELPER_STATUS_ENV in process.env) || !normalizePermissionStatus(process.env[TEST_HELPER_STATUS_ENV])) {
+  if (
+    !(TEST_HELPER_STATUS_ENV in process.env) ||
+    !normalizePermissionStatus(process.env[TEST_HELPER_STATUS_ENV])
+  ) {
     return;
   }
   process.env[TEST_HELPER_STATUS_ENV] = status;
 }
 
-function normalizePermissionStatus(value: unknown): DesktopNotificationPermissionStatus | undefined {
+function normalizePermissionStatus(
+  value: unknown,
+): DesktopNotificationPermissionStatus | undefined {
   switch (value) {
     case "granted":
     case "denied":

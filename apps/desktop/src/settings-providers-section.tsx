@@ -33,7 +33,9 @@ export function SettingsProvidersSection({
   const connectedProviders = providers.filter((p) => p.hasAuth);
   const oauthProviders = providers.filter((p) => p.oauthSupported);
   const filteredProviders = filterProviders(providers, providerQuery);
-  const apiKeyProvider = apiKeyProviderId ? providers.find((provider) => provider.id === apiKeyProviderId) : undefined;
+  const apiKeyProvider = apiKeyProviderId
+    ? providers.find((provider) => provider.id === apiKeyProviderId)
+    : undefined;
   const existingProviderIds = useMemo(() => providers.map((provider) => provider.id), [providers]);
 
   useEffect(() => {
@@ -81,7 +83,10 @@ export function SettingsProvidersSection({
 
   return (
     <>
-      <SettingsGroup title="Connected" description="Connected providers are used first for picking models.">
+      <SettingsGroup
+        title="Connected"
+        description="Connected providers are used first for picking models."
+      >
         {connectedProviders.length > 0 ? (
           connectedProviders.map((provider) => (
             <ProviderRow
@@ -99,7 +104,10 @@ export function SettingsProvidersSection({
         )}
       </SettingsGroup>
 
-      <SettingsGroup title="Sign in" description="OAuth-capable providers can sign in directly from the desktop app.">
+      <SettingsGroup
+        title="Sign in"
+        description="OAuth-capable providers can sign in directly from the desktop app."
+      >
         {oauthProviders.map((provider) => (
           <ProviderRow
             key={provider.id}
@@ -215,11 +223,21 @@ function ProviderApiKeyDialog({
         />
         {error ? <p className="extension-dialog__body settings-warning">{error}</p> : null}
         <div className="extension-dialog__actions">
-          <button className="button button--secondary" disabled={pending} type="button" onClick={onClose}>
+          <button
+            className="button button--secondary"
+            disabled={pending}
+            type="button"
+            onClick={onClose}
+          >
             Cancel
           </button>
           {onRemove ? (
-            <button className="button button--secondary" disabled={pending} type="button" onClick={() => void onRemove()}>
+            <button
+              className="button button--secondary"
+              disabled={pending}
+              type="button"
+              onClick={() => void onRemove()}
+            >
               Remove saved key
             </button>
           ) : null}

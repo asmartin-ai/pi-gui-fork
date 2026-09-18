@@ -37,11 +37,14 @@ test("ignores stale persisted draft acknowledgements while typing", async () => 
     await composer.press("Backspace");
     await expect(composer).toHaveValue(expectedDraft);
 
-    await window.evaluate(({ stale }) => {
-      window.setTimeout(() => {
-        void window.piApp.updateComposerDraft(stale);
-      }, 50);
-    }, { stale: staleDraft });
+    await window.evaluate(
+      ({ stale }) => {
+        window.setTimeout(() => {
+          void window.piApp.updateComposerDraft(stale);
+        }, 50);
+      },
+      { stale: staleDraft },
+    );
 
     const sampledValues = await window.evaluate(async () => {
       const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='composer']");
@@ -60,7 +63,9 @@ test("ignores stale persisted draft acknowledgements while typing", async () => 
 
     expect(sampledValues).not.toContain(staleDraft);
     await expect(composer).toHaveValue(expectedDraft);
-    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(expectedDraft);
+    await expect
+      .poll(async () => (await getDesktopState(window)).composerDraft)
+      .toBe(expectedDraft);
   } finally {
     await harness.close();
   }
@@ -92,7 +97,9 @@ test("adopts a persisted draft when no local edit is pending", async () => {
     await expect(composer).toHaveValue(persistedDraft);
     await window.waitForTimeout(600);
     await expect(composer).toHaveValue(persistedDraft);
-    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe(persistedDraft);
+    await expect
+      .poll(async () => (await getDesktopState(window)).composerDraft)
+      .toBe(persistedDraft);
   } finally {
     await harness.close();
   }

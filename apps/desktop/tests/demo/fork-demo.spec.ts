@@ -51,7 +51,9 @@ test("records a fork-from-message walkthrough", async () => {
     const beforeSelectedSessionId = before.selectedSessionId;
 
     // Reveal the fork affordance on the second assistant response.
-    const secondAnswer = transcript.locator(".timeline-item--assistant", { hasText: "Second fork answer" });
+    const secondAnswer = transcript.locator(".timeline-item--assistant", {
+      hasText: "Second fork answer",
+    });
     await secondAnswer.scrollIntoViewIfNeeded();
     await window.waitForTimeout(800);
     await secondAnswer.hover();

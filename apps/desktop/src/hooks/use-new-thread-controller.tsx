@@ -71,13 +71,18 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const previousActiveViewRef = useRef<AppView | null>(null);
 
-  const workspace = rootWorkspaceOptions.find((entry) => entry.id === rootWorkspaceId) ?? rootWorkspaceOptions[0];
+  const workspace =
+    rootWorkspaceOptions.find((entry) => entry.id === rootWorkspaceId) ?? rootWorkspaceOptions[0];
   const runtime = snapshot ? getEffectiveModelRuntime(snapshot, workspace) : undefined;
   const defaultEnabled = buildModelOptions(runtime).some(
-    (m) => m.providerId === runtime?.settings.defaultProvider && m.modelId === runtime?.settings.defaultModelId,
+    (m) =>
+      m.providerId === runtime?.settings.defaultProvider &&
+      m.modelId === runtime?.settings.defaultModelId,
   );
-  const resolvedProvider = provider ?? (defaultEnabled ? runtime?.settings.defaultProvider : undefined);
-  const resolvedModelId = modelId ?? (defaultEnabled ? runtime?.settings.defaultModelId : undefined);
+  const resolvedProvider =
+    provider ?? (defaultEnabled ? runtime?.settings.defaultProvider : undefined);
+  const resolvedModelId =
+    modelId ?? (defaultEnabled ? runtime?.settings.defaultModelId : undefined);
   const resolvedThinkingLevel = thinkingLevel ?? runtime?.settings.defaultThinkingLevel;
   const modelOnboarding = deriveModelOnboardingState(runtime, {
     provider: resolvedProvider,
@@ -198,9 +203,9 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       if (!api || !workspace) {
         return Promise.resolve();
       }
-      return updateSnapshot(api, setSnapshot, () => api.setExtensionEnabled(workspace.id, filePath, true)).then(
-        () => undefined,
-      );
+      return updateSnapshot(api, setSnapshot, () =>
+        api.setExtensionEnabled(workspace.id, filePath, true),
+      ).then(() => undefined);
     },
     [api, setSnapshot, workspace],
   );
@@ -318,7 +323,16 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
 
       startThread();
     },
-    [api, appendAttachment, attachments.length, mentionMenu, modelOnboarding.requiresModelSelection, prompt, slashMenu, startThread],
+    [
+      api,
+      appendAttachment,
+      attachments.length,
+      mentionMenu,
+      modelOnboarding.requiresModelSelection,
+      prompt,
+      slashMenu,
+      startThread,
+    ],
   );
 
   useEffect(() => {
@@ -330,7 +344,9 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       return;
     }
     setRootWorkspaceId((current) =>
-      rootWorkspaceOptions.some((w) => w.id === current) ? current : current || rootWorkspaceOptions[0]?.id || "",
+      rootWorkspaceOptions.some((w) => w.id === current)
+        ? current
+        : current || rootWorkspaceOptions[0]?.id || "",
     );
   }, [rootWorkspaceOptions]);
 
@@ -351,7 +367,10 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       return;
     }
     if (snapshot.activeView === "new-thread" && previousActiveViewRef.current !== "new-thread") {
-      const nextRootWorkspaceId = resolveRepoWorkspaceId(snapshot.workspaces, selectedWorkspace?.id);
+      const nextRootWorkspaceId = resolveRepoWorkspaceId(
+        snapshot.workspaces,
+        selectedWorkspace?.id,
+      );
       if (nextRootWorkspaceId) {
         setRootWorkspaceId(nextRootWorkspaceId);
       }

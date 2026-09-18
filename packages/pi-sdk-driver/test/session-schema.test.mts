@@ -20,7 +20,12 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 }
 
 function headerLine(version: number | undefined): string {
-  const header: Record<string, unknown> = { type: "session", id: "abc", cwd: "/x", timestamp: "2026-07-03T00:00:00Z" };
+  const header: Record<string, unknown> = {
+    type: "session",
+    id: "abc",
+    cwd: "/x",
+    timestamp: "2026-07-03T00:00:00Z",
+  };
   if (version !== undefined) {
     header.version = version;
   }
@@ -39,16 +44,25 @@ test("buildSessionSchemaInfo flags only strictly-newer file versions", () => {
 });
 
 test("schemaVersionFromHeaderLine parses version, defaults missing to 1, rejects non-headers", () => {
-  assert.equal(schemaVersionFromHeaderLine(JSON.stringify({ type: "session", id: "a", version: 4 })), 4);
+  assert.equal(
+    schemaVersionFromHeaderLine(JSON.stringify({ type: "session", id: "a", version: 4 })),
+    4,
+  );
   assert.equal(schemaVersionFromHeaderLine(JSON.stringify({ type: "session", id: "a" })), 1);
-  assert.equal(schemaVersionFromHeaderLine(JSON.stringify({ type: "message", role: "user" })), undefined);
+  assert.equal(
+    schemaVersionFromHeaderLine(JSON.stringify({ type: "message", role: "user" })),
+    undefined,
+  );
   assert.equal(schemaVersionFromHeaderLine("{ not json"), undefined);
 });
 
 test("current-version file is not flagged as written by a newer runtime", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
-    await writeFile(file, headerLine(RUNTIME_SCHEMA_VERSION) + '{"type":"message","role":"user"}\n');
+    await writeFile(
+      file,
+      headerLine(RUNTIME_SCHEMA_VERSION) + '{"type":"message","role":"user"}\n',
+    );
     const version = await readSessionFileSchemaVersion(file);
     assert.equal(version, RUNTIME_SCHEMA_VERSION);
     assert.equal(buildSessionSchemaInfo(version).writtenByNewerRuntime, false);
@@ -58,7 +72,10 @@ test("current-version file is not flagged as written by a newer runtime", async 
 test("a file written by a newer pi is flagged", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
-    await writeFile(file, headerLine(RUNTIME_SCHEMA_VERSION + 1) + '{"type":"message","role":"user"}\n');
+    await writeFile(
+      file,
+      headerLine(RUNTIME_SCHEMA_VERSION + 1) + '{"type":"message","role":"user"}\n',
+    );
     const version = await readSessionFileSchemaVersion(file);
     assert.equal(version, RUNTIME_SCHEMA_VERSION + 1);
     assert.equal(buildSessionSchemaInfo(version).writtenByNewerRuntime, true);
@@ -68,7 +85,10 @@ test("a file written by a newer pi is flagged", async () => {
 test("the detected version survives external appends (disk-tail re-read)", async () => {
   await withTempDir(async (dir) => {
     const file = join(dir, "s.jsonl");
-    await writeFile(file, headerLine(RUNTIME_SCHEMA_VERSION + 1) + '{"type":"message","role":"user"}\n');
+    await writeFile(
+      file,
+      headerLine(RUNTIME_SCHEMA_VERSION + 1) + '{"type":"message","role":"user"}\n',
+    );
     assert.equal(await readSessionFileSchemaVersion(file), RUNTIME_SCHEMA_VERSION + 1);
 
     // Simulate an external CLI turn appended after we first read — the header

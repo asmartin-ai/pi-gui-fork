@@ -67,7 +67,9 @@ export async function generateThreadTitle(
     createOptions.model = selectedModel;
   }
   if (options.thinkingLevel) {
-    createOptions.thinkingLevel = options.thinkingLevel as NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
+    createOptions.thinkingLevel = options.thinkingLevel as NonNullable<
+      CreateAgentSessionOptions["thinkingLevel"]
+    >;
   }
 
   const { session } = await createAgentSession(createOptions);
@@ -157,7 +159,7 @@ function stripWrappingQuotes(value: string): string {
     const first = current[0];
     const last = current[current.length - 1];
     if (
-      (first === "\"" && last === "\"") ||
+      (first === '"' && last === '"') ||
       (first === "'" && last === "'") ||
       (first === "`" && last === "`")
     ) {
