@@ -205,12 +205,46 @@ async function launchDesktopExecutable(
   return createDesktopHarness(electronApp);
 }
 
+function isPlaceholderElectronPage(page: Page): boolean {
+  const url = page.url();
+  return url === "" || url === "about:blank";
+}
+
+async function waitForDesktopRendererPage(
+  electronApp: ElectronApplication,
+  timeoutMs = 30_000,
+): Promise<Page> {
+  const deadline = Date.now() + timeoutMs;
+  const pick = () =>
+    electronApp.windows().find((candidate) => !isPlaceholderElectronPage(candidate));
+  const existing = pick();
+  if (existing) {
+    return existing;
+  }
+
+  while (Date.now() < deadline) {
+    const found = pick();
+    if (found) {
+      return found;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  const urls = electronApp.windows().map((candidate) => candidate.url() || "<empty>");
+  throw new Error(
+    `Timed out waiting for desktop renderer window (urls: ${urls.join(", ") || "<none>"})`,
+  );
+}
+
 function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness {
   let page: Page | undefined;
 
   async function getWindow(): Promise<Page> {
     if (!page) {
-      page = await electronApp.firstWindow();
+      // Playwright's Electron video recorder can expose an empty page before the
+      // real BrowserWindow finishes loadURL. firstWindow() would attach to that
+      // placeholder and hang on domcontentloaded.
+      page = await waitForDesktopRendererPage(electronApp);
       await page.waitForLoadState("domcontentloaded");
       await page.waitForFunction(() => Boolean(globalThis.window.piApp), undefined, {
         timeout: 15_000,
@@ -223,6 +257,7 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
     electronApp,
     firstWindow: () => getWindow(),
     focusWindow: async () => {
+      const appPage = await getWindow();
       await electronApp.evaluate(({ BrowserWindow, app }) => {
         const window = BrowserWindow.getAllWindows()[0];
         window?.restore();
@@ -238,7 +273,6 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
         app.focus({ steal: true });
         window?.focus();
       });
-      const appPage = await getWindow();
       await appPage.bringToFront();
       await expect
         .poll(
@@ -264,6 +298,19 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
 
 async function focusElectronAppProcess(electronApp: ElectronApplication): Promise<void> {
   const pid = await electronApp.evaluate(() => process.pid);
+  const electronAppBundle = resolve(electronExecutablePath, "..", "..");
+  try {
+    await execFileAsync("open", ["-a", electronAppBundle], { timeout: 5_000 });
+  } catch {
+    // The bundle activate path is best-effort; continue with AppleScript/Electron focus.
+  }
+  try {
+    await execFileAsync("osascript", ["-e", 'tell application "Electron" to activate'], {
+      timeout: 5_000,
+    });
+  } catch {
+    // Fall through to System Events when the Electron app name is unavailable.
+  }
   try {
     await execFileAsync(
       "osascript",
@@ -275,7 +322,7 @@ async function focusElectronAppProcess(electronApp: ElectronApplication): Promis
           return name of targetProcess
         end tell`,
       ],
-      { timeout: 5_000 },
+      { timeout: 2_000 },
     );
   } catch {
     // Fall back to Electron/Playwright focus APIs when System Events access is unavailable.

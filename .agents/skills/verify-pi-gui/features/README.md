@@ -35,6 +35,11 @@ Packaged-app launch, native dialogs/clipboard, model/account onboarding, attachm
 - `run-mKBpsN`: the complete real openai-codex/gpt-5.6-luna conversation recipe passed on `d73837ae`: streaming, tool output and file side effect, switching during a run, Stop, draft isolation, archive/restore, and both conversations after restart. No assertion failures; both owned Electron processes exited. This uses the development Electron binary, not the packaged app.
 - Earlier runs `run-yJgXkz` and `run-IZZnQJ` exposed draft loss on New thread, Stop blocked behind the active prompt, and requested cancellation reported as failure. The fixes now have deterministic regressions; preserve those failed-run artifacts alongside the successful proof.
 
+## Earlier observed proof (2026-09-17)
+
+- `run-t8uKWJ` (this branch, with Electron `recordVideo` temporarily dropped): doctor passed on a visible development Electron window with test mode/hooks absent and the renderer document focused. New thread → Start thread sent a real `openai-codex` / `gpt-5.6-luna` prompt. The composer and thread row showed `No API key for provider: openai-codex`. Saved oauth access tokens for openai-codex, anthropic, and xai in `$HOME/.pi/agent/auth.json` are expired. `stream-samples.json` is empty. Not a conversation pass.
+- Same-day launch failures `run-3TX38D`, `run-aoYczc`, and `run-5nTilg` were harness/environment issues (Playwright Electron `recordVideo` stalling `loadURL`, then native `isFocused()` false). They are not conversation proof.
+
 ## Earlier observed proof (2026-09-16)
 
 - `run-jT6s7v`: a real openai-codex/gpt-5.6-luna request sent, assistant text grew while running, and the response completed. The run then failed because Alpha's draft was empty after creating Bravo and switching back. Both the draft expectation and the nonzero result remain.

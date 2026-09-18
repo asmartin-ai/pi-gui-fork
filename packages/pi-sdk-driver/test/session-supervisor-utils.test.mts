@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { determineRunOutcome, messageText } from "../dist/session-supervisor-utils.js";
+import {
+  determineRunOutcome,
+  messageText,
+  shouldPersistSnapshotForAgentEvent,
+} from "../dist/session-supervisor-utils.js";
 
 const markdownParts = [
   "## Verification report",
@@ -59,4 +63,26 @@ await test("only a requested SDK abort is cancellation; actual provider errors r
   assert.deepEqual(determineRunOutcome([{ role: "assistant", stopReason: "stop" }], true), {
     status: "completed",
   });
+});
+
+await test("the persist policy exempts streaming partials and keeps every discrete event", () => {
+  // Persisting per message_update cost an atomic catalog write (fsync + rename +
+  // directory fsync) per streamed token, serialized on the catalog's single
+  // mutation queue, which is what made createSession hang during a stream.
+  // This covers the policy across event types; session-supervisor-persist.test.mts
+  // covers handleAgentEvent actually applying it.
+  assert.equal(shouldPersistSnapshotForAgentEvent("message_update"), false);
+
+  // Crash-recovery state must stay current to the last message boundary.
+  for (const eventType of [
+    "message_start",
+    "message_end",
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end",
+    "agent_end",
+    "turn_start",
+  ]) {
+    assert.equal(shouldPersistSnapshotForAgentEvent(eventType), true, eventType);
+  }
 });

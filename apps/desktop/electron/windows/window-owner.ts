@@ -58,6 +58,7 @@ function canPublishToWindow(window: BrowserWindow): boolean {
 }
 
 export class WindowOwner {
+  private readonly lastPublishedTranscript = new Map<number, SelectedTranscriptRecord | null>();
   private readonly windows = new Set<BrowserWindow>();
   private readonly windowIds = new WeakMap<BrowserWindow, number>();
   private readonly views = new Map<number, WindowViewState>();
@@ -99,6 +100,7 @@ export class WindowOwner {
     this.windows.delete(window);
     this.windowIds.delete(window);
     this.views.delete(webContentsId);
+    this.lastPublishedTranscript.delete(webContentsId);
 
     if (this.activeWindow === window) {
       this.activeWindow = [...this.windows].find((candidate) => !candidate.isDestroyed()) ?? null;
@@ -358,6 +360,23 @@ export class WindowOwner {
     } else if (projected.selectedSessionId) {
       return;
     }
+    // Transcript arrays are replaced on writes, so identity detects changes
+    // without serializing unchanged transcripts for unrelated session events.
+    const previous = this.lastPublishedTranscript.get(webContentsId);
+    if (payload) {
+      if (
+        previous &&
+        previous.workspaceId === payload.workspaceId &&
+        previous.sessionId === payload.sessionId &&
+        previous.transcript === payload.transcript &&
+        previous.schemaInfo === payload.schemaInfo
+      ) {
+        return;
+      }
+    } else if (previous === null) {
+      return;
+    }
+    this.lastPublishedTranscript.set(webContentsId, payload);
     window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
   }
 
@@ -459,6 +478,7 @@ export class WindowOwner {
   private attachStatePublisher(window: BrowserWindow): void {
     const webContentsId = window.webContents.id;
     const startPublishing = () => {
+      this.lastPublishedTranscript.delete(webContentsId);
       this.stopPublishingState.get(webContentsId)?.();
       this.stopPublishingTranscript.get(webContentsId)?.();
       this.stopPublishingState.set(
