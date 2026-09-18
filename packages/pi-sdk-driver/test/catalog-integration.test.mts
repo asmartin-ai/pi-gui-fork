@@ -1,28 +1,51 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { SessionSupervisor } from "../dist/index.js";
 import { JsonCatalogStore } from "@pi-gui/catalogs/node";
+import type {
+  SessionCatalogEntry,
+  SessionFileCatalogStorage,
+  SessionRef,
+  WorkspaceCatalogEntry,
+  WorkspaceId,
+} from "@pi-gui/catalogs";
 
 const timestamp = "2026-07-27T00:00:00.000Z";
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((resolvePromise) => {
+interface Deferred {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}
+
+interface WorkspaceUpsertBlock {
+  readonly entered: Deferred;
+  readonly release: Deferred;
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
     resolve = resolvePromise;
   });
   return { promise, resolve };
 }
 
-function withBlockingWorkspaceUpserts(store) {
-  let nextBlock;
+function withBlockingWorkspaceUpserts(store: SessionFileCatalogStorage): {
+  readonly catalog: SessionFileCatalogStorage;
+  blockNextUpsert(): WorkspaceUpsertBlock;
+  blockNextSessionReplacement(): WorkspaceUpsertBlock;
+} {
+  let nextBlock: WorkspaceUpsertBlock | undefined;
+  let nextSessionReplacementBlock: WorkspaceUpsertBlock | undefined;
   return {
     catalog: {
       workspaces: {
         ...store.workspaces,
-        upsertWorkspace: async (entry) => {
+        upsertWorkspace: async (entry: WorkspaceCatalogEntry): Promise<void> => {
           const block = nextBlock;
           nextBlock = undefined;
           if (block) {
@@ -34,15 +57,34 @@ function withBlockingWorkspaceUpserts(store) {
       },
       sessions: store.sessions,
       worktrees: store.worktrees,
-      getSessionFile: (sessionRef) => store.getSessionFile(sessionRef),
-      setSessionFile: (sessionRef, sessionFile) => store.setSessionFile(sessionRef, sessionFile),
-      deleteSessionFile: (sessionRef) => store.deleteSessionFile(sessionRef),
-      replaceWorkspaceSessions: (workspaceId, entries, sessionFiles) =>
-        store.replaceWorkspaceSessions(workspaceId, entries, sessionFiles),
+      getSessionFile: (sessionRef: SessionRef): Promise<string | undefined> =>
+        store.getSessionFile(sessionRef),
+      setSessionFile: (sessionRef: SessionRef, sessionFile: string): Promise<void> =>
+        store.setSessionFile(sessionRef, sessionFile),
+      deleteSessionFile: (sessionRef: SessionRef): Promise<void> =>
+        store.deleteSessionFile(sessionRef),
+      replaceWorkspaceSessions: async (
+        workspaceId: WorkspaceId,
+        entries: readonly SessionCatalogEntry[],
+        sessionFiles: Readonly<Record<string, string>>,
+      ): Promise<void> => {
+        const block = nextSessionReplacementBlock;
+        nextSessionReplacementBlock = undefined;
+        if (block) {
+          block.entered.resolve();
+          await block.release.promise;
+        }
+        await store.replaceWorkspaceSessions(workspaceId, entries, sessionFiles);
+      },
     },
     blockNextUpsert() {
       const block = { entered: deferred(), release: deferred() };
       nextBlock = block;
+      return block;
+    },
+    blockNextSessionReplacement() {
+      const block = { entered: deferred(), release: deferred() };
+      nextSessionReplacementBlock = block;
       return block;
     },
   };
@@ -148,7 +190,10 @@ await test("a metadata touch that reaches the queue after removal cannot re-add 
     const workspace = await supervisor.registerWorkspace(workspacePath, "Workspace");
 
     await supervisor.removeWorkspace(workspace.workspaceId);
-    await supervisor.touchWorkspace(workspace.workspaceId);
+    const metadataTouchSupervisor = supervisor as unknown as {
+      touchWorkspace(workspaceId: WorkspaceId): Promise<void>;
+    };
+    await metadataTouchSupervisor.touchWorkspace(workspace.workspaceId);
 
     assert.equal(await store.workspaces.getWorkspace(workspace.workspaceId), undefined);
   });
@@ -163,7 +208,10 @@ await test("a metadata touch that reaches the queue after rename preserves the a
     const workspace = await supervisor.registerWorkspace(workspacePath, "Workspace");
 
     await supervisor.renameWorkspace(workspace.workspaceId, "Renamed workspace");
-    await supervisor.touchWorkspace(workspace.workspaceId);
+    const metadataTouchSupervisor = supervisor as unknown as {
+      touchWorkspace(workspaceId: WorkspaceId): Promise<void>;
+    };
+    await metadataTouchSupervisor.touchWorkspace(workspace.workspaceId);
 
     const persisted = await store.workspaces.getWorkspace(workspace.workspaceId);
     assert.equal(persisted?.displayName, "Renamed workspace");
@@ -183,5 +231,74 @@ await test("explicit registration can add a workspace again after removal", asyn
 
     const persisted = await store.workspaces.getWorkspace(workspace.workspaceId);
     assert.equal(persisted?.displayName, "Registered again");
+  });
+});
+
+await test("reconcile preserves the persisted workspace display name", async () => {
+  await withTempDir(async (dir) => {
+    const workspacePath = join(dir, "workspace");
+    await mkdir(workspacePath);
+    const store = new JsonCatalogStore({ catalogFilePath: join(dir, "catalogs.json") });
+    const supervisor = new SessionSupervisor({ catalogStorage: store });
+    const workspace = await supervisor.registerWorkspace(workspacePath, "Workspace");
+    await supervisor.renameWorkspace(workspace.workspaceId, "Renamed workspace");
+
+    const reconciled = await supervisor.reconcileWorkspace(workspace.workspaceId);
+
+    assert.equal(reconciled?.workspace.displayName, "Renamed workspace");
+    assert.equal(
+      (await store.workspaces.getWorkspace(workspace.workspaceId))?.displayName,
+      "Renamed workspace",
+    );
+  });
+});
+
+await test("reconcile does not register a workspace that was already removed", async () => {
+  await withTempDir(async (dir) => {
+    const workspacePath = join(dir, "workspace");
+    await mkdir(workspacePath);
+    const store = new JsonCatalogStore({ catalogFilePath: join(dir, "catalogs.json") });
+    const supervisor = new SessionSupervisor({ catalogStorage: store });
+    const workspace = await supervisor.registerWorkspace(workspacePath, "Workspace");
+    await supervisor.removeWorkspace(workspace.workspaceId);
+
+    assert.equal(await supervisor.reconcileWorkspace(workspace.workspaceId), undefined);
+    assert.equal(await store.workspaces.getWorkspace(workspace.workspaceId), undefined);
+  });
+});
+
+await test("workspace removal waits for an older full sync transaction", async () => {
+  await withTempDir(async (dir) => {
+    const workspacePath = join(dir, "workspace");
+    await mkdir(workspacePath);
+    const store = new JsonCatalogStore({ catalogFilePath: join(dir, "catalogs.json") });
+    const controlled = withBlockingWorkspaceUpserts(store);
+    const supervisor = new SessionSupervisor({ catalogStorage: controlled.catalog });
+    const workspace = await supervisor.registerWorkspace(workspacePath, "Workspace");
+    const sessionFile = join(dir, "preserved-session.jsonl");
+    await writeFile(sessionFile, "");
+    const sessionRef = { workspaceId: workspace.workspaceId, sessionId: "preserved-session" };
+    await store.sessions.upsertSession({
+      sessionRef,
+      workspaceId: workspace.workspaceId,
+      title: "Preserved session",
+      updatedAt: timestamp,
+      sessionFilePath: sessionFile,
+      status: "idle",
+    });
+    await store.setSessionFile(sessionRef, sessionFile);
+
+    const block = controlled.blockNextSessionReplacement();
+    const sync = supervisor.syncWorkspace(workspacePath);
+    await block.entered.promise;
+    const removal = supervisor.removeWorkspace(workspace.workspaceId);
+    // Before the full sync was serialized, removal could finish here and the
+    // blocked replacement would then recreate an orphan session row.
+    await delay(50);
+    block.release.resolve();
+    await Promise.all([sync, removal]);
+
+    assert.equal(await store.workspaces.getWorkspace(workspace.workspaceId), undefined);
+    assert.deepEqual((await store.sessions.listSessions(workspace.workspaceId)).sessions, []);
   });
 });

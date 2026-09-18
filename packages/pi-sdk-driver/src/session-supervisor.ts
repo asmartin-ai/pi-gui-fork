@@ -228,8 +228,15 @@ export class SessionSupervisor {
   }
 
   async syncWorkspace(path: string, displayName?: string): Promise<SyncWorkspaceResult> {
-    const workspace = await this.registerWorkspace(path, displayName);
-    const infos = await SessionManager.list(path);
+    const workspace = await createCanonicalWorkspaceRef(path, displayName);
+    return this.runWorkspaceMutation(workspace.workspaceId, async () => {
+      await this.registerWorkspaceRefNow(workspace);
+      return this.syncWorkspaceNow(workspace);
+    });
+  }
+
+  private async syncWorkspaceNow(workspace: WorkspaceRef): Promise<SyncWorkspaceResult> {
+    const infos = await SessionManager.list(workspace.path);
     const existingSessions = (await this.catalogs.sessions.listSessions(workspace.workspaceId))
       .sessions;
     const existingByKey = new Map(
@@ -329,11 +336,10 @@ export class SessionSupervisor {
    * workspace is no longer tracked.
    */
   async reconcileWorkspace(workspaceId: WorkspaceId): Promise<SyncWorkspaceResult | undefined> {
-    const workspace = await this.catalogs.workspaces.getWorkspace(workspaceId);
-    if (!workspace) {
-      return undefined;
-    }
-    return this.syncWorkspace(workspace.path);
+    return this.runWorkspaceMutation(workspaceId, async () => {
+      const workspace = await this.touchWorkspaceNow(workspaceId);
+      return workspace ? this.syncWorkspaceNow(workspaceToRef(workspace)) : undefined;
+    });
   }
 
   /**
@@ -2120,17 +2126,23 @@ export class SessionSupervisor {
   }
 
   private async touchWorkspace(workspaceId: WorkspaceId): Promise<void> {
-    await this.runWorkspaceMutation(workspaceId, async () => {
-      const current = await this.catalogs.workspaces.getWorkspace(workspaceId);
-      if (!current) {
-        return;
-      }
+    await this.runWorkspaceMutation(workspaceId, () => this.touchWorkspaceNow(workspaceId));
+  }
 
-      await this.catalogs.workspaces.upsertWorkspace({
-        ...current,
-        lastOpenedAt: nowIso(),
-      });
-    });
+  private async touchWorkspaceNow(
+    workspaceId: WorkspaceId,
+  ): Promise<WorkspaceCatalogSnapshot["workspaces"][number] | undefined> {
+    const current = await this.catalogs.workspaces.getWorkspace(workspaceId);
+    if (!current) {
+      return undefined;
+    }
+
+    const touched = {
+      ...current,
+      lastOpenedAt: nowIso(),
+    };
+    await this.catalogs.workspaces.upsertWorkspace(touched);
+    return touched;
   }
 
   private async registerWorkspaceRef(workspace: WorkspaceRef): Promise<void> {
@@ -2140,13 +2152,14 @@ export class SessionSupervisor {
   }
 
   private async registerWorkspaceRefNow(workspace: WorkspaceRef): Promise<void> {
+    const current = await this.catalogs.workspaces.getWorkspace(workspace.workspaceId);
     await this.catalogs.workspaces.upsertWorkspace({
       workspaceId: workspace.workspaceId,
       path: workspace.path,
-      displayName: workspace.displayName ?? deriveWorkspaceTitle(workspace),
+      displayName: workspace.displayName ?? current?.displayName ?? deriveWorkspaceTitle(workspace),
       lastOpenedAt: nowIso(),
-      sortOrder: await this.deriveWorkspaceSortOrder(workspace.workspaceId),
-      pinned: false,
+      sortOrder: current?.sortOrder ?? (await this.deriveWorkspaceSortOrder(workspace.workspaceId)),
+      pinned: current?.pinned ?? false,
     });
   }
 

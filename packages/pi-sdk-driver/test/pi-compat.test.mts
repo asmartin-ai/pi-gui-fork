@@ -24,12 +24,12 @@ await test("forced Pi persistence is a no-op when Pi has no private rewrite hook
 });
 
 await test("project settings compatibility marks every field before saving", () => {
-  const calls = [];
+  const calls: Array<["mark", string] | ["save", Record<string, unknown>]> = [];
   const settingsManager = {
-    markProjectModified(field) {
+    markProjectModified(field: string): void {
       calls.push(["mark", field]);
     },
-    saveProjectSettings(settings) {
+    saveProjectSettings(settings: Record<string, unknown>): void {
       calls.push(["save", settings]);
     },
   };
@@ -55,7 +55,8 @@ await test("compatibility hooks match the bundled Pi runtime", async () => {
   const sessionManager = SessionManager.inMemory("/tmp/pi-gui-compat-fixture");
   sessionManager.appendSessionInfo("Compatibility fixture");
   forcePersistPiSession(sessionManager);
-  assert.equal(sessionManager.flushed, true);
+  const compatibleSessionManager = sessionManager as unknown as { flushed: boolean };
+  assert.equal(compatibleSessionManager.flushed, true);
 
   const settingsManager = SettingsManager.inMemory();
   const projectSettings = { defaultProvider: "openai" };
