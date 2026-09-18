@@ -121,7 +121,8 @@ Common commands (run from the repo root):
 ```bash
 pnpm dev         # run the desktop app in development (electron-vite, hot reload)
 pnpm check       # CI baseline: formatting, lint, renderer boundaries, workspace types, guard/driver/release-helper tests
-pnpm build       # build all workspaces
+pnpm build       # build the desktop and website products
+pnpm marketing:render # explicitly render the Remotion showcase video
 pnpm typecheck   # type-check all workspaces
 pnpm format      # apply the shared formatter locally
 pnpm format:check # check formatting without changing files

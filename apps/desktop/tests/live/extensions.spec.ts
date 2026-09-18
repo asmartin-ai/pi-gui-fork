@@ -321,7 +321,8 @@ test("shows extensions above files in @ mentions and enables disabled extensions
       .toBe(true);
     await expect(composer).toHaveValue("@demo-extension ");
 
-    await composer.fill("@READ");
+    // "READ" also matches the built-in Thread orchestration extension.
+    await composer.fill("@README");
     await expect(mentionMenu).toBeVisible();
     await expect(mentionMenu.locator(".mention-menu__section-title")).toHaveText(["Files"]);
     await expect(mentionMenu.locator(".mention-menu__filename")).toContainText("README.md");

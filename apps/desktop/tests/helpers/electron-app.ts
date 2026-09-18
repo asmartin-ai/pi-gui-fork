@@ -1,17 +1,7 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import {
-  copyFile,
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  writeFile,
-} from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
@@ -25,18 +15,21 @@ import type {
   SessionRecord,
   WorkspaceRecord,
 } from "../../contracts/desktop-state";
+import { resolvePackagedAppExecutable } from "./packaged-app";
+import { TINY_PNG_BASE64 } from "./native-input";
+
+export {
+  copyAppBundle,
+  extractAppBundleFromReleaseZip,
+  extractPackagedReleaseZipAppBundle,
+  resolveAppBundleExecutable,
+  resolvePackagedAppBundle,
+  resolvePackagedAppExecutable,
+  resolvePackagedReleaseZip,
+} from "./packaged-app";
+export * from "./native-input";
 
 const desktopDir = resolve(__dirname, "..", "..");
-const packagedReleaseDir = join(desktopDir, "release");
-const nativeClipboardImagePath = resolve(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "website",
-  "public",
-  "og.png",
-);
 const execFileAsync = promisify(execFile);
 const require = createRequire(__filename);
 const electronExecutablePath = require("electron") as string;
@@ -67,12 +60,8 @@ function isProviderAuthEnvVar(key: string): boolean {
     key.endsWith("_API_KEY") || (NON_API_KEY_PROVIDER_ENV_VARS as readonly string[]).includes(key)
   );
 }
-export const TINY_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
-
 export type PiAppWindow = Window & { piApp?: PiDesktopApi };
 export type DesktopTestMode = "foreground" | "background";
-const desktopModifierKey = process.platform === "darwin" ? "Meta" : "Control";
 
 export interface DesktopHarness {
   electronApp: ElectronApplication;
@@ -454,133 +443,6 @@ function splitModelPattern(pattern: string): { provider: string; modelId: string
     provider: pattern.slice(0, separatorIndex),
     modelId: pattern.slice(separatorIndex + 1),
   };
-}
-
-export async function resolvePackagedAppBundle(releaseDir = packagedReleaseDir): Promise<string> {
-  let appBundles: string[];
-  try {
-    appBundles = await findAppBundles(releaseDir);
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      throw new Error(
-        `Packaged release directory not found: ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package:dir first.`,
-      );
-    }
-    throw error;
-  }
-
-  const appBundle =
-    appBundles.find((candidate) => basename(candidate) === "pi-gui.app") ?? appBundles[0];
-  if (!appBundle) {
-    throw new Error(
-      `No .app bundle found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package:dir first.`,
-    );
-  }
-
-  return appBundle;
-}
-
-export async function resolvePackagedAppExecutable(
-  releaseDir = packagedReleaseDir,
-): Promise<string> {
-  return resolveAppBundleExecutable(await resolvePackagedAppBundle(releaseDir));
-}
-
-export async function resolveAppBundleExecutable(appBundle: string): Promise<string> {
-  const macOsDir = join(appBundle, "Contents", "MacOS");
-  const entries = await readdir(macOsDir, { withFileTypes: true });
-  const expectedExecutableName = basename(appBundle, ".app");
-  const executableEntry =
-    entries.find((entry) => entry.isFile() && entry.name === expectedExecutableName) ??
-    entries.find((entry) => entry.isFile());
-
-  if (!executableEntry) {
-    throw new Error(`No packaged executable found under ${macOsDir}.`);
-  }
-
-  return join(macOsDir, executableEntry.name);
-}
-
-export async function resolvePackagedReleaseZip(releaseDir = packagedReleaseDir): Promise<string> {
-  const entries = await readdir(releaseDir, { withFileTypes: true });
-  const zipEntry =
-    entries.find((entry) => entry.isFile() && entry.name.endsWith("-arm64.zip")) ??
-    entries.find((entry) => entry.isFile() && entry.name.endsWith("-mac.zip")) ??
-    entries.find((entry) => entry.isFile() && entry.name.endsWith(".zip"));
-
-  if (!zipEntry) {
-    throw new Error(
-      `No packaged macOS release zip found under ${releaseDir}. Run pnpm --filter @pi-gui/desktop run package first.`,
-    );
-  }
-
-  return join(releaseDir, zipEntry.name);
-}
-
-export async function extractPackagedReleaseZipAppBundle(
-  releaseDir = packagedReleaseDir,
-  appName = "pi-gui 2.app",
-): Promise<string> {
-  const zipPath = await resolvePackagedReleaseZip(releaseDir);
-  return extractAppBundleFromReleaseZip(zipPath, appName);
-}
-
-export async function extractAppBundleFromReleaseZip(
-  zipPath: string,
-  appName = "pi-gui 2.app",
-): Promise<string> {
-  const extractionDir = await mkdtemp(join(tmpdir(), "pi-gui-release-zip-"));
-  await execFileAsync("ditto", ["-x", "-k", zipPath, extractionDir]);
-
-  const extractedAppBundle = await resolvePackagedAppBundle(extractionDir);
-  const renamedBundle = join(extractionDir, appName);
-
-  if (extractedAppBundle !== renamedBundle) {
-    try {
-      await rename(extractedAppBundle, renamedBundle);
-    } catch (error) {
-      if (
-        typeof error !== "object" ||
-        error === null ||
-        !("code" in error) ||
-        error.code !== "EXDEV"
-      ) {
-        throw error;
-      }
-
-      await cp(extractedAppBundle, renamedBundle, { recursive: true });
-    }
-  }
-
-  return realpath(renamedBundle);
-}
-
-export async function copyAppBundle(
-  sourceAppBundle: string,
-  targetAppBundle: string,
-): Promise<void> {
-  await execFileAsync("ditto", [sourceAppBundle, targetAppBundle]);
-}
-
-async function findAppBundles(rootDir: string): Promise<string[]> {
-  const entries = await readdir(rootDir, { withFileTypes: true });
-  const bundles: string[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    const fullPath = join(rootDir, entry.name);
-    if (entry.name.endsWith(".app")) {
-      bundles.push(fullPath);
-      continue;
-    }
-
-    bundles.push(...(await findAppBundles(fullPath)));
-  }
-
-  return bundles;
 }
 
 function isMissingPathError(error: unknown): boolean {
@@ -972,266 +834,6 @@ export async function writeTinyPng(filePath: string): Promise<void> {
 
 export async function writeTextFile(filePath: string, contents: string): Promise<void> {
   await writeFile(filePath, contents, "utf8");
-}
-
-export function desktopShortcut(keyChord: string): string {
-  return `${desktopModifierKey}+${keyChord}`;
-}
-
-export async function pasteTinyPngViaClipboard(
-  harness: DesktopHarness,
-  window: Page,
-  composerTestId = "composer",
-): Promise<void> {
-  const composer = window.getByTestId(composerTestId);
-  await composer.click();
-  await expect(composer).toBeFocused();
-  await harness.electronApp.evaluate(({ clipboard, nativeImage }, imagePath) => {
-    clipboard.writeImage(nativeImage.createFromPath(imagePath));
-  }, nativeClipboardImagePath);
-  await composer.press(desktopShortcut("V"));
-  await expect(window.locator(".composer-attachment")).toBeVisible();
-}
-
-export async function pasteTinyPngFromClipboardFiles(
-  window: Page,
-  fileName = "screenshot.png",
-  composerTestId = "composer",
-): Promise<void> {
-  await dispatchTinyPngPaste(window, fileName, composerTestId, "files");
-}
-
-export async function pasteTinyPng(
-  window: Page,
-  fileName = "screenshot.png",
-  composerTestId = "composer",
-): Promise<void> {
-  await dispatchTinyPngPaste(window, fileName, composerTestId, "data-transfer");
-}
-
-export async function dragFilesOverComposer(
-  window: Page,
-  filePaths: readonly string[],
-  composerSurfaceTestId = "composer-surface",
-): Promise<void> {
-  const files = await Promise.all(filePaths.map(loadComposerDragFile));
-  await dispatchComposerDragEvent(window, "dragenter", files, composerSurfaceTestId);
-  await dispatchComposerDragEvent(window, "dragover", files, composerSurfaceTestId);
-}
-
-export async function dropFilesOnComposer(
-  window: Page,
-  filePaths: readonly string[],
-  composerSurfaceTestId = "composer-surface",
-): Promise<void> {
-  const files = await Promise.all(filePaths.map(loadComposerDragFile));
-  await dispatchComposerDragEvent(window, "drop", files, composerSurfaceTestId);
-}
-
-async function dispatchTinyPngPaste(
-  window: Page,
-  fileName: string,
-  composerTestId: string,
-  mode: "files" | "data-transfer",
-): Promise<void> {
-  await window.evaluate(
-    ({ encodedPng, name, testId, clipboardMode }) => {
-      const composer = document.querySelector<HTMLTextAreaElement>(`[data-testid='${testId}']`);
-      if (!composer) {
-        throw new Error(`Composer was unavailable for test id: ${testId}`);
-      }
-
-      const bytes = Uint8Array.from(atob(encodedPng), (char) => char.charCodeAt(0));
-      const file = new File([bytes], name, { type: "image/png" });
-      const event = new Event("paste", { bubbles: true, cancelable: true });
-      const clipboardData =
-        clipboardMode === "files"
-          ? {
-              items: [],
-              files: [file],
-              types: ["Files"],
-            }
-          : (() => {
-              const transfer = new DataTransfer();
-              transfer.items.add(file);
-              return transfer;
-            })();
-
-      Object.defineProperty(event, "clipboardData", {
-        configurable: true,
-        value: clipboardData,
-      });
-
-      composer.focus();
-      composer.dispatchEvent(event);
-    },
-    { encodedPng: TINY_PNG_BASE64, name: fileName, testId: composerTestId, clipboardMode: mode },
-  );
-}
-
-async function dispatchComposerDragEvent(
-  window: Page,
-  eventType: "dragenter" | "dragover" | "drop",
-  files: readonly {
-    readonly encoded: string;
-    readonly mimeType: string;
-    readonly name: string;
-    readonly path: string;
-  }[],
-  composerSurfaceTestId: string,
-): Promise<void> {
-  await window.evaluate(
-    ({ eventName, entries, surfaceTestId }) => {
-      const surface = document.querySelector<HTMLElement>(`[data-testid='${surfaceTestId}']`);
-      if (!surface) {
-        throw new Error(`Composer surface was unavailable for test id: ${surfaceTestId}`);
-      }
-
-      const transfer = new DataTransfer();
-      for (const entry of entries) {
-        const bytes = Uint8Array.from(atob(entry.encoded), (char) => char.charCodeAt(0));
-        const file = new File([bytes], entry.name, { type: entry.mimeType });
-        Object.defineProperty(file, "path", {
-          configurable: true,
-          value: entry.path,
-        });
-        transfer.items.add(file);
-      }
-
-      const event = new Event(eventName, { bubbles: true, cancelable: true });
-      Object.defineProperty(event, "dataTransfer", {
-        configurable: true,
-        value: transfer,
-      });
-      surface.dispatchEvent(event);
-    },
-    { eventName: eventType, entries: files, surfaceTestId: composerSurfaceTestId },
-  );
-}
-
-async function loadComposerDragFile(filePath: string): Promise<{
-  readonly encoded: string;
-  readonly mimeType: string;
-  readonly name: string;
-  readonly path: string;
-}> {
-  const buffer = await readFile(filePath);
-  return {
-    encoded: buffer.toString("base64"),
-    mimeType: mimeTypeForTestFile(filePath),
-    name: basename(filePath),
-    path: filePath,
-  };
-}
-
-function mimeTypeForTestFile(filePath: string): string {
-  switch (extname(filePath).toLowerCase()) {
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".gif":
-      return "image/gif";
-    case ".webp":
-      return "image/webp";
-    case ".txt":
-    case ".md":
-      return "text/plain";
-    case ".json":
-      return "application/json";
-    default:
-      return "application/octet-stream";
-  }
-}
-
-export async function stubNextOpenDialogResult(
-  harness: DesktopHarness,
-  result: { readonly canceled: boolean; readonly filePaths: readonly string[] },
-): Promise<void> {
-  await harness.electronApp.evaluate(({ dialog }, nextResult) => {
-    const original = dialog.showOpenDialog;
-    (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT = 0;
-    dialog.showOpenDialog = async (...args: Parameters<typeof dialog.showOpenDialog>) => {
-      dialog.showOpenDialog = original;
-      const globals = globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number };
-      globals.__PI_TEST_OPEN_DIALOG_COUNT = (globals.__PI_TEST_OPEN_DIALOG_COUNT ?? 0) + 1;
-      return { canceled: nextResult.canceled, filePaths: [...nextResult.filePaths] };
-    };
-  }, result);
-}
-
-export async function stubNextOpenDialog(
-  harness: DesktopHarness,
-  filePaths: readonly string[],
-): Promise<void> {
-  await stubNextOpenDialogResult(harness, { canceled: false, filePaths });
-}
-
-export async function getOpenDialogInvocationCount(harness: DesktopHarness): Promise<number> {
-  return harness.electronApp.evaluate(() => {
-    return (
-      (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT ?? 0
-    );
-  });
-}
-
-export async function triggerNativeOpenFolderShortcut(harness: DesktopHarness): Promise<void> {
-  await harness.electronApp.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
-      type: "keyDown",
-      keyCode: "o",
-      modifiers: ["meta"],
-    });
-  });
-}
-
-export async function getApplicationMenuItemInfo(
-  harness: DesktopHarness,
-  menuItemId: string,
-): Promise<{ id: string; label: string; accelerator: string; parentLabel: string | null } | null> {
-  return harness.electronApp.evaluate(({ Menu }, targetId) => {
-    const menu = Menu.getApplicationMenu();
-    if (!menu) {
-      return null;
-    }
-
-    const stack = menu.items.map((item) => ({ item, parentLabel: item.label ?? null }));
-    while (stack.length > 0) {
-      const entry = stack.shift();
-      if (!entry) {
-        continue;
-      }
-      const { item, parentLabel } = entry;
-      if (item.id === targetId) {
-        return {
-          id: item.id,
-          label: item.label,
-          accelerator: item.accelerator ? String(item.accelerator) : "",
-          parentLabel,
-        };
-      }
-      for (const child of item.submenu?.items ?? []) {
-        stack.push({ item: child, parentLabel: item.label || parentLabel });
-      }
-    }
-
-    return null;
-  }, menuItemId);
-}
-
-export async function triggerApplicationMenuItem(
-  harness: DesktopHarness,
-  menuItemId: string,
-): Promise<boolean> {
-  return harness.electronApp.evaluate(({ BrowserWindow, Menu }, targetId) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(targetId);
-    if (!item?.click) {
-      return false;
-    }
-    Reflect.apply(item.click, item, [item, BrowserWindow.getFocusedWindow() ?? undefined, {}]);
-    return true;
-  }, menuItemId);
 }
 
 export async function getDesktopState(window: Page): Promise<DesktopAppState> {

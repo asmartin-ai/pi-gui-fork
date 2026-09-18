@@ -98,6 +98,28 @@ Run core, live, and native together (production, dev, and demo are separate):
 pnpm --filter @pi-gui/desktop run test:e2e:all
 ```
 
+## Marketing media
+
+The root commands own published marketing outputs:
+
+- `pnpm marketing:demo` records one fresh demo and writes the README files in
+  `docs/assets/` plus the website copy in `apps/website/public/demo.mp4`.
+- `pnpm marketing:capture` writes the three Remotion inputs in
+  `video/public/captures/`. The parallel-session capture starts two threads with initial prompts and
+  requires both sessions to report `running` before recording or publishing the clip. The command
+  submits real prompts, so it fails unless
+  `PI_GUI_MARKETING_ALLOW_PROVIDER_ENV=1`, `PI_GUI_MARKETING_PROVIDER`, and
+  `PI_GUI_MARKETING_MODEL` explicitly select the provider environment to use.
+- `pnpm marketing:render` consumes those clips and renders `video/out/pi-showcase.mp4`.
+
+[`scripts/marketing-assets.json`](../../scripts/marketing-assets.json) is the producer-to-consumer
+manifest. Preserve existing media and capture evidence. For a proof run, set
+`PI_GUI_MARKETING_STAGE_DIR` to an empty directory so capture commands write the same output tree
+there without replacing tracked media. The README capture uses synthetic test state, scrubs ambient
+provider credentials, and retains its profile and frames under `.artifacts/marketing/readme-demo/`.
+Showcase capture writes an empty auth file, does not copy ambient credentials, and retains its
+synthetic profiles and frames under `.artifacts/marketing/showcase-captures/`.
+
 For mac-first CI, use:
 
 ```bash

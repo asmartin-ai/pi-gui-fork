@@ -31,13 +31,14 @@ Packaged-app launch, native dialogs/clipboard, model/account onboarding, attachm
 
 ## Latest observed proof (2026-09-18)
 
+- `run-elqPTZ`: the complete openai-codex/gpt-5.6-luna conversation recipe passed after the state/window/IPC owner extraction and persistence hardening. All nine checkpoints passed, including switching during a tool run, Stop, independent drafts, archive/restore, and both conversations after restart. No assertion failures; PIDs 25552 and 25778 exited. Screenshots and tool-file evidence were inspected. This is the development Electron app; packaged launch has separate proof.
 - `run-mKBpsN`: the complete real openai-codex/gpt-5.6-luna conversation recipe passed on `d73837ae`: streaming, tool output and file side effect, switching during a run, Stop, draft isolation, archive/restore, and both conversations after restart. No assertion failures; both owned Electron processes exited. This uses the development Electron binary, not the packaged app.
 - Earlier runs `run-yJgXkz` and `run-IZZnQJ` exposed draft loss on New thread, Stop blocked behind the active prompt, and requested cancellation reported as failure. The fixes now have deterministic regressions; preserve those failed-run artifacts alongside the successful proof.
 
 ## Earlier observed proof (2026-09-16)
 
 - `run-jT6s7v`: a real openai-codex/gpt-5.6-luna request sent, assistant text grew while running, and the response completed. The run then failed because Alpha's draft was empty after creating Bravo and switching back. Both the draft expectation and the nonzero result remain.
-- The revised recipe continues after draft assertion failures so it can collect later coverage. That revision has not yet completed a real run; tool completion, stop, archive/restore, and restart in this new recipe remain unverified.
+- At that point, the revised recipe continued after draft assertion failures but had not completed a real run. The later September 18 runs above now cover tool completion, Stop, archive/restore, and restart.
 - `run-Y5MlNp`: anthropic configuration reached Send but displayed No API key for provider; no response proof.
 - `run-zH4Jq1`: earlier secondary visible settings/navigation smoke passed.
 

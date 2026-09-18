@@ -1,13 +1,33 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
+  addWorkspaceViaIpc,
   createSessionViaIpc,
+  getDesktopState,
   getSelectedTranscript,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
+
+test("adds a workspace to an empty launched app", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("launch-diagnostic-workspace");
+  const harness = await launchDesktop(userDataDir, { testMode: "background" });
+
+  try {
+    const window = await harness.firstWindow();
+    await expect.poll(async () => (await getDesktopState(window)).workspaces).toEqual([]);
+
+    await addWorkspaceViaIpc(window, workspacePath);
+
+    const workspace = await waitForWorkspaceByPath(window, workspacePath);
+    await expect(window.getByTestId("workspace-list")).toContainText(workspace.name);
+  } finally {
+    await harness.close();
+  }
+});
 
 test("boots an existing workspace and starts a new thread through the real UI", async () => {
   const userDataDir = await makeUserDataDir();
