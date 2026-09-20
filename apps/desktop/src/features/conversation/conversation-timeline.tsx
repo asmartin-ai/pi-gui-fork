@@ -27,6 +27,8 @@ interface ThreadSearchModel {
 interface ConversationTimelineProps {
   readonly transcript: readonly TranscriptMessage[];
   readonly isTranscriptLoading: boolean;
+  readonly transcriptFailed?: { readonly retrying: boolean } | null;
+  readonly onRetryTranscript?: () => void;
   readonly viewport: TimelineViewport;
   readonly threadSearch: ThreadSearchModel;
   readonly onViewFileInDiff?: (path: string) => void;
@@ -36,6 +38,8 @@ interface ConversationTimelineProps {
 export function ConversationTimeline({
   transcript,
   isTranscriptLoading,
+  transcriptFailed = null,
+  onRetryTranscript,
   viewport,
   threadSearch,
   onViewFileInDiff,
@@ -101,7 +105,14 @@ export function ConversationTimeline({
           ref={viewport.attachPane}
           tabIndex={0}
         >
-          {isTranscriptLoading ? (
+          {transcriptFailed ? (
+            <div className="timeline" data-testid="transcript">
+              <TranscriptHydrateError
+                retrying={transcriptFailed.retrying}
+                onRetry={onRetryTranscript}
+              />
+            </div>
+          ) : isTranscriptLoading ? (
             <div className="timeline" data-testid="transcript">
               <TranscriptSkeleton />
             </div>
@@ -132,7 +143,7 @@ export function ConversationTimeline({
               ))}
             </div>
           )}
-          {viewport.showJumpToLatest ? (
+          {!transcriptFailed && viewport.showJumpToLatest ? (
             <button
               className="timeline-jump"
               data-testid="timeline-jump"
@@ -144,7 +155,7 @@ export function ConversationTimeline({
           ) : null}
         </div>
       </div>
-      {promptRailVisible && !isTranscriptLoading && userPrompts.length > 1 ? (
+      {promptRailVisible && !isTranscriptLoading && !transcriptFailed && userPrompts.length > 1 ? (
         <TimelineContextRail prompts={userPrompts} onSelect={viewport.navigateToRow} />
       ) : null}
     </div>
@@ -219,6 +230,32 @@ function TranscriptSkeleton() {
         <span className="skeleton-line" style={{ width: "72%" }} />
       </div>
       <span className="sr-only">Loading transcript…</span>
+    </div>
+  );
+}
+
+function TranscriptHydrateError({
+  retrying,
+  onRetry,
+}: {
+  readonly retrying: boolean;
+  readonly onRetry?: () => void;
+}) {
+  return (
+    <div className="transcript-hydrate-error" data-testid="transcript-hydrate-error">
+      <h2>Couldn't load this thread</h2>
+      <p>The selected conversation couldn't be restored. Retry to try again.</p>
+      <div className="transcript-hydrate-error__actions">
+        <button
+          className="button button--primary"
+          data-testid="hydrate-retry"
+          type="button"
+          disabled={retrying || !onRetry}
+          onClick={onRetry}
+        >
+          {retrying ? "Retrying…" : "Retry"}
+        </button>
+      </div>
     </div>
   );
 }

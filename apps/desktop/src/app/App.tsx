@@ -6,6 +6,7 @@ import {
   type AppView,
 } from "../../contracts/desktop-state";
 import { updateSnapshot, useDesktopAppState } from "./desktop-app-state";
+import { DesktopStartupSurface, toStartupSurfaceState } from "./desktop-recovery";
 import { buildFileWorkbenchContexts } from "./file-workbench-contexts";
 import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app-shell-utils";
 import { useRunningLabel } from "../features/conversation/hooks/use-running-label";
@@ -58,7 +59,10 @@ import { useComposerDraftSync } from "../features/conversation/hooks/use-compose
 import { useSessionComposer } from "../features/conversation/hooks/use-session-composer";
 
 export default function App() {
-  const [snapshot, setSnapshot, selectedTranscript] = useDesktopAppState();
+  const desktop = useDesktopAppState();
+  const snapshot = desktop.snapshot;
+  const setSnapshot = desktop.setSnapshot;
+  const selectedTranscript = desktop.selectedTranscript;
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -191,7 +195,10 @@ export default function App() {
       ? selectedTranscript
       : null;
   const activeTranscript = selectedTranscriptForSession?.transcript ?? [];
-  const isTranscriptLoading = Boolean(selectedSession) && !selectedTranscriptForSession;
+  const transcriptHydration = desktop.view.kind === "ready" ? desktop.view.transcript : undefined;
+  const transcriptFailed = transcriptHydration?.kind === "failed" ? transcriptHydration : null;
+  const isTranscriptLoading =
+    Boolean(selectedSession) && !selectedTranscriptForSession && !transcriptFailed;
   const timelineRows = useMemo(
     () => buildDisplayTimelineItems(activeTranscript),
     [activeTranscript],
@@ -200,7 +207,7 @@ export default function App() {
     sessionKey: selectedSessionKey,
     rows: timelineRows,
     active: snapshot?.activeView === "threads" && Boolean(selectedSession),
-    transcriptReady: !isTranscriptLoading,
+    transcriptReady: !isTranscriptLoading && !transcriptFailed,
     paneRef: timelinePaneRef,
   });
   const threadSearch = useThreadSearch(
@@ -617,15 +624,13 @@ export default function App() {
     }
   }, [sidePanelAvailable, selectedSessionKey]);
 
-  if (!api || !snapshot) {
+  if (!api || desktop.view.kind !== "ready" || !snapshot) {
     return (
-      <div className="shell shell--loading">
-        <main className="loading-card">
-          <div className="loading-card__eyebrow">pi-gui</div>
-          <h1>Loading sessions</h1>
-          <p>The desktop shell is restoring folder and thread state from the main process.</p>
-        </main>
-      </div>
+      <DesktopStartupSurface
+        state={toStartupSurfaceState(desktop.view)}
+        onRetry={desktop.retry}
+        onRelaunch={desktop.canRelaunch ? desktop.relaunch : undefined}
+      />
     );
   }
 
@@ -1025,6 +1030,8 @@ export default function App() {
                     <ConversationTimeline
                       transcript={activeTranscript}
                       isTranscriptLoading={isTranscriptLoading}
+                      transcriptFailed={transcriptFailed}
+                      onRetryTranscript={desktop.retry}
                       viewport={viewport}
                       threadSearch={threadSearch}
                       onViewFileInDiff={handleViewFileInDiff}
