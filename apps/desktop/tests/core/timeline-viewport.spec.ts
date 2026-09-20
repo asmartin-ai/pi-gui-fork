@@ -202,3 +202,82 @@ test("a layout clamp after user intent expires does not resume following", async
     await h.close();
   }
 });
+
+test("typing within a fixed-height multiline draft never shifts the chat", async () => {
+  const h = await launchDesktop(await makeUserDataDir(), {
+    initialWorkspaces: [await makeWorkspace("viewport-typing")],
+    testMode: "background",
+  });
+  try {
+    const p = await h.firstWindow();
+    const state = await p.evaluate(() => window.piApp!.getState());
+    await createSessionViaIpc(p, state.selectedWorkspaceId!, "Typing viewport");
+    await seedTranscriptMessages(h, p, { count: 30 });
+    const composer = p.getByTestId("composer");
+    await composer.fill("First line\nSecond line\nThird line\nFourth line\nFifth line\nTyping: ");
+    await jumpTimelineToBottom(p);
+    await p.waitForTimeout(200);
+    const sampling = p.evaluate(async () => {
+      const pane = document.querySelector<HTMLElement>('[data-testid="timeline-pane"]')!;
+      const tops = [pane.scrollTop];
+      const started = performance.now();
+      while (performance.now() - started < 1600) {
+        await new Promise(requestAnimationFrame);
+        tops.push(pane.scrollTop);
+      }
+      return Math.max(...tops) - Math.min(...tops);
+    });
+    await composer.pressSequentially("abcdefghijklmnopqrstuvwxyz", { delay: 40 });
+    expect(await sampling).toBeLessThanOrEqual(1);
+  } finally {
+    await h.close();
+  }
+});
+
+test("small upward wheel input escapes bottom while typing and streaming overlap", async () => {
+  const h = await launchDesktop(await makeUserDataDir(), {
+    initialWorkspaces: [await makeWorkspace("viewport-small-wheel")],
+    testMode: "background",
+  });
+  try {
+    const p = await h.firstWindow();
+    const state = await p.evaluate(() => window.piApp!.getState());
+    await createSessionViaIpc(p, state.selectedWorkspaceId!, "Small wheel");
+    const { sessionRef } = await seedTranscriptMessages(h, p, { count: 30 });
+    await jumpTimelineToBottom(p);
+    const composer = p.getByTestId("composer");
+    await composer.focus();
+    await p.getByTestId("timeline-pane").hover();
+    const positions: number[] = [];
+    await Promise.all([
+      composer.pressSequentially("Typing a draft while the answer keeps arriving.", { delay: 45 }),
+      (async () => {
+        for (let i = 0; i < 25; i++) {
+          await emitTestSessionEvent(h, {
+            type: "assistantDelta",
+            sessionRef,
+            runId: "overlapping-scroll",
+            timestamp: new Date().toISOString(),
+            text: `word${i} `,
+          });
+          await p.waitForTimeout(80);
+        }
+      })(),
+      (async () => {
+        for (let i = 0; i < 25; i++) {
+          await p.mouse.wheel(0, -4);
+          await p.waitForTimeout(70);
+          positions.push((await getTimelineScrollMetrics(p)).scrollTop);
+        }
+      })(),
+    ]);
+    // Position must progress upward even though each input is below the old
+    // 32px near-bottom threshold. App renders must not rewind native motion.
+    expect(positions[0]! - positions.at(-1)!).toBeGreaterThan(70);
+    for (let i = 1; i < positions.length; i++)
+      expect(positions[i]! - positions[i - 1]!).toBeLessThanOrEqual(1);
+    await expect(composer).toHaveValue("Typing a draft while the answer keeps arriving.");
+  } finally {
+    await h.close();
+  }
+});

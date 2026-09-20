@@ -110,3 +110,15 @@ export function visibleRows(
       row.top <= top + height + TIMELINE_OVERSCAN,
   );
 }
+
+/** Preserve native motion that arrived before its scroll event reached React. */
+export function compensateAnchorShift(
+  actualTop: number,
+  previousAnchorTop: number,
+  nextAnchorTop: number,
+  maximum: number,
+): number {
+  const clamp = (top: number) => Math.max(0, Math.min(maximum, top));
+  const pendingNativeDelta = actualTop - clamp(previousAnchorTop);
+  return clamp(nextAnchorTop + pendingNativeDelta);
+}

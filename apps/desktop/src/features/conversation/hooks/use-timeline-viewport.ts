@@ -9,6 +9,7 @@ import {
 import type { DisplayTimelineItem } from "../../../../contracts/timeline-types";
 import {
   anchorAt,
+  compensateAnchorShift,
   type RowEstimate,
   layoutRows,
   recoverAnchor,
@@ -55,6 +56,7 @@ export function useTimelineViewport({
     activityMarker: "",
     newActivity: false,
     expectedScrollTop: null as number | null,
+    pendingNavigation: true,
   });
   const [, setVersion] = useState(0);
   const [pane, setPane] = useState<HTMLDivElement | null>(null);
@@ -84,6 +86,7 @@ export function useTimelineViewport({
       activityMarker: "",
       newActivity: false,
       expectedScrollTop: null,
+      pendingNavigation: true,
     };
   }
 
@@ -99,6 +102,7 @@ export function useTimelineViewport({
   }, []);
   const attachPane = useCallback(
     (node: HTMLDivElement | null) => {
+      if (node && node !== paneRef.current) model.current.pendingNavigation = true;
       paneRef.current = node;
       setPane(node);
     },
@@ -175,7 +179,10 @@ export function useTimelineViewport({
   useLayoutEffect(() => {
     const current = model.current;
     if (!active || !transcriptReady || !pane) return;
+    const restoring = current.state.kind === "restoring";
     const before = destination(current.state);
+    const previousAnchorTop =
+      before.kind === "reading" ? resolveAnchor(current.layout, before.anchor) : null;
     if (before.kind === "reading") {
       const anchor = recoverAnchor(layout, current.layout, before.anchor);
       if (anchor) current.state = { kind: "reading", anchor };
@@ -190,14 +197,37 @@ export function useTimelineViewport({
     current.scrollExtent = pane.scrollHeight;
     current.committedHeight = pane.clientHeight;
     const maximum = Math.max(0, current.scrollExtent - pane.clientHeight);
-    const desired =
+    let desired =
       destination(current.state).kind === "following" ? maximum : Math.min(maximum, target);
-    // Tag browser clamping as well as explicit writes: its scroll event may
-    // arrive after this layout commit, when the new dimensions look stable.
-    if (geometryChanged || Math.abs(pane.scrollTop - desired) > 0.5)
+    // A render is not a request to scroll. Native wheel motion can already
+    // be visible before its queued scroll event updates our saved anchor.
+    const anchorMoved = previousAnchorTop !== null && Math.abs(target - previousAnchorTop) > 0.5;
+    const align =
+      current.pendingNavigation ||
+      restoring ||
+      (before.kind === "following" ? geometryChanged : anchorMoved);
+    const compensateReading =
+      align &&
+      !current.pendingNavigation &&
+      !restoring &&
+      before.kind === "reading" &&
+      previousAnchorTop !== null;
+    if (compensateReading) {
+      desired = compensateAnchorShift(pane.scrollTop, previousAnchorTop, target, maximum);
+    }
+    current.pendingNavigation = false;
+    if (align && Math.abs(pane.scrollTop - desired) > 0.5) {
       current.expectedScrollTop = desired;
-    if (Math.abs(pane.scrollTop - desired) > 0.5) {
       pane.scrollTop = desired;
+    } else if (geometryChanged && (pane.scrollTop <= 0 || pane.scrollTop >= maximum - 1)) {
+      // A smaller extent may clamp without an explicit write. That event
+      // must not turn a reader into a follower.
+      current.expectedScrollTop = pane.scrollTop;
+    }
+    if (compensateReading) {
+      const anchor = anchorAt(layout, pane.scrollTop);
+      if (anchor) current.state = { kind: "reading", anchor };
+      if (Math.abs(pane.scrollTop - target) > 0.5) schedule();
     }
     if (placements.every((row) => current.heights.has(row.item.id))) {
       current.state = destination(current.state);
@@ -210,7 +240,7 @@ export function useTimelineViewport({
       current.newActivity = true;
     current.activityMarker = marker;
     setShowJumpToLatest(current.newActivity);
-  }, [active, transcriptReady, pane, layout, rows, target, placements]);
+  }, [active, transcriptReady, pane, layout, rows, target, placements, schedule]);
 
   useLayoutEffect(() => {
     if (!pane || !active) return;
@@ -238,7 +268,15 @@ export function useTimelineViewport({
       )
         return;
       const anchor = anchorAt(current.layout, pane.scrollTop);
-      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 32)
+      const previous = destination(current.state);
+      const previousTop =
+        previous.kind === "reading" ? resolveAnchor(current.layout, previous.anchor) : null;
+      // Small upward trackpad deltas must escape the bottom. Resume following
+      // only on reaching the actual bottom without moving upward.
+      if (
+        pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 1 &&
+        (previousTop === null || pane.scrollTop >= previousTop)
+      )
         current.state = { kind: "following" };
       else if (anchor) current.state = { kind: "reading", anchor };
       current.expectedScrollTop = null;
@@ -248,6 +286,7 @@ export function useTimelineViewport({
     const intent = (leaveBottom: boolean) => {
       const current = model.current;
       current.userIntent = performance.now() + 1000;
+      current.pendingNavigation = false;
       current.expectedScrollTop = null;
       const anchor = anchorAt(current.layout, pane.scrollTop);
       if (anchor && leaveBottom) current.state = { kind: "reading", anchor };
@@ -300,12 +339,14 @@ export function useTimelineViewport({
 
   const jumpToLatest = useCallback(() => {
     model.current.state = { kind: "following" };
+    model.current.pendingNavigation = true;
     model.current.userIntent = 0;
     schedule();
   }, [schedule]);
   const navigateToRow = useCallback(
     (id: string) => {
       model.current.state = { kind: "reading", anchor: { rowId: id, offsetWithinRow: -16 } };
+      model.current.pendingNavigation = true;
       model.current.userIntent = 0;
       schedule();
     },
@@ -322,6 +363,7 @@ export function useTimelineViewport({
         pane.clientHeight / 2;
       const anchor = anchorAt(model.current.layout, Math.max(0, top));
       if (anchor) model.current.state = { kind: "reading", anchor };
+      model.current.pendingNavigation = true;
       model.current.userIntent = 0;
       schedule();
     },

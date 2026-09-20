@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import type { DisplayTimelineItem } from "../../contracts/timeline-types";
 import {
   layoutRows,
+  compensateAnchorShift,
   anchorAt,
   resolveAnchor,
   recoverAnchor,
@@ -71,4 +72,10 @@ test("estimates update with content and width while preserving measurements", ()
   expect(long[0]!.height).toBeGreaterThan(short[0]!.height);
   expect(narrow[0]!.height).toBeGreaterThan(long[0]!.height);
   expect(layoutRows([message("a")], new Map([["a", 123]]), 700, estimates)[0]!.height).toBe(123);
+});
+
+test("anchor correction preserves pending native motion and does not apply browser clamping twice", () => {
+  expect(compensateAnchorShift(460, 500, 580, 1000)).toBe(540);
+  expect(compensateAnchorShift(500, 900, 400, 500)).toBe(400);
+  expect(compensateAnchorShift(460, 500, 500, 1000)).toBe(460);
 });

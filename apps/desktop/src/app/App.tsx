@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -209,12 +209,6 @@ export default function App() {
     viewport.navigateToElement,
     viewport.setSearchMode,
   );
-  useLayoutEffect(() => {
-    const composer = composerRef.current;
-    if (!composer) return;
-    composer.style.height = "0px";
-    composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
-  }, [composerDraft, selectedSessionKey, snapshot?.activeView]);
   const showSchemaSkewNotice =
     selectedTranscriptForSession?.schemaInfo?.writtenByNewerRuntime === true &&
     Boolean(selectedSessionKey) &&
