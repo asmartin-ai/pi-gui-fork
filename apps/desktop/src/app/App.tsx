@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
@@ -9,10 +9,9 @@ import { updateSnapshot, useDesktopAppState } from "./desktop-app-state";
 import { buildFileWorkbenchContexts } from "./file-workbench-contexts";
 import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app-shell-utils";
 import { useRunningLabel } from "../features/conversation/hooks/use-running-label";
-import {
-  useTimelineScroll,
-  type SidePanelMode,
-} from "../features/conversation/hooks/use-timeline-scroll";
+import { useTimelineViewport } from "../features/conversation/hooks/use-timeline-viewport";
+import { buildDisplayTimelineItems } from "../features/conversation/timeline-turns";
+type SidePanelMode = "changes" | "files";
 import { formatRelativeTime } from "../lib/string-utils";
 import { restoreTopmostDialogFocus } from "../ui/dialog-focus";
 import { ComposerPanel } from "../features/conversation/composer-panel";
@@ -78,7 +77,6 @@ export default function App() {
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [promptRailVisible, setPromptRailVisible] = useState(loadPromptRailVisible);
-  const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
   const sidebarToggleStateRef = useRef<{
     readonly api: typeof window.piApp;
@@ -195,30 +193,28 @@ export default function App() {
       : null;
   const activeTranscript = selectedTranscriptForSession?.transcript ?? [];
   const isTranscriptLoading = Boolean(selectedSession) && !selectedTranscriptForSession;
-  const {
-    setTimelinePaneElement,
-    disableTimelineVirtualization,
-    finalizeTimelineVirtualizationDisable,
-    handleTimelineScroll,
-    handleTimelineScrollIntent,
-    handleTimelineNavigateAway,
-    handleTimelineContentHeightChange,
-    showJumpToLatest,
-    jumpToLatest,
-    saveCurrentTimelineScrollState,
-    beginPreserveTimelineBottom,
-    schedulePinnedBottomRealignment,
-  } = useTimelineScroll({
-    selectedSessionKey,
-    activeTranscript,
-    selectedSession,
-    selectedTranscriptForSession,
-    activeView: snapshot?.activeView,
-    sidePanelMode,
-    composerRef,
-    composerDraft,
-    timelinePaneRef,
+  const timelineRows = useMemo(
+    () => buildDisplayTimelineItems(activeTranscript),
+    [activeTranscript],
+  );
+  const viewport = useTimelineViewport({
+    sessionKey: selectedSessionKey,
+    rows: timelineRows,
+    active: snapshot?.activeView === "threads" && Boolean(selectedSession),
+    transcriptReady: !isTranscriptLoading,
+    paneRef: timelinePaneRef,
   });
+  const threadSearch = useThreadSearch(
+    timelinePaneRef,
+    viewport.navigateToElement,
+    viewport.setSearchMode,
+  );
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.style.height = "0px";
+    composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
+  }, [composerDraft, selectedSessionKey, snapshot?.activeView]);
   const showSchemaSkewNotice =
     selectedTranscriptForSession?.schemaInfo?.writtenByNewerRuntime === true &&
     Boolean(selectedSessionKey) &&
@@ -306,20 +302,9 @@ export default function App() {
     });
   }, []);
 
-  const toggleSidePanelMode = useCallback(
-    (mode: SidePanelMode) => {
-      const shouldPreserveBottom = beginPreserveTimelineBottom();
-
-      setSidePanelMode((current) => (current === mode ? null : mode));
-
-      if (!shouldPreserveBottom) {
-        return;
-      }
-
-      schedulePinnedBottomRealignment(3);
-    },
-    [beginPreserveTimelineBottom, schedulePinnedBottomRealignment],
-  );
+  const toggleSidePanelMode = useCallback((mode: SidePanelMode) => {
+    setSidePanelMode((current) => (current === mode ? null : mode));
+  }, []);
 
   const toggleChangesPanel = useCallback(() => {
     toggleSidePanelMode("changes");
@@ -775,7 +760,7 @@ export default function App() {
     // Flush any debounced draft write before the active session changes, otherwise the pending
     // write for the current session is lost (and would land on the wrong session if deferred).
     flushComposerDraft();
-    saveCurrentTimelineScrollState();
+    viewport.savePosition();
     setOpenTerminalSessionKey("");
     setTakeoverTerminalSessionKey("");
     void updateSnapshot(setSnapshot, () => api.selectSession(target))
@@ -1051,17 +1036,8 @@ export default function App() {
                     <ConversationTimeline
                       transcript={activeTranscript}
                       isTranscriptLoading={isTranscriptLoading}
-                      timelinePaneRef={timelinePaneRef}
-                      timelinePaneElementRef={setTimelinePaneElement}
-                      disableVirtualization={disableTimelineVirtualization}
-                      onDisableVirtualizationReady={finalizeTimelineVirtualizationDisable}
-                      onTimelineScroll={handleTimelineScroll}
-                      onTimelineScrollIntent={handleTimelineScrollIntent}
-                      onTimelineNavigateAway={handleTimelineNavigateAway}
+                      viewport={viewport}
                       threadSearch={threadSearch}
-                      showJumpToLatest={showJumpToLatest}
-                      onJumpToLatest={jumpToLatest}
-                      onContentHeightChange={handleTimelineContentHeightChange}
                       onViewFileInDiff={handleViewFileInDiff}
                       onForkFromMessage={
                         selectedSession.status === "running" ? undefined : openForkModal

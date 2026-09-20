@@ -41,7 +41,7 @@ If launch fails or auth is rejected, capture the error and stop that attempt. A 
 
 The default `conversation.spec.ts` drives [conversations](features/conversations.md) and [thread continuity](features/thread-continuity.md):
 
-1. Click New thread, enter Alpha's prompt, click Start thread. Observe assistant text growing while the row reports running, then the final assistant marker and completion.
+1. Click New thread, enter Alpha's prompt, click Start thread. Observe assistant text growing while the row reports running, scroll up while it continues growing, verify the reading position, jump back to latest, then observe the final assistant marker and completion.
 2. Create Bravo through the same UI. Its real shell tool writes a marker file and briefly waits. Select Alpha while Bravo runs; verify Alpha's text/draft and Bravo's continuing status. Let Bravo complete while Alpha is selected.
 3. Select Bravo, inspect the assistant result and expanded tool output, and compare the actual file on disk.
 4. Send a follow-up through the composer, observe assistant output, click Stop run, and verify the run stops. Check distinct drafts by switching both ways.
@@ -55,7 +55,7 @@ For product changes, use `apps/desktop/tests/AGENTS.md` and the current package 
 
 ## Evidence
 
-The helper prints the evidence directory. Conversation runs retain doctor JSON, screenshots and ARIA at each checkpoint, timestamped assistant streaming samples, videos, action traces, tool output file, build/run logs, exit code, progress/result JSON, and cleanup records. Inspect assistant-only content so a prompt containing the expected answer cannot make the test pass. Streaming requires observed growth during a run; a completed answer alone is insufficient. Persistence requires a second process using the same profile. Tool proof needs both visible output and the file side effect.
+The helper prints the evidence directory. Conversation runs retain doctor JSON, screenshots and ARIA at each checkpoint, timestamped assistant streaming samples, scroll frame intervals, videos, action traces, tool output file, build/run logs, exit code, progress/result JSON, and cleanup records. Inspect assistant-only content so a prompt containing the expected answer cannot make the test pass. Streaming requires observed growth during a run; a completed answer alone is insufficient. Persistence requires a second process using the same profile. Tool proof needs both visible output and the file side effect.
 
 Open the actual `conversation.zip` or `restart.zip` from the printed directory with `pnpm exec playwright show-trace`. The settings smoke instead uses `change.zip` and `restart.zip`. Inspect screenshots/video as well as assertions. Keep credentials outside artifacts shared with reviewers; trace source includes test code and prompts, so use synthetic prompts only.
 

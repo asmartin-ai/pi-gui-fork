@@ -29,7 +29,13 @@ Record exact feature/entry point, command, result and evidence directory. `compl
 
 Packaged-app launch, native dialogs/clipboard, model/account onboarding, attachments, file/diff/terminal interaction, and broader extension behavior require separate mapped journeys as those features are changed. Do not claim full-app coverage from this initial map.
 
-## Latest observed proof (2026-09-18)
+## Latest observed proof (2026-09-19)
+
+- `run-DlCXRS`: visible real `openai-codex/gpt-5.6-luna` conversation proof passed with the new viewport owner. While Stop run was visible, wheel input moved away from the bottom, assistant text continued growing, and reading position stayed within 2 CSS pixels. Jump returned to the bottom. Streaming, switch-during-run, tool, Stop, draft isolation, archive/restore, and both conversations after restart passed. `scroll-frames.json`: 181 intervals, p95 9.1 ms, max 9.3 ms, none above 33 ms. This is a short diagnostic sample, not a general performance guarantee or native trackpad proof. Owned processes closed.
+- `run-mm4hik`: preceding recipe attempt produced only 380 px of overflow against a 500 px fixture requirement; it failed before scroll proof. The recipe now requests 120 longer lines and waits for 300 px of overflow while still running. Retain the failed run.
+- Focused Core coverage is `timeline-pinning.spec.ts`, `context-rail.spec.ts`, and `timeline-viewport.spec.ts`. The latter covers windowed long messages, click/downward-wheel intent, search navigation, a growing 700-line code row, and layout clamping. Its frame timing is diagnostic; correctness assertions are required in Core.
+
+## Earlier observed proof (2026-09-18)
 
 - `run-elqPTZ`: the complete openai-codex/gpt-5.6-luna conversation recipe passed after the state/window/IPC owner extraction and persistence hardening. All nine checkpoints passed, including switching during a tool run, Stop, independent drafts, archive/restore, and both conversations after restart. No assertion failures; PIDs 25552 and 25778 exited. Screenshots and tool-file evidence were inspected. This is the development Electron app; packaged launch has separate proof.
 - `run-mKBpsN`: the complete real openai-codex/gpt-5.6-luna conversation recipe passed on `d73837ae`: streaming, tool output and file side effect, switching during a run, Stop, draft isolation, archive/restore, and both conversations after restart. No assertion failures; both owned Electron processes exited. This uses the development Electron binary, not the packaged app.

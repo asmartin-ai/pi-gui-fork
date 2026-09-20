@@ -5,21 +5,14 @@ import {
   useMemo,
   useRef,
   useState,
-  type MutableRefObject,
-  type RefCallback,
   type RefObject,
 } from "react";
 import type { TranscriptMessage } from "../../../contracts/desktop-state";
 import type { DisplayTimelineItem } from "../../../contracts/timeline-types";
-import { buildDisplayTimelineItems } from "./timeline-turns";
+import type { TimelineViewport } from "./hooks/use-timeline-viewport";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
 import { SparkIcon } from "../../ui/icons";
-
-const OVERSCAN_PX = 720;
-const ROW_GAP_PX = 14;
-const SCROLL_TO_PADDING_PX = 16;
-export const VIRTUALIZATION_THRESHOLD = 80;
 
 interface ThreadSearchModel {
   readonly isOpen: boolean;
@@ -31,245 +24,65 @@ interface ThreadSearchModel {
   readonly goToMatch: (direction: 1 | -1) => void;
   readonly close: () => void;
 }
-
 interface ConversationTimelineProps {
   readonly transcript: readonly TranscriptMessage[];
   readonly isTranscriptLoading: boolean;
-  readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
-  readonly timelinePaneElementRef?: RefCallback<HTMLDivElement>;
-  readonly disableVirtualization?: boolean;
-  readonly onDisableVirtualizationReady?: () => void;
-  readonly onTimelineScroll: () => void;
-  readonly onTimelineScrollIntent?: () => void;
-  readonly onTimelineNavigateAway?: () => void;
+  readonly viewport: TimelineViewport;
   readonly threadSearch: ThreadSearchModel;
-  readonly showJumpToLatest: boolean;
-  readonly onJumpToLatest: () => void;
-  readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onForkFromMessage?: (messageIndex: number, preview?: string) => void;
   readonly promptRailVisible?: boolean;
 }
-
 export function ConversationTimeline({
   transcript,
   isTranscriptLoading,
-  timelinePaneRef,
-  timelinePaneElementRef,
-  disableVirtualization = false,
-  onDisableVirtualizationReady,
-  onTimelineScroll,
-  onTimelineScrollIntent,
-  onTimelineNavigateAway,
+  viewport,
   threadSearch,
-  showJumpToLatest,
-  onJumpToLatest,
-  onContentHeightChange,
   onViewFileInDiff,
   onForkFromMessage,
   promptRailVisible = true,
 }: ConversationTimelineProps) {
-  const renderedMessageIndexById = useMemo(() => {
-    const map = new Map<string, number>();
-    let messageIndex = 0;
-    for (const item of transcript) {
-      if (item.kind !== "message") {
-        continue;
-      }
-      map.set(item.id, messageIndex);
-      messageIndex += 1;
-    }
-    return map;
-  }, [transcript]);
-
-  const displayItems = useMemo(() => buildDisplayTimelineItems(transcript), [transcript]);
-
-  // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
-  // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
-  const hasUnreliableVirtualizedHeights = transcript.some(
-    (item) =>
-      item.kind === "message" && (item.text.length > 2000 || Boolean(item.attachments?.length)),
-  );
-  const shouldVirtualize =
-    !threadSearch.isOpen &&
-    transcript.length > VIRTUALIZATION_THRESHOLD &&
-    !disableVirtualization &&
-    !hasUnreliableVirtualizedHeights;
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
-  const measuredHeightsRef = useRef(new Map<string, number>());
-  const [measurementVersion, setMeasurementVersion] = useState(0);
-
+  const toggleToolCall = useCallback(
+    (id: string) =>
+      setExpandedToolCallIds((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   useLayoutEffect(() => {
-    const availableToolCallIds = new Set(
-      transcript
-        .filter(
-          (item): item is Extract<TranscriptMessage, { kind: "tool" }> => item.kind === "tool",
-        )
-        .map((item) => item.callId),
+    const available = new Set(
+      transcript.filter((item) => item.kind === "tool").map((item) => item.callId),
     );
     setExpandedToolCallIds((current) => {
-      if (current.size === 0) {
-        return current;
-      }
-      let changed = false;
-      const next = new Set<string>();
-      for (const callId of current) {
-        if (!availableToolCallIds.has(callId)) {
-          changed = true;
-          continue;
-        }
-        next.add(callId);
-      }
-      return changed ? next : current;
+      if ([...current].every((id) => available.has(id))) return current;
+      return new Set([...current].filter((id) => available.has(id)));
     });
   }, [transcript]);
-
-  useLayoutEffect(() => {
-    const knownIds = new Set(transcript.map((item) => item.id));
-    let removedAny = false;
-    for (const id of measuredHeightsRef.current.keys()) {
-      if (knownIds.has(id)) {
-        continue;
-      }
-      measuredHeightsRef.current.delete(id);
-      removedAny = true;
-    }
-    if (removedAny) {
-      setMeasurementVersion((current) => current + 1);
-    }
+  const renderedMessageIndexById = useMemo(() => {
+    const indices = new Map<string, number>();
+    let index = 0;
+    for (const item of transcript) if (item.kind === "message") indices.set(item.id, index++);
+    return indices;
   }, [transcript]);
-
-  useLayoutEffect(() => {
-    if (!disableVirtualization || isTranscriptLoading || transcript.length === 0) {
-      return;
-    }
-    const allRowsMeasured = transcript.every((item) => measuredHeightsRef.current.has(item.id));
-    if (!allRowsMeasured) {
-      return;
-    }
-    onDisableVirtualizationReady?.();
-  }, [
-    disableVirtualization,
-    isTranscriptLoading,
-    measurementVersion,
-    onDisableVirtualizationReady,
-    transcript,
-  ]);
-
-  const toggleToolCall = useCallback((callId: string) => {
-    setExpandedToolCallIds((current) => {
-      const next = new Set(current);
-      if (next.has(callId)) {
-        next.delete(callId);
-      } else {
-        next.add(callId);
-      }
-      return next;
-    });
-  }, []);
-
-  const updateMeasuredHeight = useCallback((id: string, height: number) => {
-    const nextHeight = Math.max(1, Math.ceil(height));
-    const currentHeight = measuredHeightsRef.current.get(id);
-    if (currentHeight === nextHeight) {
-      return;
-    }
-    measuredHeightsRef.current.set(id, nextHeight);
-    setMeasurementVersion((current) => current + 1);
-  }, []);
-
-  const assignTimelinePaneRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      timelinePaneRef.current = node;
-      timelinePaneElementRef?.(node);
-    },
-    [timelinePaneElementRef, timelinePaneRef],
-  );
-
-  const userPrompts = useMemo<readonly UserPromptEntry[]>(() => {
+  const userPrompts = useMemo(() => {
     const prompts: UserPromptEntry[] = [];
-    let turnNumber = 0;
-    for (const item of transcript) {
-      if (item.kind !== "message" || item.role !== "user") {
-        continue;
+    for (const item of transcript)
+      if (item.kind === "message" && item.role === "user") {
+        prompts.push({
+          id: item.id,
+          turnNumber: prompts.length + 1,
+          preview: buildPromptPreview(item.text),
+        });
       }
-      turnNumber += 1;
-      prompts.push({ id: item.id, turnNumber, preview: buildPromptPreview(item.text) });
-    }
     return prompts;
   }, [transcript]);
-
-  const scrollToMessage = useCallback(
-    (messageId: string) => {
-      const pane = timelinePaneRef.current;
-      if (!pane) {
-        return;
-      }
-
-      // Drop the bottom pin before jumping. Smooth scrolling stays near the
-      // bottom for long enough that #114's resize/composer pinning snaps back.
-      (onTimelineNavigateAway ?? onTimelineScrollIntent)?.();
-
-      const scrollToExisting = (): boolean => {
-        const target = pane.querySelector<HTMLElement>(
-          `[data-message-id="${cssEscape(messageId)}"]`,
-        );
-        if (!target) {
-          return false;
-        }
-        const paneRect = pane.getBoundingClientRect();
-        const targetRect = target.getBoundingClientRect();
-        const nextTop = Math.max(
-          0,
-          pane.scrollTop + (targetRect.top - paneRect.top) - SCROLL_TO_PADDING_PX,
-        );
-        pane.scrollTop = nextTop;
-        return true;
-      };
-
-      if (scrollToExisting()) {
-        return;
-      }
-
-      // Virtualized rows outside the render window are absent from the DOM, so jump
-      // to the computed offset first, then let the row mount and fine-tune.
-      let offset = 0;
-      for (const item of displayItems) {
-        if (item.id === messageId) {
-          break;
-        }
-        offset += measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item);
-        offset += ROW_GAP_PX;
-      }
-      pane.scrollTop = Math.max(0, offset - SCROLL_TO_PADDING_PX);
-      window.requestAnimationFrame(() => {
-        scrollToExisting();
-      });
-    },
-    [displayItems, onTimelineNavigateAway, onTimelineScrollIntent, timelinePaneRef],
-  );
-
-  useLayoutEffect(() => {
-    const pane = timelinePaneRef.current;
-    if (!pane) {
-      return undefined;
-    }
-
-    pane.addEventListener("scroll", onTimelineScroll, { passive: true });
-    return () => {
-      pane.removeEventListener("scroll", onTimelineScroll);
-    };
-  }, [onTimelineScroll, timelinePaneRef]);
-
   return (
     <div className="timeline-surface">
-      <div
-        className="timeline-pane timeline-pane--thread"
-        data-testid="timeline-pane"
-        ref={assignTimelinePaneRef}
-        onPointerDown={onTimelineScrollIntent}
-        onWheel={onTimelineScrollIntent}
-      >
+      <div className="timeline-column">
         {threadSearch.isOpen ? (
           <ThreadSearchBar
             query={threadSearch.query}
@@ -282,57 +95,57 @@ export function ConversationTimeline({
             onClose={threadSearch.close}
           />
         ) : null}
-        {isTranscriptLoading ? (
-          <div className="timeline" data-testid="transcript">
-            <TranscriptSkeleton />
-          </div>
-        ) : transcript.length === 0 ? (
-          <div className="timeline" data-testid="transcript">
-            <TranscriptEmptyState />
-          </div>
-        ) : shouldVirtualize ? (
-          <VirtualizedTranscriptList
-            displayItems={displayItems}
-            timelinePaneRef={timelinePaneRef}
-            onContentHeightChange={onContentHeightChange}
-            measuredHeightsRef={measuredHeightsRef}
-            measurementVersion={measurementVersion}
-            expandedToolCallIds={expandedToolCallIds}
-            onHeightChange={updateMeasuredHeight}
-            onToggleToolCall={toggleToolCall}
-            onViewFileInDiff={onViewFileInDiff}
-            renderedMessageIndexById={renderedMessageIndexById}
-            onForkFromMessage={onForkFromMessage}
-          />
-        ) : (
-          <div className="timeline" data-testid="transcript">
-            {displayItems.map((item) => (
-              <MeasuredTimelineItem
-                item={item}
-                key={item.id}
-                onHeightChange={updateMeasuredHeight}
-                expandedToolCallIds={expandedToolCallIds}
-                onToggleToolCall={toggleToolCall}
-                onViewFileInDiff={onViewFileInDiff}
-                sourceMessageIndex={renderedMessageIndexById.get(item.id)}
-                onForkFromMessage={onForkFromMessage}
-              />
-            ))}
-          </div>
-        )}
-        {showJumpToLatest ? (
-          <button
-            className="timeline-jump"
-            data-testid="timeline-jump"
-            type="button"
-            onClick={onJumpToLatest}
-          >
-            New activity below
-          </button>
-        ) : null}
+        <div
+          className="timeline-pane timeline-pane--thread"
+          data-testid="timeline-pane"
+          ref={viewport.attachPane}
+          tabIndex={0}
+        >
+          {isTranscriptLoading ? (
+            <div className="timeline" data-testid="transcript">
+              <TranscriptSkeleton />
+            </div>
+          ) : transcript.length === 0 ? (
+            <div className="timeline" data-testid="transcript">
+              <TranscriptEmptyState />
+            </div>
+          ) : (
+            <div
+              className="timeline timeline--virtualized"
+              data-testid="transcript"
+              style={{ height: viewport.totalHeight }}
+            >
+              {viewport.visibleRows.map(({ item, top }) => (
+                <MeasuredTimelineItem
+                  key={item.id}
+                  item={item}
+                  top={top}
+                  className="timeline__virtual-row"
+                  onHeightChange={viewport.measureRow}
+                  generation={viewport.layoutGeneration}
+                  expandedToolCallIds={expandedToolCallIds}
+                  onToggleToolCall={toggleToolCall}
+                  onViewFileInDiff={onViewFileInDiff}
+                  sourceMessageIndex={renderedMessageIndexById.get(item.id)}
+                  onForkFromMessage={onForkFromMessage}
+                />
+              ))}
+            </div>
+          )}
+          {viewport.showJumpToLatest ? (
+            <button
+              className="timeline-jump"
+              data-testid="timeline-jump"
+              type="button"
+              onClick={viewport.jumpToLatest}
+            >
+              New activity below
+            </button>
+          ) : null}
+        </div>
       </div>
       {promptRailVisible && !isTranscriptLoading && userPrompts.length > 1 ? (
-        <TimelineContextRail prompts={userPrompts} onSelect={scrollToMessage} />
+        <TimelineContextRail prompts={userPrompts} onSelect={viewport.navigateToRow} />
       ) : null}
     </div>
   );
@@ -387,13 +200,6 @@ function buildPromptPreview(text: string): string {
   return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine || "Prompt";
 }
 
-function cssEscape(value: string): string {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-    return CSS.escape(value);
-  }
-  return value.replace(/["\\]/g, "\\$&");
-}
-
 function TranscriptSkeleton() {
   return (
     <div className="transcript-skeleton" data-testid="transcript-skeleton" aria-hidden="true">
@@ -429,128 +235,12 @@ function TranscriptEmptyState() {
   );
 }
 
-function VirtualizedTranscriptList({
-  displayItems,
-  timelinePaneRef,
-  onContentHeightChange,
-  measuredHeightsRef,
-  measurementVersion,
-  expandedToolCallIds,
-  onHeightChange,
-  onToggleToolCall,
-  onViewFileInDiff,
-  renderedMessageIndexById,
-  onForkFromMessage,
-}: {
-  readonly displayItems: readonly DisplayTimelineItem[];
-  readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
-  readonly onContentHeightChange: (state?: { readonly wasAtBottom: boolean }) => void;
-  readonly measuredHeightsRef: MutableRefObject<Map<string, number>>;
-  readonly measurementVersion: number;
-  readonly expandedToolCallIds: ReadonlySet<string>;
-  readonly onHeightChange: (id: string, height: number) => void;
-  readonly onToggleToolCall: (callId: string) => void;
-  readonly onViewFileInDiff?: (path: string) => void;
-  readonly renderedMessageIndexById: ReadonlyMap<string, number>;
-  readonly onForkFromMessage?: (messageIndex: number, preview?: string) => void;
-}) {
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
-  const previousTotalHeightRef = useRef(0);
-  void measurementVersion;
-
-  useLayoutEffect(() => {
-    const pane = timelinePaneRef.current;
-    if (!pane) {
-      return undefined;
-    }
-
-    const syncViewport = () => {
-      const nextScrollTop = pane.scrollTop;
-      const nextHeight = pane.clientHeight;
-      setViewport((current) =>
-        current.scrollTop === nextScrollTop && current.height === nextHeight
-          ? current
-          : { scrollTop: nextScrollTop, height: nextHeight },
-      );
-    };
-
-    syncViewport();
-    pane.addEventListener("scroll", syncViewport, { passive: true });
-    const resizeObserver = new ResizeObserver(() => {
-      syncViewport();
-    });
-    resizeObserver.observe(pane);
-
-    return () => {
-      pane.removeEventListener("scroll", syncViewport);
-      resizeObserver.disconnect();
-    };
-  }, [timelinePaneRef]);
-
-  const rowHeights = displayItems.map(
-    (item) => measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item),
-  );
-  const rowOffsets: number[] = [];
-  let totalHeight = 0;
-  for (const [index, rowHeight] of rowHeights.entries()) {
-    rowOffsets[index] = totalHeight;
-    totalHeight += rowHeight;
-    if (index < rowHeights.length - 1) {
-      totalHeight += ROW_GAP_PX;
-    }
-  }
-
-  useLayoutEffect(() => {
-    const previousTotalHeight = previousTotalHeightRef.current;
-    if (previousTotalHeight === totalHeight) {
-      return;
-    }
-    previousTotalHeightRef.current = totalHeight;
-    const pane = timelinePaneRef.current;
-    const wasAtBottom =
-      previousTotalHeight > 0 && pane
-        ? previousTotalHeight - pane.scrollTop - pane.clientHeight < 32
-        : false;
-    onContentHeightChange({ wasAtBottom });
-  }, [onContentHeightChange, totalHeight]);
-
-  const startOffset = Math.max(0, viewport.scrollTop - OVERSCAN_PX);
-  const endOffset = viewport.scrollTop + viewport.height + OVERSCAN_PX;
-  const startIndex = findStartIndex(rowOffsets, rowHeights, startOffset);
-  const endIndex = findEndIndex(rowOffsets, endOffset);
-
-  return (
-    <div
-      className="timeline timeline--virtualized"
-      data-testid="transcript"
-      style={{ height: `${totalHeight}px` }}
-    >
-      {displayItems.slice(startIndex, endIndex).map((item, offsetIndex) => {
-        const index = startIndex + offsetIndex;
-        return (
-          <MeasuredTimelineItem
-            item={item}
-            key={item.id}
-            className="timeline__virtual-row"
-            top={rowOffsets[index] ?? 0}
-            onHeightChange={onHeightChange}
-            expandedToolCallIds={expandedToolCallIds}
-            onToggleToolCall={onToggleToolCall}
-            onViewFileInDiff={onViewFileInDiff}
-            sourceMessageIndex={renderedMessageIndexById.get(item.id)}
-            onForkFromMessage={onForkFromMessage}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 interface MeasuredTimelineItemProps {
   readonly item: DisplayTimelineItem;
   readonly className?: string;
   readonly top?: number;
-  readonly onHeightChange: (id: string, height: number) => void;
+  readonly onHeightChange: (id: string, height: number, generation: number) => void;
+  readonly generation: number;
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onToggleToolCall: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
@@ -563,6 +253,7 @@ function MeasuredTimelineItemBase({
   className,
   top,
   onHeightChange,
+  generation,
   expandedToolCallIds,
   onToggleToolCall,
   onViewFileInDiff,
@@ -578,7 +269,7 @@ function MeasuredTimelineItemBase({
     }
 
     const measure = () => {
-      onHeightChange(item.id, element.getBoundingClientRect().height);
+      onHeightChange(item.id, element.getBoundingClientRect().height, generation);
     };
 
     measure();
@@ -590,7 +281,7 @@ function MeasuredTimelineItemBase({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [item.id, onHeightChange]);
+  }, [item, onHeightChange, generation]);
 
   return (
     <div
@@ -661,6 +352,7 @@ function areMeasuredTimelineItemPropsEqual(
     isSameDisplayItem(prev.item, next.item) &&
     prev.className === next.className &&
     prev.top === next.top &&
+    prev.generation === next.generation &&
     prev.onHeightChange === next.onHeightChange &&
     prev.expandedToolCallIds === next.expandedToolCallIds &&
     prev.onToggleToolCall === next.onToggleToolCall &&
@@ -671,67 +363,3 @@ function areMeasuredTimelineItemPropsEqual(
 }
 
 const MeasuredTimelineItem = memo(MeasuredTimelineItemBase, areMeasuredTimelineItemPropsEqual);
-
-function findStartIndex(
-  offsets: readonly number[],
-  heights: readonly number[],
-  targetOffset: number,
-): number {
-  let low = 0;
-  let high = offsets.length - 1;
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const end = (offsets[mid] ?? 0) + (heights[mid] ?? 0);
-    if (end < targetOffset) {
-      low = mid + 1;
-      continue;
-    }
-    high = mid - 1;
-  }
-
-  return Math.max(0, Math.min(offsets.length - 1, low));
-}
-
-function findEndIndex(offsets: readonly number[], targetOffset: number): number {
-  if (offsets.length === 0) {
-    return 0;
-  }
-
-  let low = 0;
-  let high = offsets.length - 1;
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    if ((offsets[mid] ?? 0) <= targetOffset) {
-      low = mid + 1;
-      continue;
-    }
-    high = mid - 1;
-  }
-
-  const lastVisibleIndex = Math.max(0, low);
-  return Math.min(offsets.length, Math.max(lastVisibleIndex + 1, 1));
-}
-
-function estimateTimelineItemHeight(item: DisplayTimelineItem): number {
-  if (item.kind === "turn-marker") {
-    return 32;
-  }
-  if (item.kind === "message") {
-    const attachmentHeight = item.attachments?.some((attachment) => attachment.kind === "image")
-      ? 120
-      : item.attachments?.length
-        ? 56
-        : 0;
-    const textLength = Math.max(item.text.length, 1);
-    return 48 + attachmentHeight + Math.min(240, Math.ceil(textLength / 90) * 20);
-  }
-  if (item.kind === "tool") {
-    return 52;
-  }
-  if (item.kind === "summary") {
-    return item.presentation === "divider" ? 44 : 38;
-  }
-  return 38;
-}

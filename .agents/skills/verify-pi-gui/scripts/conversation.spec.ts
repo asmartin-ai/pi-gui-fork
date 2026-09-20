@@ -148,7 +148,7 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     await launch();
     await test.step("Send Alpha and observe growing assistant text while running", async () => {
       alpha = await start(
-        "Do not use tools. Write 60 numbered lines about simple software testing, at least 8 words per line. Begin with ALPHA_BEGIN and finish with ALPHA_DONE.",
+        "Do not use tools. Write 120 numbered lines about simple software testing, at least 12 words per line. Begin with ALPHA_BEGIN and finish with ALPHA_DONE.",
       );
       const samples: Array<{ at: number; length: number; running: boolean }> = [];
       try {
@@ -168,6 +168,59 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
           )
           .toBeGreaterThanOrEqual(2);
         await checkpoint("alpha-streaming");
+        const pane = page.getByTestId("timeline-pane");
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 60000 })
+          .toBeGreaterThan(300);
+        await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
+        await pane.hover();
+        await page.mouse.wheel(0, -240);
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeGreaterThan(100);
+        const readingTop = await pane.evaluate((el) => el.scrollTop);
+        const readingTextLength = (await assistant().last().textContent())?.length ?? 0;
+        const frames = page.evaluate(
+          () =>
+            new Promise<number[]>((resolve) => {
+              const values: number[] = [];
+              const until = performance.now() + 1500;
+              let last = performance.now();
+              const frame = (now: number) => {
+                values.push(now - last);
+                last = now;
+                if (now < until) requestAnimationFrame(frame);
+                else resolve(values);
+              };
+              requestAnimationFrame(frame);
+            }),
+        );
+        await expect
+          .poll(async () => (await assistant().last().textContent())?.length ?? 0)
+          .toBeGreaterThan(readingTextLength);
+        await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
+        await expect
+          .poll(async () => Math.abs((await pane.evaluate((el) => el.scrollTop)) - readingTop))
+          .toBeLessThanOrEqual(2);
+        const intervals = (await frames).sort((a, b) => a - b);
+        await writeFile(
+          join(evidence, "scroll-frames.json"),
+          JSON.stringify(
+            {
+              frameCount: intervals.length,
+              p95: intervals[Math.floor(intervals.length * 0.95)],
+              max: intervals.at(-1),
+              over33: intervals.filter((ms) => ms > 33).length,
+            },
+            null,
+            2,
+          ),
+        );
+        await checkpoint("alpha-reading-during-stream");
+        await page.getByTestId("timeline-jump").click();
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeLessThanOrEqual(2);
       } finally {
         await writeFile(join(evidence, "stream-samples.json"), JSON.stringify(samples, null, 2));
       }

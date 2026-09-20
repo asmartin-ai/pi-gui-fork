@@ -88,3 +88,24 @@ The root commands make that ownership explicit: `marketing:demo` updates the REA
 Use [baseline checks](ci-baseline.md), [desktop lane commands](../apps/desktop/README.md), and the [verification skill](../.agents/skills/verify-pi-gui/SKILL.md). `check:architecture` enforces renderer, contract-authority, and host dependency rules. `test:guards` includes rejected fixtures for those boundaries and state-owner access.
 
 Report evidence at its actual level: static/type checks, unit tests, fixture-backed Electron, deterministic runtime integration, real-provider conversation, native OS behavior, or packaged artifact. Desktop user flows are complete only after the affected surface runs in Electron. A settings smoke, skipped provider test, or passing package build does not prove conversation behavior.
+
+## Timeline viewport
+
+`use-timeline-viewport.ts` owns the conversation's scroll intent, active-session measurements,
+visible range, saved reading anchors, and programmatic scroll writes. `timeline-layout.ts`
+contains pure offset/anchor calculations. The timeline renders that range and reports sizes;
+search and the prompt rail request navigation through the owner. The timeline-owner guard
+rejects direct scroll writes in these consumers.
+
+Streaming publication is batched at 50 ms per session while the store applies every event
+immediately. Discrete events publish immediately. Row estimates are cached separately from
+measurements; scrolling does not rebuild text estimates. A growing measured row keeps its
+last size provisionally until measured again, avoiding a one-frame jump to an estimate.
+Long messages and attachments do not disable virtualization. Search explicitly mounts the
+same row renderer's full range; its bar sits outside the scroll pane.
+
+Use the Core `timeline-pinning`, `timeline-viewport`, and `context-rail` specs for position
+contracts. The viewport spec records frame intervals during a 700-line growing response;
+timing is diagnostic, not a shared-runner CI threshold. The real-provider verification recipe
+also checks reading during active streaming and retains `scroll-frames.json`. Row anchors
+preserve offsets; they do not preserve the exact word after reflow within a large message.
