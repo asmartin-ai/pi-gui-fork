@@ -797,7 +797,9 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
 
     const diffPanel = window.locator(".diff-panel");
     const beforeDiffSentinelY = (await sentinelRow.boundingBox())?.y ?? 0;
-    const beforeDiffScrollTop = (await getTimelineScrollMetrics(window)).scrollTop;
+    const beforeDiffMetrics = await getTimelineScrollMetrics(window);
+    const pane = window.getByTestId("timeline-pane");
+    const beforeDiffWidth = await pane.evaluate((element) => element.clientWidth);
     await window.keyboard.press(desktopShortcut("D"));
     await expect(diffPanel).toBeVisible();
     await expect(diffPanel.locator(".diff-panel__file-name")).toContainText("README.md");
@@ -807,13 +809,43 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
         return rowBox ? Math.abs(rowBox.y - beforeDiffSentinelY) : Number.POSITIVE_INFINITY;
       })
       .toBeLessThanOrEqual(12);
+    // Width reflow changes row heights above the reader. The owner must adjust
+    // scrollTop to preserve the visible sentinel, not preserve the old offset.
     await expect
-      .poll(async () => {
-        const metrics = await getTimelineScrollMetrics(window);
-        return Math.abs(metrics.scrollTop - beforeDiffScrollTop);
-      })
-      .toBeLessThanOrEqual(12);
+      .poll(() => pane.evaluate((element) => element.clientWidth))
+      .toBeLessThan(beforeDiffWidth);
+    await test.info().attach("width-reflow", {
+      body: JSON.stringify({
+        before: { ...beforeDiffMetrics, width: beforeDiffWidth, sentinelY: beforeDiffSentinelY },
+        after: {
+          ...(await getTimelineScrollMetrics(window)),
+          width: await pane.evaluate((element) => element.clientWidth),
+          sentinelY: (await sentinelRow.boundingBox())?.y,
+        },
+      }),
+      contentType: "application/json",
+    });
     await expect(window.getByTestId("timeline-jump")).toHaveCount(0);
+    await expect
+      .poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom)
+      .toBeGreaterThan(100);
+    await streamAssistantDeltas(harness, window, ["WIDTH_REFLOW_NEW_ACTIVITY"]);
+    await expect(window.getByTestId("timeline-jump")).toBeVisible();
+    await expect
+      .poll(() =>
+        sentinelRow.evaluate(async (row, expectedY) => {
+          let maximumDrift = 0;
+          for (let frame = 0; frame < 8; frame++) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            maximumDrift = Math.max(
+              maximumDrift,
+              Math.abs(row.getBoundingClientRect().y - expectedY),
+            );
+          }
+          return maximumDrift;
+        }, beforeDiffSentinelY),
+      )
+      .toBeLessThanOrEqual(12);
   } finally {
     await harness.close();
   }
