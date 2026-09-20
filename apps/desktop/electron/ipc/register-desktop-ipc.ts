@@ -7,6 +7,10 @@ import type {
   WorkspaceSessionTarget,
 } from "../../contracts/desktop-state";
 import {
+  ComposerAttachmentLimitError,
+  type ClipboardImageRead,
+} from "../../contracts/composer-attachments";
+import {
   desktopIpc,
   type ChangedFilesResult,
   type CustomProviderProbeInput,
@@ -17,6 +21,7 @@ import type { NotificationPermissionService } from "../platform/notification-per
 import type { TerminalService } from "../platform/terminal-service";
 import type { ThemeManager } from "../platform/theme-manager";
 import type { WindowOwner } from "../windows/window-owner";
+import { assertComposerAttachmentPixels } from "./composer-attachment-pixels";
 import {
   expectAppView,
   expectBoolean,
@@ -97,6 +102,7 @@ type ConversationOwner = Pick<
   | "respondToHostUiRequest"
   | "setSessionModel"
   | "setSessionThinkingLevel"
+  | "withError"
 >;
 
 type OrchestrationOwner = Pick<
@@ -153,8 +159,9 @@ export interface DesktopIpcCapabilities {
   readonly setTransparency: (enabled: boolean) => void;
   readonly pickComposerAttachments: (
     window: BrowserWindow,
+    existing?: readonly ComposerAttachment[],
   ) => Promise<readonly ComposerAttachment[] | undefined>;
-  readonly readClipboardImage: () => ComposerAttachment | null;
+  readonly readClipboardImage: () => ClipboardImageRead;
   readonly validateComposerAttachments: (
     attachments: readonly ComposerAttachment[],
   ) => readonly ComposerAttachment[];
@@ -192,6 +199,21 @@ export function registerDesktopIpc({
     windows.runStateAction(senderWindow(windows, event), action);
   const immediate = (event: IpcMainInvokeEvent, action: () => Promise<DesktopAppState>) =>
     windows.runImmediateStateAction(senderWindow(windows, event), action);
+  const reportLimit = (event: IpcMainInvokeEvent, error: ComposerAttachmentLimitError) =>
+    run(event, () => owners.conversation.withError(error));
+  const runCatchingLimits = async (
+    event: IpcMainInvokeEvent,
+    action: () => Promise<DesktopAppState>,
+  ): Promise<DesktopAppState> => {
+    try {
+      return await action();
+    } catch (error) {
+      if (error instanceof ComposerAttachmentLimitError) {
+        return reportLimit(event, error);
+      }
+      throw error;
+    }
+  };
 
   ipcMain.handle(desktopIpc.ping, (event) => {
     windows.windowForSender(event.sender);
@@ -536,9 +558,13 @@ export function registerDesktopIpc({
   ipcMain.handle(desktopIpc.createSession, (event, rawInput: unknown) =>
     run(event, () => owners.conversation.createSession(expectCreateSessionInput(rawInput))),
   );
-  ipcMain.handle(desktopIpc.startThread, (event, rawInput: unknown) =>
-    run(event, () => owners.conversation.startThread(expectStartThreadInput(rawInput))),
-  );
+  ipcMain.handle(desktopIpc.startThread, (event, rawInput: unknown) => {
+    const input = expectStartThreadInput(rawInput);
+    if (input.attachments?.length) {
+      assertComposerAttachmentPixels(input.attachments);
+    }
+    return run(event, () => owners.conversation.startThread(input));
+  });
   ipcMain.handle(desktopIpc.forkThread, (event, rawInput: unknown) =>
     run(event, () => owners.conversation.forkThread(expectForkThreadInput(rawInput))),
   );
@@ -587,28 +613,35 @@ export function registerDesktopIpc({
     // Stop must bypass that queue and cancel the captured target immediately.
     return immediate(event, () => owners.conversation.cancelCurrentRun(target));
   });
-  ipcMain.handle(desktopIpc.pickComposerAttachments, async (event) => {
-    const window = senderWindow(windows, event);
-    const target = windows.targetForSender(event.sender);
-    const attachments = await capabilities.pickComposerAttachments(window);
-    if (!attachments?.length) {
-      return windows.stateForWindow(window);
-    }
-    return windows.runStateAction(window, () =>
-      owners.conversation.addComposerAttachments(target, attachments),
-    );
-  });
+  ipcMain.handle(desktopIpc.pickComposerAttachments, (event) =>
+    runCatchingLimits(event, async () => {
+      const window = senderWindow(windows, event);
+      const target = windows.targetForSender(event.sender);
+      const existing = (await windows.stateForWindow(window)).composerAttachments ?? [];
+      const attachments = await capabilities.pickComposerAttachments(window, existing);
+      if (!attachments?.length) {
+        return windows.stateForWindow(window);
+      }
+      assertComposerAttachmentPixels(attachments);
+      return windows.runStateAction(window, () =>
+        owners.conversation.addComposerAttachments(target, attachments),
+      );
+    }),
+  );
   ipcMain.on(desktopIpc.readClipboardImage, (event) => {
     windows.windowForSender(event.sender);
     event.returnValue = capabilities.readClipboardImage();
   });
-  ipcMain.handle(desktopIpc.addComposerAttachments, (event, rawAttachments: unknown) => {
-    const target = windows.targetForSender(event.sender);
-    const attachments = capabilities.validateComposerAttachments(
-      expectComposerAttachments(rawAttachments),
-    );
-    return run(event, () => owners.conversation.addComposerAttachments(target, attachments));
-  });
+  ipcMain.handle(desktopIpc.addComposerAttachments, (event, rawAttachments: unknown) =>
+    runCatchingLimits(event, () => {
+      const target = windows.targetForSender(event.sender);
+      const attachments = capabilities.validateComposerAttachments(
+        expectComposerAttachments(rawAttachments),
+      );
+      assertComposerAttachmentPixels(attachments);
+      return run(event, () => owners.conversation.addComposerAttachments(target, attachments));
+    }),
+  );
   ipcMain.handle(desktopIpc.removeComposerAttachment, (event, rawAttachmentId: unknown) => {
     const target = windows.targetForSender(event.sender);
     return run(event, () =>
