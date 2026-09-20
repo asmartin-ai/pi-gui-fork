@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { isAction } from "./workflow-action-policy.mjs";
 import { checkCiResults, requiredJobs, coreShardJobs } from "./check-ci-results.mjs";
 
 const passing = () => Object.fromEntries(requiredJobs.map((job) => [job, { result: "success" }]));
@@ -138,7 +139,7 @@ function assertCoreShards(workflow) {
     run.run,
     "pnpm --filter @pi-gui/desktop run test:e2e:ci:mac --shard=${{ matrix.shard }}/4 --reporter=line,json",
   );
-  const upload = matrix.steps.find((step) => step.uses === "actions/upload-artifact@v4");
+  const upload = matrix.steps.find((step) => isAction(step.uses, "actions/upload-artifact"));
   assert.equal(upload.with.name, "desktop-core-test-results-${{ matrix.shard }}");
 }
 

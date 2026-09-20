@@ -56,6 +56,10 @@ coverage lives in `tests/native`. Neither a stubbed event nor an all-skipped
 provider suite establishes real-provider proof. Node-only tests, including
 local Git worktree contracts, run in the baseline unit lane.
 
+`pnpm verify:release-config` also enforces the GitHub Actions Node 24 allowlist
+for every workflow. Guard tests cover that policy. Application Node stays 22;
+action runtimes are a separate pin.
+
 The website build, Linux installation/package and
 Windows package jobs remain separate. `pnpm check` alone does not prove these
 surfaces. Real-provider and native desktop verification retain their own lanes.
