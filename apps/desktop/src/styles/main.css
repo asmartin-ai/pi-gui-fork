@@ -862,6 +862,8 @@
 }
 
 .composer textarea {
+  /* Grow in one layout pass; collapsing to measure would move the chat. */
+  field-sizing: content;
   width: 100%;
   border: 0;
   outline: none;

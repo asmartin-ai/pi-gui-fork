@@ -42,6 +42,9 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
   await mkdir(workspace, { recursive: true });
   const runs: Array<{ pid: number; closed: boolean }> = [];
   const completed: string[] = [];
+  // Synthetic scratch drafts only. Native input can reach this focused window
+  // outside Playwright's action trace; record it to distinguish edits from loss.
+  const composerInputs: unknown[] = [];
   const drafts = { alpha: "Unsent draft for Alpha", bravo: "Unsent draft for Bravo" };
   let alpha = "";
   let bravo = "";
@@ -78,6 +81,28 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     runs.push({ pid: harness.electronApp.process().pid!, closed: false });
     await harness.focusWindow();
     page = await harness.firstWindow();
+    await page.exposeFunction("recordProofComposerInput", (event: unknown) => {
+      composerInputs.push({ phase, at: Date.now(), event });
+    });
+    await page.evaluate(() => {
+      const record = (event: Event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLTextAreaElement) || target.dataset.testid !== "composer")
+          return;
+        void (
+          window as unknown as { recordProofComposerInput: (data: unknown) => Promise<void> }
+        ).recordProofComposerInput({
+          type: event.type,
+          inputType: event instanceof InputEvent ? event.inputType : undefined,
+          key: event instanceof KeyboardEvent ? event.key : undefined,
+          alt: event instanceof KeyboardEvent ? event.altKey : undefined,
+          meta: event instanceof KeyboardEvent ? event.metaKey : undefined,
+          value: target.value,
+        });
+      };
+      document.addEventListener("input", record, true);
+      document.addEventListener("keydown", record, true);
+    });
     const identity = await harness.electronApp.evaluate(({ app, BrowserWindow }) => ({
       pid: process.pid,
       appPath: app.getAppPath(),
@@ -106,6 +131,12 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     const current = harness;
     harness = undefined;
     try {
+      if (!page.isClosed() && (await page.getByTestId("composer").count()))
+        composerInputs.push({
+          phase,
+          at: Date.now(),
+          event: { type: "before-close", value: await page.getByTestId("composer").inputValue() },
+        });
       if (traceStarted)
         await current.electronApp.context().tracing.stop({ path: join(evidence, `${phase}.zip`) });
     } finally {
@@ -148,7 +179,7 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     await launch();
     await test.step("Send Alpha and observe growing assistant text while running", async () => {
       alpha = await start(
-        "Do not use tools. Write 60 numbered lines about simple software testing, at least 8 words per line. Begin with ALPHA_BEGIN and finish with ALPHA_DONE.",
+        "Do not use tools. Write 120 numbered lines about simple software testing, at least 12 words per line. Begin with ALPHA_BEGIN and finish with ALPHA_DONE.",
       );
       const samples: Array<{ at: number; length: number; running: boolean }> = [];
       try {
@@ -168,6 +199,83 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
           )
           .toBeGreaterThanOrEqual(2);
         await checkpoint("alpha-streaming");
+        const pane = page.getByTestId("timeline-pane");
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 60000 })
+          .toBeGreaterThan(300);
+        await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
+        const composer = page.getByTestId("composer");
+        const draftPrefix =
+          "First line\nSecond line\nThird line\nFourth line\nFifth line\nTyping: ";
+        await composer.fill(draftPrefix);
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeLessThanOrEqual(2);
+        await composer.focus();
+        await pane.hover();
+        const scrollTops: number[] = [];
+        await Promise.all([
+          composer.pressSequentially("typing while the answer is streaming", { delay: 45 }),
+          (async () => {
+            for (let i = 0; i < 40; i++) {
+              await page.mouse.wheel(0, -4);
+              await page.waitForTimeout(40);
+              scrollTops.push(await pane.evaluate((el) => el.scrollTop));
+            }
+          })(),
+        ]);
+        await expect(composer).toHaveValue(draftPrefix + "typing while the answer is streaming");
+        expect(scrollTops[0]! - scrollTops.at(-1)!).toBeGreaterThan(120);
+        for (let i = 1; i < scrollTops.length; i++)
+          expect(scrollTops[i]! - scrollTops[i - 1]!).toBeLessThanOrEqual(2);
+        await writeFile(join(evidence, "typing-scroll.json"), JSON.stringify(scrollTops));
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeGreaterThan(100);
+        const readingTop = await pane.evaluate((el) => el.scrollTop);
+        const readingTextLength = (await assistant().last().textContent())?.length ?? 0;
+        const frames = page.evaluate(
+          () =>
+            new Promise<number[]>((resolve) => {
+              const values: number[] = [];
+              const until = performance.now() + 1500;
+              let last = performance.now();
+              const frame = (now: number) => {
+                values.push(now - last);
+                last = now;
+                if (now < until) requestAnimationFrame(frame);
+                else resolve(values);
+              };
+              requestAnimationFrame(frame);
+            }),
+        );
+        await expect
+          .poll(async () => (await assistant().last().textContent())?.length ?? 0)
+          .toBeGreaterThan(readingTextLength);
+        await expect(row(alpha)).toHaveAttribute("data-sidebar-indicator", "running");
+        await expect
+          .poll(async () => Math.abs((await pane.evaluate((el) => el.scrollTop)) - readingTop))
+          .toBeLessThanOrEqual(2);
+        const intervals = (await frames).sort((a, b) => a - b);
+        await writeFile(
+          join(evidence, "scroll-frames.json"),
+          JSON.stringify(
+            {
+              frameCount: intervals.length,
+              p95: intervals[Math.floor(intervals.length * 0.95)],
+              max: intervals.at(-1),
+              over33: intervals.filter((ms) => ms > 33).length,
+            },
+            null,
+            2,
+          ),
+        );
+        await checkpoint("alpha-reading-during-stream");
+        await composer.fill("");
+        await page.getByTestId("timeline-jump").click();
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeLessThanOrEqual(2);
       } finally {
         await writeFile(join(evidence, "stream-samples.json"), JSON.stringify(samples, null, 2));
       }
@@ -279,6 +387,10 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     throw error;
   } finally {
     await close();
+    await writeFile(
+      join(evidence, "composer-inputs.json"),
+      JSON.stringify(composerInputs, null, 2),
+    );
   }
   await writeFile(
     join(evidence, "result.json"),

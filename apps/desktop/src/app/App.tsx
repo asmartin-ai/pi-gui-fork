@@ -10,10 +10,9 @@ import { DesktopStartupSurface, toStartupSurfaceState } from "./desktop-recovery
 import { buildFileWorkbenchContexts } from "./file-workbench-contexts";
 import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app-shell-utils";
 import { useRunningLabel } from "../features/conversation/hooks/use-running-label";
-import {
-  useTimelineScroll,
-  type SidePanelMode,
-} from "../features/conversation/hooks/use-timeline-scroll";
+import { useTimelineViewport } from "../features/conversation/hooks/use-timeline-viewport";
+import { buildDisplayTimelineItems } from "../features/conversation/timeline-turns";
+type SidePanelMode = "changes" | "files";
 import { formatRelativeTime } from "../lib/string-utils";
 import { restoreTopmostDialogFocus } from "../ui/dialog-focus";
 import { ComposerPanel } from "../features/conversation/composer-panel";
@@ -69,10 +68,9 @@ export default function App() {
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
   const [extensionsWorkspaceId, setExtensionsWorkspaceId] = useState("");
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
-  const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
+  const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, string>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
-  const previousActiveViewRef = useRef<AppView | null>(null);
   const [dismissedSchemaSkewSessionKeys, setDismissedSchemaSkewSessionKeys] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -82,7 +80,6 @@ export default function App() {
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [promptRailVisible, setPromptRailVisible] = useState(loadPromptRailVisible);
-  const threadSearch = useThreadSearch(timelinePaneRef);
   const api = window.piApp;
   const sidebarToggleStateRef = useRef<{
     readonly api: typeof window.piApp;
@@ -202,30 +199,22 @@ export default function App() {
   const transcriptFailed = transcriptHydration?.kind === "failed" ? transcriptHydration : null;
   const isTranscriptLoading =
     Boolean(selectedSession) && !selectedTranscriptForSession && !transcriptFailed;
-  const {
-    setTimelinePaneElement,
-    disableTimelineVirtualization,
-    finalizeTimelineVirtualizationDisable,
-    handleTimelineScroll,
-    handleTimelineScrollIntent,
-    handleTimelineNavigateAway,
-    handleTimelineContentHeightChange,
-    showJumpToLatest,
-    jumpToLatest,
-    saveCurrentTimelineScrollState,
-    beginPreserveTimelineBottom,
-    schedulePinnedBottomRealignment,
-  } = useTimelineScroll({
-    selectedSessionKey,
-    activeTranscript,
-    selectedSession,
-    selectedTranscriptForSession,
-    activeView: snapshot?.activeView,
-    sidePanelMode,
-    composerRef,
-    composerDraft,
-    timelinePaneRef,
+  const timelineRows = useMemo(
+    () => buildDisplayTimelineItems(activeTranscript),
+    [activeTranscript],
+  );
+  const viewport = useTimelineViewport({
+    sessionKey: selectedSessionKey,
+    rows: timelineRows,
+    active: snapshot?.activeView === "threads" && Boolean(selectedSession),
+    transcriptReady: !isTranscriptLoading && !transcriptFailed,
+    paneRef: timelinePaneRef,
   });
+  const threadSearch = useThreadSearch(
+    timelinePaneRef,
+    viewport.navigateToElement,
+    viewport.setSearchMode,
+  );
   const showSchemaSkewNotice =
     selectedTranscriptForSession?.schemaInfo?.writtenByNewerRuntime === true &&
     Boolean(selectedSessionKey) &&
@@ -273,7 +262,11 @@ export default function App() {
   );
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
-  const isSelectedExtensionDockExpanded = dockExpandedBySession[selectedSessionKey] ?? false;
+  const selectedExtensionUiInstance =
+    snapshot?.sessionExtensionUiBySession[selectedSessionKey]?.instanceId;
+  const isSelectedExtensionDockExpanded =
+    selectedExtensionUiInstance !== undefined &&
+    dockExpandedBySession[selectedSessionKey] === selectedExtensionUiInstance;
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace, snapshot?.workspaceOrder],
@@ -313,20 +306,9 @@ export default function App() {
     });
   }, []);
 
-  const toggleSidePanelMode = useCallback(
-    (mode: SidePanelMode) => {
-      const shouldPreserveBottom = beginPreserveTimelineBottom();
-
-      setSidePanelMode((current) => (current === mode ? null : mode));
-
-      if (!shouldPreserveBottom) {
-        return;
-      }
-
-      schedulePinnedBottomRealignment(3);
-    },
-    [beginPreserveTimelineBottom, schedulePinnedBottomRealignment],
-  );
+  const toggleSidePanelMode = useCallback((mode: SidePanelMode) => {
+    setSidePanelMode((current) => (current === mode ? null : mode));
+  }, []);
 
   const toggleChangesPanel = useCallback(() => {
     toggleSidePanelMode("changes");
@@ -487,12 +469,12 @@ export default function App() {
     }
 
     setDockExpandedBySession((current) => {
-      let next: Record<string, boolean> | undefined;
-      for (const [sessionKey, expanded] of Object.entries(current)) {
-        if (!expanded && sessionExtensionUiBySession[sessionKey]) {
-          continue;
-        }
-        if (hasExtensionDockContent(sessionExtensionUiBySession[sessionKey])) {
+      let next: Record<string, string> | undefined;
+      for (const [sessionKey, instanceId] of Object.entries(current)) {
+        if (
+          sessionExtensionUiBySession[sessionKey]?.instanceId === instanceId &&
+          hasExtensionDockContent(sessionExtensionUiBySession[sessionKey])
+        ) {
           continue;
         }
         if (!next) {
@@ -628,20 +610,11 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!snapshot) {
-      return;
-    }
-
-    if (
-      snapshot.activeView === "threads" &&
-      previousActiveViewRef.current !== "threads" &&
-      selectedSession
-    ) {
-      focusComposer();
-    }
-
-    previousActiveViewRef.current = snapshot.activeView;
-  }, [selectedSession, selectedWorkspace?.id, snapshot]);
+    // The composer is keyed by session: focus only after its new node commits.
+    // An IPC completion can precede that commit and focus the outgoing node.
+    if (snapshot?.activeView !== "threads" || !selectedSessionKey) return;
+    if (!restoreTopmostDialogFocus()) composerRef.current?.focus();
+  }, [selectedSessionKey, snapshot?.activeView]);
 
   const sidePanelAvailable =
     snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession);
@@ -780,16 +753,14 @@ export default function App() {
     // Flush any debounced draft write before the active session changes, otherwise the pending
     // write for the current session is lost (and would land on the wrong session if deferred).
     flushComposerDraft();
-    saveCurrentTimelineScrollState();
+    viewport.savePosition();
+    if (target.workspaceId === selectedWorkspace?.id && target.sessionId === selectedSession?.id)
+      focusComposer();
     setOpenTerminalSessionKey("");
     setTakeoverTerminalSessionKey("");
-    void updateSnapshot(setSnapshot, () => api.selectSession(target))
-      .then(() => {
-        focusComposer();
-      })
-      .catch((error: unknown) => {
-        console.error("[renderer] selectSession failed", error);
-      });
+    void updateSnapshot(setSnapshot, () => api.selectSession(target)).catch((error: unknown) => {
+      console.error("[renderer] selectSession failed", error);
+    });
   };
 
   const handleRespondToExtensionDialog = (
@@ -814,14 +785,17 @@ export default function App() {
   };
 
   const handleToggleExtensionDock = () => {
-    if (!selectedExtensionDock) {
+    if (!selectedExtensionDock || !selectedExtensionUiInstance) {
       return;
     }
 
-    setDockExpandedBySession((current) => ({
-      ...current,
-      [selectedSessionKey]: !(current[selectedSessionKey] ?? false),
-    }));
+    setDockExpandedBySession((current) => {
+      const next = { ...current };
+      if (current[selectedSessionKey] === selectedExtensionUiInstance)
+        delete next[selectedSessionKey];
+      else next[selectedSessionKey] = selectedExtensionUiInstance;
+      return next;
+    });
   };
 
   const handleUnarchiveSession = (target: { workspaceId: string; sessionId: string }) => {
@@ -1058,17 +1032,8 @@ export default function App() {
                       isTranscriptLoading={isTranscriptLoading}
                       transcriptFailed={transcriptFailed}
                       onRetryTranscript={desktop.retry}
-                      timelinePaneRef={timelinePaneRef}
-                      timelinePaneElementRef={setTimelinePaneElement}
-                      disableVirtualization={disableTimelineVirtualization}
-                      onDisableVirtualizationReady={finalizeTimelineVirtualizationDisable}
-                      onTimelineScroll={handleTimelineScroll}
-                      onTimelineScrollIntent={handleTimelineScrollIntent}
-                      onTimelineNavigateAway={handleTimelineNavigateAway}
+                      viewport={viewport}
                       threadSearch={threadSearch}
-                      showJumpToLatest={showJumpToLatest}
-                      onJumpToLatest={jumpToLatest}
-                      onContentHeightChange={handleTimelineContentHeightChange}
                       onViewFileInDiff={handleViewFileInDiff}
                       onForkFromMessage={
                         selectedSession.status === "running" ? undefined : openForkModal

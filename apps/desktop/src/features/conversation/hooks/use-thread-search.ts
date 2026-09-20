@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement | null>) {
+export function useThreadSearch(
+  timelinePaneRef: React.RefObject<HTMLDivElement | null>,
+  navigateToElement: (element: HTMLElement) => void,
+  setSearchMode: (enabled: boolean) => void,
+) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matchCount, setMatchCount] = useState(0);
@@ -83,10 +87,10 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
       if (first) {
         setActiveIndex(0);
         first.className = "thread-find-active";
-        first.scrollIntoView({ block: "center", behavior: "smooth" });
+        navigateToElement(first);
       }
     },
-    [clearMarks, timelinePaneRef],
+    [clearMarks, timelinePaneRef, navigateToElement],
   );
 
   const search = useCallback(
@@ -118,23 +122,25 @@ export function useThreadSearch(timelinePaneRef: React.RefObject<HTMLDivElement 
       setActiveIndex(next);
       if (nextEl) {
         nextEl.className = "thread-find-active";
-        nextEl.scrollIntoView({ block: "center", behavior: "smooth" });
+        navigateToElement(nextEl);
       }
     },
-    [activeIndex],
+    [activeIndex, navigateToElement],
   );
 
   const open = useCallback(() => {
+    setSearchMode(true);
     setIsOpen(true);
     setTimeout(() => inputRef.current?.focus(), 0);
-  }, []);
+  }, [setSearchMode]);
 
   const close = useCallback(() => {
+    setSearchMode(false);
     setIsOpen(false);
     setQuery("");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     clearMarks();
-  }, [clearMarks]);
+  }, [clearMarks, setSearchMode]);
 
   // Clean up debounce timer on unmount
   useEffect(

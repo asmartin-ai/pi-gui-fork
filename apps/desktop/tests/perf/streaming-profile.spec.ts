@@ -3,6 +3,7 @@
  * Not a regression test: it measures per-delta cost in main and in the renderer
  * on a realistic long thread and prints the numbers.
  */
+import { writeFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
 import {
@@ -403,4 +404,207 @@ test("streaming cost on a short thread", async () => {
 test("streaming cost on a long thread", async () => {
   test.setTimeout(600_000);
   await measure("long", SEEDED_MESSAGES);
+});
+
+// A paced stream and actual renderer wheel input, separate from the CPU-profile
+// probe above. Run three times; timings are diagnostic, not CI pass thresholds.
+test("paced wheel scrolling during a growing answer", async ({}, info) => {
+  test.setTimeout(90_000);
+  const h = await launchDesktop(await makeUserDataDir(), {
+    initialWorkspaces: [await makeWorkspace("perf-wheel")],
+    testMode: "background",
+  });
+  try {
+    const p = await h.firstWindow();
+    const state = await getDesktopState(p);
+    await createSessionViaIpc(p, state.selectedWorkspaceId!, "Paced wheel");
+    const seeded = await seedTranscriptMessages(h, p, {
+      count: SEEDED_MESSAGES,
+      textFactory: body,
+    });
+    const sessionRef = seeded.sessionRef;
+    const runId = `paced-${Date.now()}`;
+    const seededState = await getDesktopState(p);
+    const workspace = seededState.workspaces.find((w) => w.id === sessionRef.workspaceId)!;
+    const session = workspace.sessions.find((s) => s.id === sessionRef.sessionId)!;
+    const snapshot = {
+      ref: sessionRef,
+      workspace: { workspaceId: workspace.id, path: workspace.path, displayName: workspace.name },
+      title: session.title,
+      status: "running" as const,
+      updatedAt: new Date().toISOString(),
+      preview: "streaming",
+      runningRunId: runId,
+    };
+    await emitNoWait(h, {
+      type: "sessionUpdated",
+      sessionRef,
+      runId,
+      timestamp: snapshot.updatedAt,
+      snapshot,
+    });
+    // Keep the growing row visible: virtualization alone cannot hide its cost.
+    const initial =
+      "```typescript\n" + "const item = { value: 'streaming example' };\n".repeat(700);
+    await emitNoWait(h, {
+      type: "assistantDelta",
+      sessionRef,
+      runId,
+      timestamp: new Date().toISOString(),
+      text: initial,
+    });
+    const pane = p.getByTestId("timeline-pane");
+    await expect(pane).toContainText("streaming example");
+    await pane.hover();
+    await p.mouse.wheel(0, -1600);
+    await expect
+      .poll(() => pane.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeGreaterThan(1000);
+    // Allow the initial wheel and estimates to settle before measuring.
+    await p.waitForTimeout(300);
+    const cdp = process.env.PERF_CPU === "1" ? await p.context().newCDPSession(p) : null;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.start");
+    }
+    await patchMain(h);
+    await startMainSample(h);
+    await p.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>('[data-testid="timeline-pane"]')!;
+      const frames: number[] = [],
+        latencies: number[] = [],
+        tasks: number[] = [];
+      let previous = performance.now(),
+        wheelAt: number | null = null,
+        running = true,
+        wheelEvents = 0;
+      const frame = () => {
+        const now = performance.now();
+        frames.push(now - previous);
+        previous = now;
+        if (running) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      const wheel = (event: WheelEvent) => {
+        wheelAt ??= event.timeStamp;
+        wheelEvents += 1;
+      };
+      const scroll = () => {
+        if (wheelAt !== null) {
+          latencies.push(performance.now() - wheelAt);
+          wheelAt = null;
+        }
+      };
+      pane.addEventListener("wheel", wheel, { passive: true });
+      pane.addEventListener("scroll", scroll, { passive: true });
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) tasks.push(entry.duration);
+      });
+      observer.observe({ entryTypes: ["longtask"] });
+      (window as unknown as { finishWheelSample: () => unknown }).finishWheelSample = () => {
+        running = false;
+        observer.disconnect();
+        pane.removeEventListener("wheel", wheel);
+        pane.removeEventListener("scroll", scroll);
+        return {
+          frames,
+          wheelEvents,
+          latencies,
+          tasks,
+          mountedRows: pane.querySelectorAll("[data-message-id]").length,
+        };
+      };
+    });
+    const started = Date.now();
+    let streaming = true;
+    let streamDurationMs = 0;
+    let wheelDurationMs = 0;
+    await Promise.all([
+      (async () => {
+        try {
+          for (let i = 0; i < 300; i++) {
+            await emitNoWait(h, {
+              type: "assistantDelta",
+              sessionRef,
+              runId,
+              timestamp: new Date().toISOString(),
+              text: `const next${i} = ${i};\n`,
+            });
+            await emitNoWait(h, {
+              type: "sessionUpdated",
+              sessionRef,
+              runId,
+              timestamp: new Date().toISOString(),
+              snapshot: { ...snapshot, updatedAt: new Date().toISOString(), preview: `next${i}` },
+            });
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          await expect(pane).toContainText("const next299 = 299;");
+        } finally {
+          streamDurationMs = Date.now() - started;
+          streaming = false;
+        }
+      })(),
+      (async () => {
+        for (let i = 0; streaming; i++) {
+          await p.mouse.wheel(0, i % 20 < 10 ? -40 : 40);
+          await p.waitForTimeout(25);
+        }
+        wheelDurationMs = Date.now() - started;
+      })(),
+    ]);
+    const main = await stopMainSample(h);
+    const sample = await p.evaluate(() =>
+      (
+        window as unknown as {
+          finishWheelSample: () => {
+            frames: number[];
+            wheelEvents: number;
+            latencies: number[];
+            tasks: number[];
+            mountedRows: number;
+          };
+        }
+      ).finishWheelSample(),
+    );
+    const percentile = (values: number[], ratio: number) =>
+      [...values].sort((a, b) => a - b)[
+        Math.min(values.length - 1, Math.floor(values.length * ratio))
+      ] ?? 0;
+    const result = {
+      label: process.env.PERF_LABEL ?? "checkout",
+      seeded: SEEDED_MESSAGES,
+      eventPairs: 300,
+      streamDurationMs,
+      wheelDurationMs,
+      wheelEvents: sample.wheelEvents,
+      cpuProfileEnabled: Boolean(cdp),
+      frameCount: sample.frames.length,
+      p95FrameMs: percentile(sample.frames, 0.95),
+      maxFrameMs: percentile(sample.frames, 1),
+      over33Percent: (sample.frames.filter((n) => n > 33).length / sample.frames.length) * 100,
+      wheelSamples: sample.latencies.length,
+      p95WheelEventToScrollMs: percentile(sample.latencies, 0.95),
+      longTasks: sample.tasks,
+      mountedRows: sample.mountedRows,
+      mainSends: main.sends,
+    };
+    console.log("PACED_WHEEL_RESULT " + JSON.stringify(result));
+    const resultPath = info.outputPath("paced-wheel.json");
+    await writeFile(resultPath, JSON.stringify({ ...result, ...sample }));
+    await info.attach("paced-wheel.json", { path: resultPath, contentType: "application/json" });
+    if (cdp) {
+      const { profile } = await cdp.send("Profiler.stop");
+      const profilePath = info.outputPath("paced-wheel.cpuprofile");
+      await writeFile(profilePath, JSON.stringify(profile));
+      await info.attach("paced-wheel.cpuprofile", {
+        path: profilePath,
+        contentType: "application/json",
+      });
+    }
+    expect(sample.latencies.length).toBeGreaterThan(50);
+    expect(sample.frames.length).toBeGreaterThan(100);
+  } finally {
+    await h.close();
+  }
 });

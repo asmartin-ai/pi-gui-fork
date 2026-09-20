@@ -226,6 +226,7 @@ export type SessionExtensionDialogRecord = Extract<
 >;
 
 export interface SessionExtensionUiStateRecord {
+  readonly instanceId: string;
   readonly statuses: readonly SessionExtensionStatusRecord[];
   readonly widgets: readonly SessionExtensionWidgetRecord[];
   readonly pendingDialogs: readonly SessionExtensionDialogRecord[];

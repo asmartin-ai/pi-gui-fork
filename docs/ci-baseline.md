@@ -44,12 +44,23 @@ Root `pnpm e2e` delegates to the desktop core command, which builds first and
 uses the canonical desktop Playwright configuration. The root Playwright config
 shares that configuration instead of maintaining weaker independent defaults.
 
-`pnpm verify:release-config` (CI typecheck and Linux package jobs) now also
-enforces the GitHub Actions Node 24 allowlist for every workflow. Guard tests
-cover that policy. Application Node stays 22; action runtimes are a separate
-pin.
+The macOS Electron Core suite runs on four separate runners, each with one
+Playwright worker and `--shard=N/4`. File groups are assigned automatically; every
+shard must pass the stable `desktop-core` aggregate. Per-shard JSON reports,
+file timing summaries, and failure artifacts are retained. Discovery guards
+prove the four shards cover the full suite exactly once.
 
-The existing macOS Electron core, website build, Linux installation/package and
+Core includes credential-free local-extension and injected-event regression
+coverage. Real-provider tests live in `tests/live`; real OS focus/clipboard
+coverage lives in `tests/native`. Neither a stubbed event nor an all-skipped
+provider suite establishes real-provider proof. Node-only tests, including
+local Git worktree contracts, run in the baseline unit lane.
+
+`pnpm verify:release-config` also enforces the GitHub Actions Node 24 allowlist
+for every workflow. Guard tests cover that policy. Application Node stays 22;
+action runtimes are a separate pin.
+
+The website build, Linux installation/package and
 Windows package jobs remain separate. `pnpm check` alone does not prove these
 surfaces. Real-provider and native desktop verification retain their own lanes.
 The final `CI required` job accepts only success from all five existing jobs.

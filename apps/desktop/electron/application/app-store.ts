@@ -591,6 +591,7 @@ export class DesktopAppStore {
   }
 
   async flushPersistence(): Promise<void> {
+    this.streamingUiPublisher.clear();
     await this.initialize();
     if (this.persistUiStateTimer) {
       clearTimeout(this.persistUiStateTimer);
