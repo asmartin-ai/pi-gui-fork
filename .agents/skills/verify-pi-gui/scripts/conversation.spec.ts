@@ -42,6 +42,9 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
   await mkdir(workspace, { recursive: true });
   const runs: Array<{ pid: number; closed: boolean }> = [];
   const completed: string[] = [];
+  // Synthetic scratch drafts only. Native input can reach this focused window
+  // outside Playwright's action trace; record it to distinguish edits from loss.
+  const composerInputs: unknown[] = [];
   const drafts = { alpha: "Unsent draft for Alpha", bravo: "Unsent draft for Bravo" };
   let alpha = "";
   let bravo = "";
@@ -78,6 +81,28 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     runs.push({ pid: harness.electronApp.process().pid!, closed: false });
     await harness.focusWindow();
     page = await harness.firstWindow();
+    await page.exposeFunction("recordProofComposerInput", (event: unknown) => {
+      composerInputs.push({ phase, at: Date.now(), event });
+    });
+    await page.evaluate(() => {
+      const record = (event: Event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLTextAreaElement) || target.dataset.testid !== "composer")
+          return;
+        void (
+          window as unknown as { recordProofComposerInput: (data: unknown) => Promise<void> }
+        ).recordProofComposerInput({
+          type: event.type,
+          inputType: event instanceof InputEvent ? event.inputType : undefined,
+          key: event instanceof KeyboardEvent ? event.key : undefined,
+          alt: event instanceof KeyboardEvent ? event.altKey : undefined,
+          meta: event instanceof KeyboardEvent ? event.metaKey : undefined,
+          value: target.value,
+        });
+      };
+      document.addEventListener("input", record, true);
+      document.addEventListener("keydown", record, true);
+    });
     const identity = await harness.electronApp.evaluate(({ app, BrowserWindow }) => ({
       pid: process.pid,
       appPath: app.getAppPath(),
@@ -106,6 +131,12 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     const current = harness;
     harness = undefined;
     try {
+      if (!page.isClosed() && (await page.getByTestId("composer").count()))
+        composerInputs.push({
+          phase,
+          at: Date.now(),
+          event: { type: "before-close", value: await page.getByTestId("composer").inputValue() },
+        });
       if (traceStarted)
         await current.electronApp.context().tracing.stop({ path: join(evidence, `${phase}.zip`) });
     } finally {
@@ -332,6 +363,10 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
     throw error;
   } finally {
     await close();
+    await writeFile(
+      join(evidence, "composer-inputs.json"),
+      JSON.stringify(composerInputs, null, 2),
+    );
   }
   await writeFile(
     join(evidence, "result.json"),

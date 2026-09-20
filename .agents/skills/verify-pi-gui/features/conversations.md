@@ -34,3 +34,9 @@ Preconditions: a built app, an explicitly selected working provider/model, and t
 - Missing/expired authentication is BLOCKED; do not replace the run with mocked responses or silently pass a skip.
 - A final answer alone does not prove streaming. Require observed growth while running.
 - The initial scratch folder is a fixture; native folder selection is a separate proof.
+
+## Streaming scroll diagnostic
+
+Run `pnpm --filter @pi-gui/desktop run test:perf:scroll` for three fixture-backed Electron samples. The existing performance spec seeds 120 long messages, keeps a growing 700-line code row visible, sends 300 assistant-delta/running-status pairs, and applies alternating wheel input until the final token is displayed. It reports frame gaps, long tasks, synthetic wheel-event-to-scroll latency, event/sample counts, stream/input duration, mounted rows, and main-process publication counts. Raw samples are retained in each test's output directory. Set `PERF_LABEL` to identify the checkout.
+
+Use the same workload and machine for comparisons. Publication backpressure changes actual stream duration; report that duration. Wheel timestamps describe synthetic renderer input, not physical trackpad latency. These metrics are diagnostic, not shared-runner CI thresholds. Set `PERF_CPU=1` for a separate profile run; exclude profiled runs from timing comparisons. Core viewport tests remain the correctness gate.
