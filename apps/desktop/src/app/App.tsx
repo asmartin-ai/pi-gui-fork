@@ -64,7 +64,7 @@ export default function App() {
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
   const [extensionsWorkspaceId, setExtensionsWorkspaceId] = useState("");
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
-  const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
+  const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, string>>({});
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const previousActiveViewRef = useRef<AppView | null>(null);
@@ -256,7 +256,11 @@ export default function App() {
   );
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
-  const isSelectedExtensionDockExpanded = dockExpandedBySession[selectedSessionKey] ?? false;
+  const selectedExtensionUiInstance =
+    snapshot?.sessionExtensionUiBySession[selectedSessionKey]?.instanceId;
+  const isSelectedExtensionDockExpanded =
+    selectedExtensionUiInstance !== undefined &&
+    dockExpandedBySession[selectedSessionKey] === selectedExtensionUiInstance;
   const threadGroups = useMemo(
     () => (snapshot ? buildThreadGroups(snapshot) : []),
     [snapshot?.workspaces, snapshot?.worktreesByWorkspace, snapshot?.workspaceOrder],
@@ -459,12 +463,12 @@ export default function App() {
     }
 
     setDockExpandedBySession((current) => {
-      let next: Record<string, boolean> | undefined;
-      for (const [sessionKey, expanded] of Object.entries(current)) {
-        if (!expanded && sessionExtensionUiBySession[sessionKey]) {
-          continue;
-        }
-        if (hasExtensionDockContent(sessionExtensionUiBySession[sessionKey])) {
+      let next: Record<string, string> | undefined;
+      for (const [sessionKey, instanceId] of Object.entries(current)) {
+        if (
+          sessionExtensionUiBySession[sessionKey]?.instanceId === instanceId &&
+          hasExtensionDockContent(sessionExtensionUiBySession[sessionKey])
+        ) {
           continue;
         }
         if (!next) {
@@ -788,14 +792,17 @@ export default function App() {
   };
 
   const handleToggleExtensionDock = () => {
-    if (!selectedExtensionDock) {
+    if (!selectedExtensionDock || !selectedExtensionUiInstance) {
       return;
     }
 
-    setDockExpandedBySession((current) => ({
-      ...current,
-      [selectedSessionKey]: !(current[selectedSessionKey] ?? false),
-    }));
+    setDockExpandedBySession((current) => {
+      const next = { ...current };
+      if (current[selectedSessionKey] === selectedExtensionUiInstance)
+        delete next[selectedSessionKey];
+      else next[selectedSessionKey] = selectedExtensionUiInstance;
+      return next;
+    });
   };
 
   const handleUnarchiveSession = (target: { workspaceId: string; sessionId: string }) => {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SessionConfig } from "@pi-gui/session-driver";
 import {
   createEmptyExtensionUiState as createBaseExtensionUiState,
@@ -14,6 +15,7 @@ import type {
 import type { RunMetrics } from "./app-store-timeline";
 
 export interface MutableSessionExtensionUiState extends ExtensionUiState {
+  readonly instanceId: string;
   pendingDialogs: SessionExtensionDialogRecord[];
 }
 
@@ -162,6 +164,7 @@ export class SessionStateMap {
 export function createEmptyExtensionUiState(): MutableSessionExtensionUiState {
   return {
     ...createBaseExtensionUiState(),
+    instanceId: randomUUID(),
     pendingDialogs: [],
   };
 }
@@ -170,6 +173,7 @@ export function serializeExtensionUiState(
   state: MutableSessionExtensionUiState,
 ): SessionExtensionUiStateRecord {
   return {
+    instanceId: state.instanceId,
     statuses: [...state.statuses.entries()].map(([key, text]) => ({ key, text })),
     widgets: [...state.widgets.values()],
     pendingDialogs: [...state.pendingDialogs],
