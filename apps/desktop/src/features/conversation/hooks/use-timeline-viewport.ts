@@ -221,17 +221,20 @@ export function useTimelineViewport({
         current.expectedScrollTop !== null &&
         Math.abs(pane.scrollTop - current.expectedScrollTop) < 1
       ) {
-        current.expectedScrollTop = null;
+        // Several delayed events can describe the same owned position. Keep
+        // this marker until explicit input or an unmatched native scroll.
         return;
       }
       // Browser clamping after a layout update is not user intent.
       // Native scrollbar drags may not dispatch DOM pointer events. An
       // unmatched scroll with unchanged geometry is user navigation; a layout
-      // clamp is not. Our own writes are matched above.
+      // clamp is not. Compare dimensions from the same committed layout, not
+      // the newer ResizeObserver measurement. Our own writes are matched above.
       if (
         !draggingScrollbar &&
         performance.now() > current.userIntent &&
-        (pane.scrollHeight !== current.scrollExtent || pane.clientHeight !== current.height)
+        (pane.scrollHeight !== current.scrollExtent ||
+          pane.clientHeight !== current.committedHeight)
       )
         return;
       const anchor = anchorAt(current.layout, pane.scrollTop);
