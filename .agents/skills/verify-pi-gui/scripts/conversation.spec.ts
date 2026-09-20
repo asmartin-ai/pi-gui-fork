@@ -204,8 +204,31 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
           .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 60000 })
           .toBeGreaterThan(300);
         await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
+        const composer = page.getByTestId("composer");
+        const draftPrefix =
+          "First line\nSecond line\nThird line\nFourth line\nFifth line\nTyping: ";
+        await composer.fill(draftPrefix);
+        await expect
+          .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+          .toBeLessThanOrEqual(2);
+        await composer.focus();
         await pane.hover();
-        await page.mouse.wheel(0, -240);
+        const scrollTops: number[] = [];
+        await Promise.all([
+          composer.pressSequentially("typing while the answer is streaming", { delay: 45 }),
+          (async () => {
+            for (let i = 0; i < 40; i++) {
+              await page.mouse.wheel(0, -4);
+              await page.waitForTimeout(40);
+              scrollTops.push(await pane.evaluate((el) => el.scrollTop));
+            }
+          })(),
+        ]);
+        await expect(composer).toHaveValue(draftPrefix + "typing while the answer is streaming");
+        expect(scrollTops[0]! - scrollTops.at(-1)!).toBeGreaterThan(120);
+        for (let i = 1; i < scrollTops.length; i++)
+          expect(scrollTops[i]! - scrollTops[i - 1]!).toBeLessThanOrEqual(2);
+        await writeFile(join(evidence, "typing-scroll.json"), JSON.stringify(scrollTops));
         await expect
           .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
           .toBeGreaterThan(100);
@@ -229,7 +252,7 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
         await expect
           .poll(async () => (await assistant().last().textContent())?.length ?? 0)
           .toBeGreaterThan(readingTextLength);
-        await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
+        await expect(row(alpha)).toHaveAttribute("data-sidebar-indicator", "running");
         await expect
           .poll(async () => Math.abs((await pane.evaluate((el) => el.scrollTop)) - readingTop))
           .toBeLessThanOrEqual(2);
@@ -248,6 +271,7 @@ test("real conversation: stream, switch, tool, stop, archive, restart", async ()
           ),
         );
         await checkpoint("alpha-reading-during-stream");
+        await composer.fill("");
         await page.getByTestId("timeline-jump").click();
         await expect
           .poll(() => pane.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))

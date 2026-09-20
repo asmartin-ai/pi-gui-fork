@@ -40,3 +40,9 @@ Preconditions: a built app, an explicitly selected working provider/model, and t
 Run `pnpm --filter @pi-gui/desktop run test:perf:scroll` for three fixture-backed Electron samples. The existing performance spec seeds 120 long messages, keeps a growing 700-line code row visible, sends 300 assistant-delta/running-status pairs, and applies alternating wheel input until the final token is displayed. It reports frame gaps, long tasks, synthetic wheel-event-to-scroll latency, event/sample counts, stream/input duration, mounted rows, and main-process publication counts. Raw samples are retained in each test's output directory. Set `PERF_LABEL` to identify the checkout.
 
 Use the same workload and machine for comparisons. Publication backpressure changes actual stream duration; report that duration. Wheel timestamps describe synthetic renderer input, not physical trackpad latency. These metrics are diagnostic, not shared-runner CI thresholds. Set `PERF_CPU=1` for a separate profile run; exclude profiled runs from timing comparisons. Core viewport tests remain the correctness gate.
+
+## Typing and small-scroll overlap
+
+The original large-wheel proof missed user-visible jitter and scroll lock. Core `timeline-viewport.spec.ts` now samples the position throughout typing into a fixed-height multiline draft, and overlaps typing/streaming with 4px upward wheel steps. These tests failed on 4b1b6847 (115px typing drift and failure to move upward). Never replace them with only an eventual-position assertion or a single large wheel step.
+
+The real-provider recipe also types into a multiline draft while sending repeated 4px upward inputs. It retains `typing-scroll.json`, verifies upward progress without backward jumps, checks the exact draft, then verifies a stable reading position while more assistant text arrives. This proves synthetic renderer input; native trackpad momentum still requires a manual check.
