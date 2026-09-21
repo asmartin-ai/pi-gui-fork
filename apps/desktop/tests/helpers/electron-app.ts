@@ -145,21 +145,23 @@ export async function launchDesktop(
   const normalized = normalizeLaunchOptions(options);
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
-  const electronApp = await electron.launch({
-    args: electronCliArgs(desktopDir),
-    cwd: desktopDir,
-    env,
-    // Playwright's Electron recordVideo leaves loadURL hanging on Linux:
-    // the BrowserWindow stays hidden, webContents.isLoading stays true, and
-    // the page URL never leaves empty. Screenshots and traces still work.
-    ...(normalized.recordVideoDir && process.platform !== "linux"
+  // Playwright's Electron video recorder can stall loadURL on Linux, leaving a
+  // placeholder BrowserWindow whose URL never leaves empty. Skip it there;
+  // callers still capture screenshots and traces.
+  const recordVideo =
+    normalized.recordVideoDir && process.platform !== "linux"
       ? {
           recordVideo: {
             dir: normalized.recordVideoDir,
             ...(normalized.recordVideoSize ? { size: normalized.recordVideoSize } : {}),
           },
         }
-      : {}),
+      : {};
+  const electronApp = await electron.launch({
+    args: electronCliArgs(desktopDir),
+    cwd: desktopDir,
+    env,
+    ...recordVideo,
   });
 
   return createDesktopHarness(electronApp);
@@ -1111,6 +1113,48 @@ export async function runOrchestrationRuntimeTool(
     }
     return hooks.runOrchestrationRuntimeTool(payload);
   }, input);
+}
+
+export async function runScheduledTaskRuntimeTool(
+  harness: DesktopHarness,
+  input: OrchestrationRuntimeToolTestInput,
+): Promise<OrchestrationRuntimeToolTestResult> {
+  await harness.firstWindow();
+  return harness.electronApp.evaluate(async (_, payload) => {
+    const hooks = (
+      globalThis as {
+        __PI_APP_TEST_HOOKS?: {
+          runScheduledTaskRuntimeTool?: (
+            input: OrchestrationRuntimeToolTestInput,
+          ) => Promise<OrchestrationRuntimeToolTestResult>;
+        };
+      }
+    ).__PI_APP_TEST_HOOKS;
+    if (!hooks?.runScheduledTaskRuntimeTool) {
+      throw new Error("Scheduled-task runtime-tool hook is unavailable");
+    }
+    return hooks.runScheduledTaskRuntimeTool(payload);
+  }, input);
+}
+
+export async function fireDueScheduledTasks(
+  harness: DesktopHarness,
+  nowIso?: string,
+): Promise<DesktopAppState> {
+  await harness.firstWindow();
+  return harness.electronApp.evaluate(async (_, payload) => {
+    const hooks = (
+      globalThis as {
+        __PI_APP_TEST_HOOKS?: {
+          fireDueScheduledTasks?: (nowIso?: string) => Promise<DesktopAppState>;
+        };
+      }
+    ).__PI_APP_TEST_HOOKS;
+    if (!hooks?.fireDueScheduledTasks) {
+      throw new Error("Scheduled-task fire hook is unavailable");
+    }
+    return hooks.fireDueScheduledTasks(payload);
+  }, nowIso);
 }
 
 export async function emitTestSessionEvent(
