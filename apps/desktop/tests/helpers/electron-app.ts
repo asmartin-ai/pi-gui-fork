@@ -1737,6 +1737,50 @@ export async function createNamedThread(
   await expect(composer).toBeFocused({ timeout: 15_000 });
 }
 
+export async function chooseThreadGrouping(
+  window: Page,
+  grouping: "time" | "workspace",
+): Promise<void> {
+  const label = grouping === "time" ? "Time" : "Workspace";
+  await window.getByRole("button", { name: "Customize Sidebar" }).click();
+  await window.getByRole("menuitem", { name: "Grouping" }).click();
+  await window.getByRole("menuitemradio", { name: label, exact: true }).click();
+  await expectThreadGrouping(window, grouping);
+}
+
+export async function expectThreadGrouping(
+  window: Page,
+  grouping: "time" | "workspace",
+): Promise<void> {
+  const label = grouping === "time" ? "Time" : "Workspace";
+  await window.getByRole("button", { name: "Customize Sidebar" }).click();
+  await window.getByRole("menuitem", { name: "Grouping" }).click();
+  await expect(window.getByRole("menuitemradio", { name: label, exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expectCompactGroupingMenu(window);
+  await window.keyboard.press("Escape");
+  await expect(window.getByRole("menu", { name: "Customize Sidebar" })).toBeHidden();
+}
+
+async function expectCompactGroupingMenu(window: Page): Promise<void> {
+  const viewportWidth = await window.evaluate(() => document.documentElement.clientWidth);
+  const submenu = window.getByRole("menu", { name: "Grouping" });
+  const submenuBox = await submenu.boundingBox();
+  const timeBox = await window
+    .getByRole("menuitemradio", { name: "Time", exact: true })
+    .boundingBox();
+  expect(submenuBox, "Grouping submenu should be visible").not.toBeNull();
+  expect(timeBox, "Time option should be visible").not.toBeNull();
+  expect(
+    submenuBox!.width,
+    `Grouping submenu is ${submenuBox!.width}px in a ${viewportWidth}px window`,
+  ).toBeLessThan(viewportWidth / 2);
+  expect(submenuBox!.width).toBeLessThan(240);
+  expect(timeBox!.width).toBeGreaterThan(submenuBox!.width * 0.7);
+}
+
 export async function createSessionViaIpc(
   window: Page,
   workspaceIdOrPath: string,

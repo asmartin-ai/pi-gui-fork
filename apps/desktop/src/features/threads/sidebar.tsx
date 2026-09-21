@@ -1,4 +1,12 @@
-import { forwardRef, useEffect, useState, type CSSProperties } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -21,12 +29,16 @@ import { CSS } from "@dnd-kit/utilities";
 import type {
   AppView,
   SessionRecord,
+  ThreadGrouping,
   WorkspaceRecord,
   WorktreeRecord,
 } from "../../../contracts/desktop-state";
 import {
   ArchiveIcon,
+  CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
+  CustomizeSidebarIcon,
   ExtensionIcon,
   FolderIcon,
   PinIcon,
@@ -44,9 +56,11 @@ import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 import { useThreadMenu, type ThreadMenuState } from "./hooks/use-thread-menu";
 import {
   sessionThreadKey,
+  threadHistoryPreview,
   type RecencyThreadSection,
   type ThreadSidebarModel,
   type ThreadListEntry,
+  type WorkspaceThreadGroup,
 } from "./thread-groups";
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopAppState } from "../../../contracts/desktop-state";
@@ -57,6 +71,7 @@ interface SidebarProps {
   readonly selectedSession: SessionRecord | undefined;
   readonly visibleWorkspaces: readonly WorkspaceRecord[];
   readonly threadSidebarModel: ThreadSidebarModel;
+  readonly threadGrouping: ThreadGrouping;
   readonly linkedWorktreeByWorkspaceId: ReadonlyMap<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
@@ -89,6 +104,7 @@ export function Sidebar(props: SidebarProps) {
     selectedSession,
     visibleWorkspaces,
     threadSidebarModel,
+    threadGrouping,
     linkedWorktreeByWorkspaceId,
     wsMenu,
     api,
@@ -107,6 +123,7 @@ export function Sidebar(props: SidebarProps) {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState<ReadonlySet<string>>(() => new Set());
   const threadMenu = useThreadMenu({ api, setSnapshot, updateSnapshot });
 
   // Cmd+Shift+R renames the currently selected thread (same flow as the
@@ -196,13 +213,23 @@ export function Sidebar(props: SidebarProps) {
       : [];
   };
 
-  const rootGroups = threadSidebarModel.folders.filter((workspace) => workspace.kind === "primary");
-  const orphanGroups = threadSidebarModel.folders.filter(
-    (workspace) => workspace.kind !== "primary",
+  const folderHasThreads = (folderId: string) =>
+    threadSidebarModel.workspaceGroups.some(
+      (group) => group.workspace.id === folderId && group.threads.length > 0,
+    ) ||
+    threadSidebarModel.pinnedThreads.some((thread) => thread.folderId === folderId) ||
+    threadSidebarModel.archivedThreads.some((thread) => thread.folderId === folderId);
+  const showFolderRow = (group: WorkspaceThreadGroup) =>
+    threadGrouping === "workspace" || !folderHasThreads(group.workspace.id);
+  const rootGroups = threadSidebarModel.workspaceGroups.filter(
+    (group) => group.workspace.kind === "primary" && showFolderRow(group),
+  );
+  const orphanGroups = threadSidebarModel.workspaceGroups.filter(
+    (group) => group.workspace.kind !== "primary" && showFolderRow(group),
   );
   const pinnedThreads = threadSidebarModel.pinnedThreads;
   const pinnedSortableIds = pinnedThreads.map(pinnedSortableId);
-  const rootGroupIds = rootGroups.map((workspace) => workspace.id);
+  const rootGroupIds = rootGroups.map((group) => group.workspace.id);
   const canDrag = rootGroups.length > 1;
 
   function handleDragStart(event: DragStartEvent) {
@@ -258,11 +285,23 @@ export function Sidebar(props: SidebarProps) {
   }
 
   const activeFolder = activeId
-    ? rootGroups.find((workspace) => workspace.id === activeId)
+    ? rootGroups.find((group) => group.workspace.id === activeId)?.workspace
     : undefined;
   const activePinnedThread = activeId?.startsWith("pinned:")
     ? pinnedThreads.find((thread) => pinnedSortableId(thread) === activeId)
     : undefined;
+
+  function toggleHistoryExpanded(key: string) {
+    setExpandedHistory((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
 
   return (
     <aside className="sidebar">
@@ -332,6 +371,16 @@ export function Sidebar(props: SidebarProps) {
         <div className="section__head">
           <span>Threads</span>
           <div className="section__tools">
+            <ThreadGroupingControl
+              grouping={threadGrouping}
+              onChange={(grouping) => {
+                void updateSnapshot(setSnapshot, () => api.setThreadGrouping(grouping)).catch(
+                  (error: unknown) => {
+                    console.error("[renderer] setThreadGrouping failed", error);
+                  },
+                );
+              }}
+            />
             <button
               aria-label="Open folder"
               className="icon-button"
@@ -376,31 +425,47 @@ export function Sidebar(props: SidebarProps) {
           >
             <div className="workspace-list" data-testid="workspace-list">
               <SortableContext items={rootGroupIds} strategy={verticalListSortingStrategy}>
-                {rootGroups.map((workspace) => (
+                {rootGroups.map((group) => (
                   <SortableWorkspaceFolder
-                    key={workspace.id}
-                    workspace={workspace}
+                    key={group.workspace.id}
+                    workspace={group.workspace}
+                    threads={threadGrouping === "workspace" ? group.threads : undefined}
+                    historyExpanded={expandedHistory.has(`workspace:${group.workspace.id}`)}
+                    onToggleHistory={() => toggleHistoryExpanded(`workspace:${group.workspace.id}`)}
                     canDrag={canDrag}
                     selectedWorkspace={selectedWorkspace}
+                    selectedSession={selectedSession}
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
                     wsMenu={wsMenu}
                     api={api}
+                    threadMenu={threadMenu}
+                    onArchiveSession={onArchiveSession}
+                    onSelectSession={onSelectSession}
+                    onSetSessionPinned={onSetSessionPinned}
                   />
                 ))}
               </SortableContext>
-              {orphanGroups.map((workspace) => (
+              {orphanGroups.map((group) => (
                 <section
-                  key={workspace.id}
+                  key={group.workspace.id}
                   className="workspace-group"
-                  data-workspace-id={workspace.id}
+                  data-workspace-id={group.workspace.id}
                 >
                   <WorkspaceFolderContent
-                    workspace={workspace}
+                    workspace={group.workspace}
+                    threads={threadGrouping === "workspace" ? group.threads : undefined}
+                    historyExpanded={expandedHistory.has(`workspace:${group.workspace.id}`)}
+                    onToggleHistory={() => toggleHistoryExpanded(`workspace:${group.workspace.id}`)}
                     canDrag={false}
                     selectedWorkspace={selectedWorkspace}
+                    selectedSession={selectedSession}
                     linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
                     wsMenu={wsMenu}
                     api={api}
+                    threadMenu={threadMenu}
+                    onArchiveSession={onArchiveSession}
+                    onSelectSession={onSelectSession}
+                    onSetSessionPinned={onSetSessionPinned}
                   />
                 </section>
               ))}
@@ -417,18 +482,22 @@ export function Sidebar(props: SidebarProps) {
                   onSetSessionPinned={onSetSessionPinned}
                 />
               ) : null}
-              {threadSidebarModel.recencySections.map((section) => (
-                <RecencyThreadSectionView
-                  key={section.bucket}
-                  section={section}
-                  selectedWorkspace={selectedWorkspace}
-                  selectedSession={selectedSession}
-                  threadMenu={threadMenu}
-                  onArchiveSession={onArchiveSession}
-                  onSelectSession={onSelectSession}
-                  onSetSessionPinned={onSetSessionPinned}
-                />
-              ))}
+              {threadGrouping === "time"
+                ? threadSidebarModel.recencySections.map((section) => (
+                    <RecencyThreadSectionView
+                      key={section.bucket}
+                      section={section}
+                      historyExpanded={expandedHistory.has(`bucket:${section.bucket}`)}
+                      onToggleHistory={() => toggleHistoryExpanded(`bucket:${section.bucket}`)}
+                      selectedWorkspace={selectedWorkspace}
+                      selectedSession={selectedSession}
+                      threadMenu={threadMenu}
+                      onArchiveSession={onArchiveSession}
+                      onSelectSession={onSelectSession}
+                      onSetSessionPinned={onSetSessionPinned}
+                    />
+                  ))
+                : null}
               {threadSidebarModel.archivedThreads.length > 0 ? (
                 <ArchivedThreadsSection
                   archivedThreads={threadSidebarModel.archivedThreads}
@@ -481,11 +550,22 @@ export function Sidebar(props: SidebarProps) {
 
 interface WorkspaceFolderProps {
   readonly workspace: WorkspaceRecord;
+  readonly threads?: readonly ThreadListEntry[];
+  readonly historyExpanded?: boolean;
+  readonly onToggleHistory?: () => void;
   readonly canDrag: boolean;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
+  readonly selectedSession?: SessionRecord;
   readonly linkedWorktreeByWorkspaceId: ReadonlyMap<string, WorktreeRecord>;
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
+  readonly threadMenu?: ThreadMenuState;
+  readonly onArchiveSession?: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSelectSession?: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSetSessionPinned?: (
+    target: { workspaceId: string; sessionId: string },
+    pinned: boolean,
+  ) => void;
 }
 
 function SortableWorkspaceFolder(props: WorkspaceFolderProps) {
@@ -527,12 +607,21 @@ function WorkspaceFolderContent(
 ) {
   const {
     workspace,
+    threads,
+    historyExpanded = false,
+    onToggleHistory,
     selectedWorkspace,
+    selectedSession,
     linkedWorktreeByWorkspaceId,
     wsMenu,
     api,
+    threadMenu,
+    onArchiveSession,
+    onSelectSession,
+    onSetSessionPinned,
     dragHandleProps,
   } = props;
+  const history = threads ? threadHistoryPreview(threads, historyExpanded) : undefined;
 
   const workspaceActive =
     workspace.id === selectedWorkspace?.id || workspace.id === selectedWorkspace?.rootWorkspaceId;
@@ -680,12 +769,39 @@ function WorkspaceFolderContent(
           </div>
         </form>
       ) : null}
+      {history && onSelectSession && onArchiveSession && onSetSessionPinned ? (
+        <>
+          <div className="session-list session-list--history">
+            {history.visible.map((thread) => (
+              <HistoryThreadRow
+                key={`${thread.workspaceId}:${thread.session.id}`}
+                thread={thread}
+                selectedWorkspace={selectedWorkspace}
+                selectedSession={selectedSession}
+                threadMenu={threadMenu}
+                onArchiveSession={onArchiveSession}
+                onSelectSession={onSelectSession}
+                onSetSessionPinned={onSetSessionPinned}
+              />
+            ))}
+          </div>
+          {history.overflow && onToggleHistory ? (
+            <HistoryToggle
+              expanded={historyExpanded}
+              label={workspace.name}
+              onToggle={onToggleHistory}
+            />
+          ) : null}
+        </>
+      ) : null}
     </>
   );
 }
 
 function RecencyThreadSectionView({
   section,
+  historyExpanded,
+  onToggleHistory,
   selectedWorkspace,
   selectedSession,
   threadMenu,
@@ -694,6 +810,8 @@ function RecencyThreadSectionView({
   onSetSessionPinned,
 }: {
   readonly section: RecencyThreadSection;
+  readonly historyExpanded: boolean;
+  readonly onToggleHistory: () => void;
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
   readonly threadMenu: ThreadMenuState;
@@ -704,6 +822,7 @@ function RecencyThreadSectionView({
     pinned: boolean,
   ) => void;
 }) {
+  const history = threadHistoryPreview(section.threads, historyExpanded);
   return (
     <section
       className="recency-thread-group"
@@ -712,40 +831,310 @@ function RecencyThreadSectionView({
     >
       <div className="recency-thread-group__head">{section.label}</div>
       <div className="session-list session-list--history">
-        {section.threads.map((thread) => {
-          const active =
-            thread.workspaceId === selectedWorkspace?.id &&
-            thread.session.id === selectedSession?.id;
-          return (
-            <ThreadSessionRow
-              key={`${thread.workspaceId}:${thread.session.id}`}
-              active={active}
-              thread={thread}
-              showContext
-              threadMenu={threadMenu}
-              onAction={() =>
-                onArchiveSession({
-                  workspaceId: thread.workspaceId,
-                  sessionId: thread.session.id,
-                })
-              }
-              onSelect={() =>
-                onSelectSession({
-                  workspaceId: thread.workspaceId,
-                  sessionId: thread.session.id,
-                })
-              }
-              onTogglePinned={() =>
-                onSetSessionPinned(
-                  { workspaceId: thread.workspaceId, sessionId: thread.session.id },
-                  !thread.session.pinnedAt,
-                )
-              }
-            />
-          );
-        })}
+        {history.visible.map((thread) => (
+          <HistoryThreadRow
+            key={`${thread.workspaceId}:${thread.session.id}`}
+            showContext
+            thread={thread}
+            selectedWorkspace={selectedWorkspace}
+            selectedSession={selectedSession}
+            threadMenu={threadMenu}
+            onArchiveSession={onArchiveSession}
+            onSelectSession={onSelectSession}
+            onSetSessionPinned={onSetSessionPinned}
+          />
+        ))}
       </div>
+      {history.overflow ? (
+        <HistoryToggle
+          expanded={historyExpanded}
+          label={section.label}
+          onToggle={onToggleHistory}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function HistoryThreadRow({
+  thread,
+  showContext = false,
+  selectedWorkspace,
+  selectedSession,
+  threadMenu,
+  onArchiveSession,
+  onSelectSession,
+  onSetSessionPinned,
+}: {
+  readonly thread: ThreadListEntry;
+  readonly showContext?: boolean;
+  readonly selectedWorkspace: WorkspaceRecord | undefined;
+  readonly selectedSession: SessionRecord | undefined;
+  readonly threadMenu: ThreadMenuState | undefined;
+  readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly onSetSessionPinned: (
+    target: { workspaceId: string; sessionId: string },
+    pinned: boolean,
+  ) => void;
+}) {
+  const active =
+    thread.workspaceId === selectedWorkspace?.id && thread.session.id === selectedSession?.id;
+  return (
+    <ThreadSessionRow
+      active={active}
+      showContext={showContext}
+      thread={thread}
+      threadMenu={threadMenu}
+      onAction={() =>
+        onArchiveSession({
+          workspaceId: thread.workspaceId,
+          sessionId: thread.session.id,
+        })
+      }
+      onSelect={() =>
+        onSelectSession({
+          workspaceId: thread.workspaceId,
+          sessionId: thread.session.id,
+        })
+      }
+      onTogglePinned={() =>
+        onSetSessionPinned(
+          { workspaceId: thread.workspaceId, sessionId: thread.session.id },
+          !thread.session.pinnedAt,
+        )
+      }
+    />
+  );
+}
+
+function HistoryToggle({
+  expanded,
+  label,
+  onToggle,
+}: {
+  readonly expanded: boolean;
+  readonly label: string;
+  readonly onToggle: () => void;
+}) {
+  const text = expanded ? "Show less" : "Show more";
+  return (
+    <button
+      aria-expanded={expanded}
+      aria-label={`${text} ${label}`}
+      className="thread-history-toggle"
+      type="button"
+      onClick={onToggle}
+    >
+      {text}
+    </button>
+  );
+}
+
+function ThreadGroupingControl({
+  grouping,
+  onChange,
+}: {
+  readonly grouping: ThreadGrouping;
+  readonly onChange: (grouping: ThreadGrouping) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const [submenuStyle, setSubmenuStyle] = useState<CSSProperties>({});
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const groupingRef = useRef<HTMLButtonElement | null>(null);
+  const submenuRef = useRef<HTMLDivElement | null>(null);
+  const submenuTimer = useRef<number | null>(null);
+
+  const closeSubmenuSoon = () => {
+    if (submenuTimer.current !== null) {
+      window.clearTimeout(submenuTimer.current);
+    }
+    submenuTimer.current = window.setTimeout(() => {
+      submenuTimer.current = null;
+      setSubmenuOpen(false);
+    }, 140);
+  };
+
+  const keepSubmenu = () => {
+    if (submenuTimer.current !== null) {
+      window.clearTimeout(submenuTimer.current);
+      submenuTimer.current = null;
+    }
+    setSubmenuOpen(true);
+  };
+
+  const closeMenu = () => {
+    if (submenuTimer.current !== null) {
+      window.clearTimeout(submenuTimer.current);
+      submenuTimer.current = null;
+    }
+    setSubmenuOpen(false);
+    setOpen(false);
+  };
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (wrapRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      closeMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(
+    () => () => {
+      if (submenuTimer.current !== null) {
+        window.clearTimeout(submenuTimer.current);
+      }
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    setMenuStyle({
+      top: rect.bottom + 6,
+      left: rect.right,
+      right: "auto",
+      width: "max-content",
+      transform: "translateX(-100%)",
+    });
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!submenuOpen || !groupingRef.current) {
+      return;
+    }
+    const rect = groupingRef.current.getBoundingClientRect();
+    const gap = 6;
+    const width = submenuRef.current?.offsetWidth ?? 0;
+    const openRight = rect.right + gap;
+    const left =
+      width > 0 && openRight + width > window.innerWidth - 8
+        ? Math.max(8, rect.left - gap - width)
+        : openRight;
+    setSubmenuStyle({
+      top: rect.top - 6,
+      left,
+      right: "auto",
+      width: "max-content",
+    });
+  }, [submenuOpen]);
+
+  return (
+    <span className="shortcut-tooltip-wrap thread-grouping" ref={wrapRef}>
+      <button
+        ref={buttonRef}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Customize Sidebar"
+        className="icon-button"
+        type="button"
+        onClick={() => {
+          if (open) {
+            closeMenu();
+            return;
+          }
+          setOpen(true);
+        }}
+      >
+        <CustomizeSidebarIcon />
+      </button>
+      {open ? null : (
+        <span className="shortcut-tooltip" role="tooltip">
+          Customize Sidebar
+        </span>
+      )}
+      {open
+        ? createPortal(
+            <div ref={menuRef}>
+              <div
+                aria-label="Customize Sidebar"
+                className="workspace-menu thread-grouping__menu"
+                role="menu"
+                style={menuStyle}
+              >
+                <button
+                  ref={groupingRef}
+                  aria-expanded={submenuOpen}
+                  aria-haspopup="menu"
+                  className={`workspace-menu__item${submenuOpen ? " thread-grouping__parent--open" : ""}`}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => {
+                    keepSubmenu();
+                  }}
+                  onMouseEnter={keepSubmenu}
+                  onMouseLeave={closeSubmenuSoon}
+                >
+                  <span>Grouping</span>
+                  <ChevronRightIcon />
+                </button>
+              </div>
+              {submenuOpen ? (
+                <div
+                  ref={submenuRef}
+                  aria-label="Grouping"
+                  className="workspace-menu thread-grouping__submenu"
+                  role="menu"
+                  style={submenuStyle}
+                  onMouseEnter={keepSubmenu}
+                  onMouseLeave={closeSubmenuSoon}
+                >
+                  {(
+                    [
+                      ["time", "Time"],
+                      ["workspace", "Workspace"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      aria-checked={grouping === value}
+                      className="workspace-menu__item thread-grouping__option"
+                      role="menuitemradio"
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        if (value !== grouping) {
+                          onChange(value);
+                        }
+                      }}
+                    >
+                      <span aria-hidden="true" className="thread-grouping__check">
+                        {grouping === value ? <CheckIcon /> : null}
+                      </span>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
+    </span>
   );
 }
 
