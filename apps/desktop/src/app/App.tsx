@@ -34,7 +34,9 @@ import {
 } from "../features/workbench/file-workbench-state";
 import { buildModelOptions } from "../features/conversation/composer-commands";
 import {
+  createChordToggleGate,
   desktopCommands,
+  earlyModifierChords,
   getDesktopCommandFromShortcut,
   isCloseFocusedSurfaceShortcut,
   getDesktopShortcutLabel,
@@ -45,7 +47,11 @@ import { deriveModelOnboardingState } from "../features/settings/model-onboardin
 import type { SettingsSection } from "../features/settings/settings-view";
 import { SecondarySurfaces } from "./secondary-surfaces";
 import { NewThreadView } from "../features/threads/new-thread-view";
-import { buildThreadSidebarModel } from "../features/threads/thread-groups";
+import {
+  buildThreadSidebarModel,
+  visibleThreadShortcutOrder,
+  type ThreadListEntry,
+} from "../features/threads/thread-groups";
 import { Sidebar } from "../features/threads/sidebar";
 import { SidebarToggleButton } from "../features/threads/sidebar-toggle-button";
 import type { SidePanelPickerChoice } from "./side-panel-picker";
@@ -311,6 +317,10 @@ export default function App() {
   );
   const threadSidebarModelRef = useRef(threadSidebarModel);
   threadSidebarModelRef.current = threadSidebarModel;
+  const threadGroupingRef = useRef(snapshot?.threadGrouping ?? "time");
+  threadGroupingRef.current = snapshot?.threadGrouping ?? "time";
+  const threadShortcutOrderRef = useRef<readonly ThreadListEntry[] | null>(null);
+  const threadSearchGate = useRef(createChordToggleGate());
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
       if (restoreTopmostDialogFocus()) {
@@ -618,7 +628,16 @@ export default function App() {
       }
       const recentIndex = recentThreadShortcutIndex(command);
       if (recentIndex !== undefined) {
-        const thread = threadSidebarModelRef.current?.recencyOrder[recentIndex];
+        const model = threadSidebarModelRef.current;
+        const threads =
+          threadShortcutOrderRef.current ??
+          (model
+            ? visibleThreadShortcutOrder({
+                grouping: threadGroupingRef.current,
+                model,
+              })
+            : []);
+        const thread = threads[recentIndex];
         if (!thread || !api) {
           return true;
         }
@@ -643,6 +662,11 @@ export default function App() {
     const removeClipboardImageListener = window.piApp?.onClipboardImagePasted?.(
       handlePastedClipboardImage,
     );
+    const toggleThreadSearch = () => {
+      if (!threadSearchGate.current(performance.now())) return;
+      if (threadSearch.isOpen) threadSearch.close();
+      else threadSearch.open();
+    };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       const closeSurfaceShortcut = isCloseFocusedSurfaceShortcut({
         meta: event.metaKey,
@@ -675,14 +699,16 @@ export default function App() {
         }
         return;
       }
-      // Cmd+F toggles thread search
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && !event.shiftKey) {
+      // One physical Command/Ctrl+F can be delivered twice. The second
+      // keydown would close search after the transcript lays out.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.repeat &&
+        (event.key.toLowerCase() === "f" || event.code === "KeyF")
+      ) {
         event.preventDefault();
-        if (threadSearch.isOpen) {
-          threadSearch.close();
-        } else {
-          threadSearch.open();
-        }
+        toggleThreadSearch();
         return;
       }
       // Cmd+D toggles diff panel
@@ -702,6 +728,11 @@ export default function App() {
         event.preventDefault();
       }
     };
+    for (const chord of earlyModifierChords.arm()) {
+      const key = chord.key.toLowerCase();
+      if (key === "f" || chord.code === "KeyF") toggleThreadSearch();
+      else handleCommand(desktopCommands.openSettings);
+    }
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       removeCommandListener?.();
@@ -1025,6 +1056,7 @@ export default function App() {
           selectedSession={selectedSession}
           visibleWorkspaces={visibleWorkspaces}
           threadSidebarModel={threadSidebarModel ?? buildThreadSidebarModel(snapshot)}
+          threadShortcutOrderRef={threadShortcutOrderRef}
           threadGrouping={snapshot.threadGrouping}
           linkedWorktreeByWorkspaceId={linkedWorktreeByWorkspaceId}
           wsMenu={wsMenu}
