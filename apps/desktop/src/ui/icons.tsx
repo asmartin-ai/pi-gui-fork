@@ -98,6 +98,23 @@ export function SidebarToggleIcon() {
   );
 }
 
+export function SidePanelIcon() {
+  return (
+    <Icon>
+      <rect
+        x="3.2"
+        y="3.6"
+        width="13.6"
+        height="12.8"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.35"
+      />
+      <path d="M12.2 3.6v12.8" stroke="currentColor" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
 export function MaximizeIcon() {
   return (
     <Icon>
@@ -552,29 +569,6 @@ export function GripIcon() {
       <circle cx="12" cy="10" r="1.2" fill="currentColor" />
       <circle cx="8" cy="13" r="1.2" fill="currentColor" />
       <circle cx="12" cy="13" r="1.2" fill="currentColor" />
-    </Icon>
-  );
-}
-
-export function PromptRailIcon() {
-  return (
-    <Icon>
-      <rect
-        x="3.4"
-        y="4.1"
-        width="13.2"
-        height="11.8"
-        rx="2.2"
-        stroke="currentColor"
-        strokeWidth="1.35"
-      />
-      <path d="M12.6 4.2v11.6" stroke="currentColor" strokeWidth="1.35" />
-      <path
-        d="M13.75 7.4h1.55M13.75 10h1.55M13.75 12.6h1.55"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.2"
-      />
     </Icon>
   );
 }

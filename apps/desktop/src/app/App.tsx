@@ -13,7 +13,11 @@ import {
 import { updateSnapshot, useDesktopAppState } from "./desktop-app-state";
 import { DesktopStartupSurface, toStartupSurfaceState } from "./desktop-recovery";
 import { buildFileWorkbenchContexts } from "./file-workbench-contexts";
-import { canTogglePrimarySidebar, isEventInsideTerminal } from "./app-shell-utils";
+import {
+  canTogglePrimarySidebar,
+  closableSurfaceFromTarget,
+  isEventInsideTerminal,
+} from "./app-shell-utils";
 import { useRunningLabel } from "../features/conversation/hooks/use-running-label";
 import { useTimelineViewport } from "../features/conversation/hooks/use-timeline-viewport";
 import { buildDisplayTimelineItems } from "../features/conversation/timeline-turns";
@@ -32,6 +36,7 @@ import { buildModelOptions } from "../features/conversation/composer-commands";
 import {
   desktopCommands,
   getDesktopCommandFromShortcut,
+  isCloseFocusedSurfaceShortcut,
   getDesktopShortcutLabel,
   recentThreadShortcutIndex,
   type PiDesktopCommand,
@@ -43,6 +48,7 @@ import { NewThreadView } from "../features/threads/new-thread-view";
 import { buildThreadSidebarModel } from "../features/threads/thread-groups";
 import { Sidebar } from "../features/threads/sidebar";
 import { SidebarToggleButton } from "../features/threads/sidebar-toggle-button";
+import type { SidePanelPickerChoice } from "./side-panel-picker";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "../features/workbench/terminal-panel";
 import { ConversationTimeline } from "../features/conversation/conversation-timeline";
@@ -52,10 +58,6 @@ import {
   type ScheduledEditorState,
 } from "../features/scheduled-tasks/scheduled-task-editor";
 import { ScheduledTaskChip } from "../features/scheduled-tasks/scheduled-task-chip";
-import {
-  loadPromptRailVisible,
-  savePromptRailVisible,
-} from "../features/conversation/prompt-rail-store";
 import { useSlashMenu } from "../features/conversation/hooks/use-slash-menu";
 import { useMentionMenu } from "../features/conversation/hooks/use-mention-menu";
 import { useThreadSearch } from "../features/conversation/hooks/use-thread-search";
@@ -92,12 +94,12 @@ export default function App() {
     ReadonlySet<string>
   >(() => new Set());
   const [sidePanelMode, setSidePanelMode] = useState<SidePanelMode | null>(null);
+  const lastSidePanelModeRef = useRef<SidePanelMode>("files");
   const [openTerminalSessionKey, setOpenTerminalSessionKey] = useState("");
   const [takeoverTerminalSessionKey, setTakeoverTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [fileTabs, setFileTabs] = useState<FileWorkbenchTabs>(EMPTY_FILE_TABS);
-  const [promptRailVisible, setPromptRailVisible] = useState(loadPromptRailVisible);
   const [scheduledEditor, setScheduledEditor] = useState<ScheduledEditorState | null>(null);
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
   const api = window.piApp;
@@ -328,7 +330,19 @@ export default function App() {
     }
     setOpenTerminalSessionKey(selectedSessionKey);
   }, [openTerminalSessionKey, selectedSessionKey]);
+  const closeFocusedSurface = useCallback(() => {
+    const surface = closableSurfaceFromTarget(document.activeElement);
+    if (surface === "terminal") {
+      setOpenTerminalSessionKey("");
+      setTakeoverTerminalSessionKey("");
+      return;
+    }
+    if (surface === "files" || surface === "changes") {
+      setSidePanelMode(null);
+    }
+  }, []);
   const handleViewFileInDiff = useCallback((path: string) => {
+    lastSidePanelModeRef.current = "changes";
     setSidePanelMode("changes");
     setDiffFileRequest({ path, nonce: Date.now() });
   }, []);
@@ -345,24 +359,42 @@ export default function App() {
   }, []);
 
   const toggleSidePanelMode = useCallback((mode: SidePanelMode) => {
-    setSidePanelMode((current) => (current === mode ? null : mode));
+    setSidePanelMode((current) => {
+      if (current === mode) {
+        return null;
+      }
+      lastSidePanelModeRef.current = mode;
+      return mode;
+    });
   }, []);
+
+  const toggleSidePanel = useCallback(() => {
+    if (snapshot?.activeView !== "threads" || !selectedWorkspace || !selectedSession) {
+      return;
+    }
+    setSidePanelMode((current) => (current ? null : lastSidePanelModeRef.current));
+  }, [selectedSession, selectedWorkspace, snapshot?.activeView]);
+
+  const selectSidePanel = useCallback(
+    (choice: SidePanelPickerChoice) => {
+      if (choice === "terminal") {
+        if (selectedSessionKey) {
+          setOpenTerminalSessionKey(selectedSessionKey);
+        }
+        return;
+      }
+      if (snapshot?.activeView !== "threads" || !selectedWorkspace || !selectedSession) {
+        return;
+      }
+      lastSidePanelModeRef.current = choice;
+      setSidePanelMode(choice);
+    },
+    [selectedSession, selectedSessionKey, selectedWorkspace, snapshot?.activeView],
+  );
 
   const toggleChangesPanel = useCallback(() => {
     toggleSidePanelMode("changes");
   }, [toggleSidePanelMode]);
-
-  const toggleFilesPanel = useCallback(() => {
-    toggleSidePanelMode("files");
-  }, [toggleSidePanelMode]);
-
-  const togglePromptRail = useCallback(() => {
-    setPromptRailVisible((current) => {
-      const next = !current;
-      savePromptRailVisible(next);
-      return next;
-    });
-  }, []);
 
   const openSettings = (workspaceId?: string, section?: SettingsSection) => {
     if (!api) {
@@ -575,6 +607,12 @@ export default function App() {
       } else if (command === desktopCommands.toggleTerminal) {
         toggleTerminal();
         return true;
+      } else if (command === desktopCommands.toggleSidePanel) {
+        toggleSidePanel();
+        return true;
+      } else if (command === desktopCommands.closeFocusedSurface) {
+        closeFocusedSurface();
+        return true;
       } else if (command === desktopCommands.toggleSidebar) {
         return handleTogglePrimarySidebar();
       }
@@ -606,14 +644,32 @@ export default function App() {
       handlePastedClipboardImage,
     );
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      const closeSurfaceShortcut = isCloseFocusedSurfaceShortcut({
+        meta: event.metaKey,
+        control: event.ctrlKey,
+        alt: event.altKey,
+        shift: event.shiftKey,
+        key: event.key,
+        code: event.code,
+        platform: api?.platform ?? "linux",
+      });
+      if (closeSurfaceShortcut && closableSurfaceFromTarget(event.target)) {
+        event.preventDefault();
+        closeFocusedSurface();
+        return;
+      }
       if (isEventInsideTerminal(event)) {
         const command = getDesktopCommandFromShortcut({
           modifier: event.metaKey || event.ctrlKey,
+          alt: event.altKey,
           shift: event.shiftKey,
           key: event.key,
           code: event.code,
         });
-        if (command === desktopCommands.toggleTerminal) {
+        if (
+          command === desktopCommands.toggleTerminal ||
+          command === desktopCommands.toggleSidePanel
+        ) {
           event.preventDefault();
           handleCommand(command);
         }
@@ -637,6 +693,7 @@ export default function App() {
       }
       const command = getDesktopCommandFromShortcut({
         modifier: event.metaKey || event.ctrlKey,
+        alt: event.altKey,
         shift: event.shiftKey,
         key: event.key,
         code: event.code,
@@ -658,7 +715,9 @@ export default function App() {
     threadSearch,
     api,
     toggleChangesPanel,
+    toggleSidePanel,
     toggleTerminal,
+    closeFocusedSurface,
     handleTogglePrimarySidebar,
     newThread,
   ]);
@@ -670,6 +729,34 @@ export default function App() {
     if (!restoreTopmostDialogFocus()) composerRef.current?.focus();
   }, [selectedSessionKey, snapshot?.activeView]);
 
+  useEffect(() => {
+    const desktopApi = window.piApp;
+    if (!desktopApi) {
+      return undefined;
+    }
+    let armed = false;
+    const sync = () => {
+      const surface = closableSurfaceFromTarget(document.activeElement);
+      const next = surface === "files" || surface === "changes";
+      if (next === armed) {
+        return;
+      }
+      armed = next;
+      desktopApi.setSidePanelFocused(next).catch((error: unknown) => {
+        console.error("[renderer] setSidePanelFocused failed", error);
+      });
+    };
+    document.addEventListener("focusin", sync);
+    sync();
+    return () => {
+      document.removeEventListener("focusin", sync);
+      if (armed) {
+        desktopApi.setSidePanelFocused(false).catch((error: unknown) => {
+          console.error("[renderer] setSidePanelFocused failed", error);
+        });
+      }
+    };
+  }, []);
   const sidePanelAvailable =
     snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession);
   useEffect(() => {
@@ -972,14 +1059,10 @@ export default function App() {
           api={api}
           terminalAvailable={Boolean(selectedSessionKey)}
           terminalVisible={isTerminalVisibleForSelectedThread}
-          onToggleTerminal={toggleTerminal}
           panelAvailable={sidePanelAvailable}
           changesVisible={sidePanelMode === "changes"}
-          onToggleChanges={toggleChangesPanel}
           filesVisible={sidePanelMode === "files"}
-          onToggleFiles={toggleFilesPanel}
-          promptRailVisible={promptRailVisible}
-          onTogglePromptRail={togglePromptRail}
+          onSelectSidePanel={selectSidePanel}
         />
 
         {snapshot.startupDiagnostics.length > 0 ? (
@@ -1175,7 +1258,6 @@ export default function App() {
                       onForkFromMessage={
                         selectedSession.status === "running" ? undefined : openForkModal
                       }
-                      promptRailVisible={promptRailVisible}
                       scheduledOrigins={scheduledOrigins}
                     />
                   </div>
