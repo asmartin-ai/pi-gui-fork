@@ -30,11 +30,14 @@ import type { DiffPanelFileRequest } from "../features/workbench/diff-panel-type
 import { FileWorkbench } from "../features/workbench/file-workbench";
 import {
   EMPTY_FILE_TABS,
+  openFileAtLine,
   type FileWorkbenchTabs,
 } from "../features/workbench/file-workbench-state";
+import type { WorkspaceFileLine } from "../features/conversation/workspace-file-line";
 import { buildModelOptions } from "../features/conversation/composer-commands";
 import {
   createChordToggleGate,
+  CHANGES_TOGGLE_DEDUPE_MS,
   desktopCommands,
   earlyModifierChords,
   getDesktopCommandFromShortcut,
@@ -321,6 +324,10 @@ export default function App() {
   threadGroupingRef.current = snapshot?.threadGrouping ?? "time";
   const threadShortcutOrderRef = useRef<readonly ThreadListEntry[] | null>(null);
   const threadSearchGate = useRef(createChordToggleGate());
+  const changesToggleGate = useRef(createChordToggleGate(CHANGES_TOGGLE_DEDUPE_MS));
+  const handleCommandRef = useRef<(command: PiDesktopCommand) => boolean>(() => false);
+  const handleRendererKeyDownRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => {});
+  const toggleThreadSearchRef = useRef<() => void>(() => {});
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
       if (restoreTopmostDialogFocus()) {
@@ -356,6 +363,37 @@ export default function App() {
     setSidePanelMode("changes");
     setDiffFileRequest({ path, nonce: Date.now() });
   }, []);
+  const selectedSessionKeyRef = useRef(selectedSessionKey);
+  selectedSessionKeyRef.current = selectedSessionKey;
+  const selectedWorkspaceRef = useRef(selectedWorkspace);
+  selectedWorkspaceRef.current = selectedWorkspace;
+  // Snapshot ticks replace selectedWorkspace. A new callback identity reparses every
+  // visible assistant message and drops stick-to-bottom while a reply is streaming.
+  const handleOpenWorkspaceFileLine = useCallback(
+    (target: WorkspaceFileLine) => {
+      const workspace = selectedWorkspaceRef.current;
+      if (!api || !workspace) {
+        return;
+      }
+      const workspaceId = workspace.id;
+      const sessionKey = selectedSessionKeyRef.current;
+      void api
+        .readWorkspaceFile(workspaceId, target.path)
+        .then(() => {
+          if (selectedSessionKeyRef.current !== sessionKey) {
+            return;
+          }
+          setSidePanelMode("files");
+          setFileTabs((current) =>
+            openFileAtLine(current, target.path, target.line, target.endLine),
+          );
+        })
+        .catch(() => {
+          // Missing, unreadable, or outside the workspace: leave the panel unchanged.
+        });
+    },
+    [api],
+  );
 
   const dismissSchemaSkewNotice = useCallback((sessionKey: string) => {
     setDismissedSchemaSkewSessionKeys((current) => {
@@ -606,117 +644,87 @@ export default function App() {
   }, []);
   const sidebarToggleShortcutLabel = api ? getDesktopShortcutLabel(api.platform, "B") : "";
 
-  useEffect(() => {
-    const handleCommand = (command: PiDesktopCommand): boolean => {
-      if (command === desktopCommands.openSettings) {
-        openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+  const handleCommand = (command: PiDesktopCommand): boolean => {
+    if (command === desktopCommands.openSettings) {
+      openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+      return true;
+    }
+    if (command === desktopCommands.openNewThread) {
+      newThread.openSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
+      return true;
+    }
+    if (command === desktopCommands.toggleTerminal) {
+      toggleTerminal();
+      return true;
+    }
+    if (command === desktopCommands.toggleSidePanel) {
+      toggleSidePanel();
+      return true;
+    }
+    if (command === desktopCommands.toggleChanges) {
+      // IPC and the renderer can both see one Cmd+D. Collapse that same-tick
+      // pair. Do not use the 200ms search gate: a real second press in
+      // side-panel-picker is closer than 200ms.
+      if (!changesToggleGate.current(performance.now())) return true;
+      toggleChangesPanel();
+      return true;
+    }
+    if (command === desktopCommands.closeFocusedSurface) {
+      closeFocusedSurface();
+      return true;
+    }
+    if (command === desktopCommands.toggleSidebar) {
+      return handleTogglePrimarySidebar();
+    }
+    const recentIndex = recentThreadShortcutIndex(command);
+    if (recentIndex !== undefined) {
+      const model = threadSidebarModelRef.current;
+      const threads =
+        threadShortcutOrderRef.current ??
+        (model
+          ? visibleThreadShortcutOrder({
+              grouping: threadGroupingRef.current,
+              model,
+            })
+          : []);
+      const thread = threads[recentIndex];
+      if (!thread || !api) {
         return true;
-      } else if (command === desktopCommands.openNewThread) {
-        newThread.openSurface(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
-        return true;
-      } else if (command === desktopCommands.toggleTerminal) {
-        toggleTerminal();
-        return true;
-      } else if (command === desktopCommands.toggleSidePanel) {
-        toggleSidePanel();
-        return true;
-      } else if (command === desktopCommands.closeFocusedSurface) {
-        closeFocusedSurface();
-        return true;
-      } else if (command === desktopCommands.toggleSidebar) {
-        return handleTogglePrimarySidebar();
       }
-      const recentIndex = recentThreadShortcutIndex(command);
-      if (recentIndex !== undefined) {
-        const model = threadSidebarModelRef.current;
-        const threads =
-          threadShortcutOrderRef.current ??
-          (model
-            ? visibleThreadShortcutOrder({
-                grouping: threadGroupingRef.current,
-                model,
-              })
-            : []);
-        const thread = threads[recentIndex];
-        if (!thread || !api) {
-          return true;
-        }
-        void updateSnapshot(setSnapshot, () =>
-          api.selectSession({
-            workspaceId: thread.workspaceId,
-            sessionId: thread.session.id,
-          }),
-        ).catch((error: unknown) => {
-          console.error("[renderer] selectSession failed", error);
-        });
-        return true;
-      }
-      return false;
-    };
-
-    const removeCommandListener = window.piApp?.onCommand?.(handleCommand);
-    const removeWorkspacePickedListener = window.piApp?.onWorkspacePicked?.((workspaceId) => {
-      newThread.setPendingWorkspaceId(workspaceId);
-      newThread.resetSurface();
-    });
-    const removeClipboardImageListener = window.piApp?.onClipboardImagePasted?.(
-      handlePastedClipboardImage,
-    );
-    const toggleThreadSearch = () => {
-      if (!threadSearchGate.current(performance.now())) return;
-      if (threadSearch.isOpen) threadSearch.close();
-      else threadSearch.open();
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      const closeSurfaceShortcut = isCloseFocusedSurfaceShortcut({
-        meta: event.metaKey,
-        control: event.ctrlKey,
-        alt: event.altKey,
-        shift: event.shiftKey,
-        key: event.key,
-        code: event.code,
-        platform: api?.platform ?? "linux",
+      void updateSnapshot(setSnapshot, () =>
+        api.selectSession({
+          workspaceId: thread.workspaceId,
+          sessionId: thread.session.id,
+        }),
+      ).catch((error: unknown) => {
+        console.error("[renderer] selectSession failed", error);
       });
-      if (closeSurfaceShortcut && closableSurfaceFromTarget(event.target)) {
-        event.preventDefault();
-        closeFocusedSurface();
-        return;
-      }
-      if (isEventInsideTerminal(event)) {
-        const command = getDesktopCommandFromShortcut({
-          modifier: event.metaKey || event.ctrlKey,
-          alt: event.altKey,
-          shift: event.shiftKey,
-          key: event.key,
-          code: event.code,
-        });
-        if (
-          command === desktopCommands.toggleTerminal ||
-          command === desktopCommands.toggleSidePanel
-        ) {
-          event.preventDefault();
-          handleCommand(command);
-        }
-        return;
-      }
-      // One physical Command/Ctrl+F can be delivered twice. The second
-      // keydown would close search after the transcript lays out.
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.shiftKey &&
-        !event.repeat &&
-        (event.key.toLowerCase() === "f" || event.code === "KeyF")
-      ) {
-        event.preventDefault();
-        toggleThreadSearch();
-        return;
-      }
-      // Cmd+D toggles diff panel
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d" && !event.shiftKey) {
-        event.preventDefault();
-        toggleChangesPanel();
-        return;
-      }
+      return true;
+    }
+    return false;
+  };
+  handleCommandRef.current = handleCommand;
+  toggleThreadSearchRef.current = () => {
+    if (!threadSearchGate.current(performance.now())) return;
+    if (threadSearch.isOpen) threadSearch.close();
+    else threadSearch.open();
+  };
+  handleRendererKeyDownRef.current = (event: globalThis.KeyboardEvent) => {
+    const closeSurfaceShortcut = isCloseFocusedSurfaceShortcut({
+      meta: event.metaKey,
+      control: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      key: event.key,
+      code: event.code,
+      platform: api?.platform ?? "linux",
+    });
+    if (closeSurfaceShortcut && closableSurfaceFromTarget(event.target)) {
+      event.preventDefault();
+      closeFocusedSurface();
+      return;
+    }
+    if (isEventInsideTerminal(event)) {
       const command = getDesktopCommandFromShortcut({
         modifier: event.metaKey || event.ctrlKey,
         alt: event.altKey,
@@ -724,34 +732,81 @@ export default function App() {
         key: event.key,
         code: event.code,
       });
-      if (command && handleCommand(command)) {
+      if (
+        command === desktopCommands.toggleTerminal ||
+        command === desktopCommands.toggleSidePanel
+      ) {
         event.preventDefault();
+        handleCommandRef.current(command);
       }
+      return;
+    }
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.shiftKey &&
+      !event.repeat &&
+      (event.key.toLowerCase() === "f" || event.code === "KeyF")
+    ) {
+      event.preventDefault();
+      toggleThreadSearchRef.current();
+      return;
+    }
+    const command = getDesktopCommandFromShortcut({
+      modifier: event.metaKey || event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      key: event.key,
+      code: event.code,
+    });
+    if (command && handleCommandRef.current(command)) {
+      event.preventDefault();
+    }
+  };
+
+  useEffect(() => {
+    // Bind once. Re-subscribing when session or search identity changes drops
+    // Cmd+D and 1-9 in the gap after a thread switch or relaunch.
+    const dispatch = (command: PiDesktopCommand) => {
+      handleCommandRef.current(command);
+    };
+    const removeCommandListener = window.piApp?.onCommand?.(dispatch);
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      handleRendererKeyDownRef.current(event);
     };
     for (const chord of earlyModifierChords.arm()) {
       const key = chord.key.toLowerCase();
-      if (key === "f" || chord.code === "KeyF") toggleThreadSearch();
-      else handleCommand(desktopCommands.openSettings);
+      if (key === "f" || chord.code === "KeyF") {
+        toggleThreadSearchRef.current();
+        continue;
+      }
+      const command = getDesktopCommandFromShortcut({
+        modifier: true,
+        shift: false,
+        key: chord.key,
+        code: chord.code,
+      });
+      if (command) dispatch(command);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       removeCommandListener?.();
-      removeWorkspacePickedListener?.();
-      removeClipboardImageListener?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [
-    selectedWorkspace?.id,
-    selectedWorkspace?.rootWorkspaceId,
-    threadSearch,
-    api,
-    toggleChangesPanel,
-    toggleSidePanel,
-    toggleTerminal,
-    closeFocusedSurface,
-    handleTogglePrimarySidebar,
-    newThread,
-  ]);
+  }, []);
+
+  useEffect(() => {
+    const removeWorkspacePickedListener = window.piApp?.onWorkspacePicked?.((workspaceId) => {
+      newThread.setPendingWorkspaceId(workspaceId);
+      newThread.resetSurface();
+    });
+    const removeClipboardImageListener = window.piApp?.onClipboardImagePasted?.(
+      handlePastedClipboardImage,
+    );
+    return () => {
+      removeWorkspacePickedListener?.();
+      removeClipboardImageListener?.();
+    };
+  }, [handlePastedClipboardImage, newThread]);
 
   useEffect(() => {
     // The composer is keyed by session: focus only after its new node commits.
@@ -1287,6 +1342,8 @@ export default function App() {
                       viewport={viewport}
                       threadSearch={threadSearch}
                       onViewFileInDiff={handleViewFileInDiff}
+                      onOpenWorkspaceFileLine={handleOpenWorkspaceFileLine}
+                      workspacePath={selectedWorkspace.path}
                       onForkFromMessage={
                         selectedSession.status === "running" ? undefined : openForkModal
                       }
