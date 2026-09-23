@@ -674,9 +674,15 @@ export class DesktopAppStore {
               state.composerDraftSyncSource !== "queued-message-edit")
           ? state.composerDraftSyncSource
           : "state",
-      composerDraftSyncNonce: selectionChanged
-        ? this.allocateComposerDraftSyncNonce(state.composerDraftSyncNonce)
-        : state.composerDraftSyncNonce,
+      // A switch already carries its own selection sync. Reuse its nonce so the
+      // push during the switch and the switch's IPC reply agree; a second nonce
+      // made the reply re-apply the empty draft over text typed in between.
+      // Reuse is safe: the renderer re-hydrates the draft whenever the thread changes.
+      composerDraftSyncNonce:
+        selectionChanged &&
+        !(matchesStateSelection && state.composerDraftSyncSource === "selection")
+          ? this.allocateComposerDraftSyncNonce(state.composerDraftSyncNonce)
+          : state.composerDraftSyncNonce,
       composerAttachments: this.resolveComposerAttachments(selectedWorkspaceId, selectedSessionId),
       queuedComposerMessages: this.resolveQueuedComposerMessages(
         selectedWorkspaceId,
@@ -2071,6 +2077,10 @@ export class DesktopAppStore {
     this.refreshStateDepth += 1;
     try {
       const previousSelectedKey = this.currentSelectedSessionKey();
+      const selectionAtStart = {
+        workspaceId: this.state.selectedWorkspaceId,
+        sessionId: this.state.selectedSessionId,
+      };
       const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
         this.driver.listWorkspaces(),
         this.driver.listSessions(),
@@ -2194,18 +2204,33 @@ export class DesktopAppStore {
       );
       this.sessionState.pinnedSessionOrder = [...pinnedSessionOrder];
 
-      const activeView = options.activeView ?? this.state.activeView;
+      // Refreshes run outside the window action queue (a send refreshes when its
+      // turn ends), so a thread switch can land while this one awaits. That
+      // switch is newer than the selection resolved above: keep it, its view
+      // and its draft. The switch hydrates its own thread.
+      const selectionMoved =
+        this.state.selectedWorkspaceId !== selectionAtStart.workspaceId ||
+        this.state.selectedSessionId !== selectionAtStart.sessionId;
+      const selection = selectionMoved
+        ? { workspaceId: this.state.selectedWorkspaceId, sessionId: this.state.selectedSessionId }
+        : { workspaceId: selectedWorkspaceId, sessionId: selectedSessionId };
+      const draftOptions: RefreshStateOptions = selectionMoved
+        ? { ...options, composerDraft: undefined, composerDraftSyncSource: undefined }
+        : options;
+      const activeView = selectionMoved
+        ? this.state.activeView
+        : (options.activeView ?? this.state.activeView);
       const composerDraftSync = this.resolveComposerDraftSync(
-        selectedWorkspaceId,
-        selectedSessionId,
-        options,
+        selection.workspaceId,
+        selection.sessionId,
+        draftOptions,
       );
       this.state = {
         ...this.state,
         workspaces,
         worktreesByWorkspace,
-        selectedWorkspaceId,
-        selectedSessionId,
+        selectedWorkspaceId: selection.workspaceId,
+        selectedSessionId: selection.sessionId,
         activeView,
         runtimeByWorkspace,
         sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
@@ -2222,27 +2247,27 @@ export class DesktopAppStore {
         modelSettingsScopeMode: this.state.modelSettingsScopeMode,
         globalModelSettings,
         composerDraft: this.resolveComposerDraft(
-          selectedWorkspaceId,
-          selectedSessionId,
-          options.composerDraft,
+          selection.workspaceId,
+          selection.sessionId,
+          draftOptions.composerDraft,
         ),
         composerDraftSyncSource: composerDraftSync.source,
         composerDraftSyncNonce: composerDraftSync.nonce,
         composerAttachments: this.resolveComposerAttachments(
-          selectedWorkspaceId,
-          selectedSessionId,
+          selection.workspaceId,
+          selection.sessionId,
         ),
         queuedComposerMessages: this.resolveQueuedComposerMessages(
-          selectedWorkspaceId,
-          selectedSessionId,
+          selection.workspaceId,
+          selection.sessionId,
         ),
         editingQueuedMessageId: this.resolveEditingQueuedMessageId(
-          selectedWorkspaceId,
-          selectedSessionId,
+          selection.workspaceId,
+          selection.sessionId,
         ),
         lastError: this.resolveSelectedSessionError(
-          selectedWorkspaceId,
-          selectedSessionId,
+          selection.workspaceId,
+          selection.sessionId,
           options.clearLastError,
         ),
         revision: this.state.revision + 1,
