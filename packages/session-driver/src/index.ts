@@ -83,3 +83,11 @@ export type {
   TurnCaptureBoundary,
   TurnCaptureObserver,
 } from "./turn-capture.js";
+export type {
+  SessionContextUsage,
+  SessionPlanLimit,
+  SessionPlanLimits,
+  SessionPromptCache,
+  SessionTokenCounts,
+  SessionUsageSnapshot,
+} from "./usage.js";
