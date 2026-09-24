@@ -56,6 +56,7 @@ import {
   getDesktopCommandFromShortcut,
   isSinglePressCommand,
   isCloseFocusedSurfaceShortcut,
+  getSidePanelTabCommand,
   platformShortcutModifier,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
@@ -446,6 +447,17 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") {
+      return;
+    }
+
+    // Side panel tab chords act from the terminal and extension views too. The
+    // key is not consumed: that would also swallow the modifier's keyup, leaving
+    // the tab hints up, and on Windows and Linux it would let the Alt release
+    // open the hidden menu bar. The page takes no default action for these keys,
+    // and the renderer's own handling of the same keydown is idempotent.
+    const sidePanelTabCommand = getSidePanelTabCommand(process.platform, input);
+    if (sidePanelTabCommand) {
+      if (!input.isAutoRepeat) window.webContents.send(desktopIpc.appCommand, sidePanelTabCommand);
       return;
     }
 
