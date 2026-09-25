@@ -181,6 +181,10 @@ interface ManagedSessionRecord {
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
   cancellationRequested: boolean;
+  /** A prompt is in Pi's pre-run steps (input handlers, auth, before_agent_start). */
+  promptStarting: boolean;
+  /** Stop arrived during those steps, where Pi's abort is a no-op; abort at agent_start. */
+  abortOnRunStart: boolean;
   pendingRunOutcome: RunOutcome | undefined;
   queuedMessages: SessionQueuedMessage[];
   closed: boolean;
@@ -896,7 +900,12 @@ export class SessionSupervisor {
 
     const isQueuedMessage = session.isStreaming && !isExtensionCommand && Boolean(input.deliverAs);
     const runId = isQueuedMessage || isExtensionCommand ? undefined : crypto.randomUUID();
-    if (!isQueuedMessage && !isExtensionCommand) record.cancellationRequested = false;
+    if (!isQueuedMessage && !isExtensionCommand) {
+      record.cancellationRequested = false;
+      record.abortOnRunStart = false;
+      // Stop can arrive from here on, before Pi has a run to abort.
+      record.promptStarting = true;
+    }
     record.runningRunId = runId ?? record.runningRunId;
     record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
@@ -908,8 +917,13 @@ export class SessionSupervisor {
         queuedMessageFromInput(input, record.updatedAt),
       ];
     }
-    await this.persistSnapshot(record);
-    await this.emit(record, sessionUpdatedEvent(record));
+    try {
+      await this.persistSnapshot(record);
+      await this.emit(record, sessionUpdatedEvent(record));
+    } catch (error) {
+      record.promptStarting = false;
+      throw error;
+    }
 
     try {
       const images = input.attachments?.flatMap(
@@ -937,11 +951,25 @@ export class SessionSupervisor {
           );
         }
         await this.queuePrompt(session, promptText, input.deliverAs!, images);
-      } else {
+      } else if (isExtensionCommand) {
         await session.prompt(promptText, {
           ...(images && images.length > 0 ? { images } : {}),
           source: "interactive",
         });
+      } else {
+        try {
+          await session.prompt(promptText, {
+            ...(images && images.length > 0 ? { images } : {}),
+            source: "interactive",
+          });
+        } finally {
+          record.promptStarting = false;
+          if (record.abortOnRunStart) {
+            // Pi never started a run for this prompt, so nothing is left to stop.
+            record.abortOnRunStart = false;
+            record.cancellationRequested = false;
+          }
+        }
       }
 
       if (isExtensionCommand) {
@@ -953,6 +981,9 @@ export class SessionSupervisor {
       }
       if (!isQueuedMessage) {
         record.runningRunId = undefined;
+      }
+      if (!isQueuedMessage && !isExtensionCommand) {
+        record.promptStarting = false;
       }
       record.status = isQueuedMessage ? "running" : isExtensionCommand ? "idle" : "failed";
       record.updatedAt = nowIso();
@@ -1008,6 +1039,9 @@ export class SessionSupervisor {
     }
 
     record.cancellationRequested = true;
+    if (record.promptStarting && !record.session.isStreaming) {
+      record.abortOnRunStart = true;
+    }
     try {
       await record.session.abort();
     } catch (error) {
@@ -1305,6 +1339,8 @@ export class SessionSupervisor {
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
       cancellationRequested: false,
+      promptStarting: false,
+      abortOnRunStart: false,
       pendingRunOutcome: undefined,
       queuedMessages: [],
       closed: false,
@@ -2158,6 +2194,12 @@ export class SessionSupervisor {
 
     switch (event.type) {
       case "agent_start":
+        if (record.abortOnRunStart && record.session) {
+          record.abortOnRunStart = false;
+          record.session.abort().catch((error: unknown) => {
+            console.warn("[pi-sdk-driver] deferred abort failed", error);
+          });
+        }
         record.runningRunId ??= crypto.randomUUID();
         record.pendingRunOutcome = undefined;
         record.status = "running";
