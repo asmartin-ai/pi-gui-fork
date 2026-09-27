@@ -42,8 +42,6 @@ interface ComposerPanelProps {
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
-  readonly runningLabel: string;
-  readonly steerShortcutLabel: string;
   readonly attachments: readonly ComposerAttachment[];
   readonly queuedMessages: readonly QueuedComposerMessage[];
   readonly editingQueuedMessageId?: string;
@@ -98,8 +96,6 @@ export function ComposerPanel({
   composerDraft,
   setComposerDraft,
   composerRef,
-  runningLabel,
-  steerShortcutLabel,
   attachments,
   queuedMessages,
   editingQueuedMessageId,
@@ -233,11 +229,6 @@ export function ComposerPanel({
                   </button>
                 </div>
               </div>
-              {selectedSession.status === "running" ? (
-                <div className="composer__hint">
-                  {runningLabel} · Enter to queue · {steerShortcutLabel} to steer
-                </div>
-              ) : null}
             </div>
           }
         />
