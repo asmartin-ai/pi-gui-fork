@@ -634,6 +634,85 @@ export async function seedBranchedTreeSessionFixture(
   });
 }
 
+/**
+ * A long compacted-style session shaped like a real user report: 11 branches, each forking
+ * off the previous one, about 3,450 entries, and a deepest root-to-leaf path of 518 entries.
+ */
+export async function seedLargeBranchedTreeSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Large tree fixture session";
+  readonly entryCount: number;
+  readonly deepestPath: number;
+}> {
+  const { SessionManager } = (await import("@earendil-works/pi-coding-agent")) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: {
+          role: "user" | "assistant";
+          content: string;
+          timestamp: number;
+        }): string;
+        appendSessionInfo(name: string): string;
+        branch(entryId: string): void;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  // [root-to-leaf length, depth on the previous branch where this one forks off]
+  const branches: readonly (readonly [number, number])[] = [
+    [164, 0],
+    [518, 18],
+    [372, 22],
+    [433, 26],
+    [448, 30],
+    [378, 34],
+    [367, 38],
+    [325, 42],
+    [290, 46],
+    [471, 50],
+    [58, 54],
+  ];
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    let timestamp = Date.now();
+    let entryCount = 0;
+    let previousPath: string[] = [];
+    for (const [length, forkDepth] of branches) {
+      const path = previousPath.slice(0, forkDepth);
+      const forkId = path.at(-1);
+      if (forkId) {
+        sessionManager.branch(forkId);
+      }
+      while (path.length < length) {
+        const index = path.length;
+        timestamp += 1_000;
+        path.push(
+          sessionManager.appendMessage({
+            role: index % 2 === 0 ? "user" : "assistant",
+            content: `Step ${index} on branch ${length}`,
+            timestamp,
+          }),
+        );
+        entryCount += 1;
+      }
+      previousPath = path;
+    }
+    sessionManager.appendSessionInfo("Large tree fixture session");
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Large tree fixture session",
+      entryCount,
+      deepestPath: Math.max(...branches.map(([length]) => length)),
+    };
+  });
+}
+
 export async function seedExternalLinkSessionFixture(
   agentDir: string,
   workspacePath: string,

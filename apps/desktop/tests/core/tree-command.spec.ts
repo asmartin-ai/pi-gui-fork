@@ -9,6 +9,7 @@ import {
   makeWorkspace,
   seedAgentDir,
   seedBranchedTreeSessionFixture,
+  seedLargeBranchedTreeSessionFixture,
   seedToolResultTreeSessionFixture,
   selectSession,
   waitForSelectedSessionReady,
@@ -196,6 +197,49 @@ test("renders tool results with compact previews in the tree modal", async () =>
     await expect(treeModal).toContainText("[read:");
     await expect(treeModal).toContainText("assistant: README inspected.");
     await expect(treeModal.getByRole("button", { name: "No tools" })).toHaveCount(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("opens /tree on a long branched session whose deepest path passes 500 entries", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("tree-large-workspace");
+  await seedAgentDir(agentDir);
+  const fixture = await seedLargeBranchedTreeSessionFixture(agentDir, workspacePath);
+  expect(fixture.deepestPath).toBeGreaterThan(500);
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await selectSession(window, fixture.title);
+    await waitForSelectedSessionReady(window, fixture);
+
+    const composer = window.getByTestId("composer");
+    await composer.fill("/tree");
+    await composer.press("Enter");
+
+    const treeModal = window.getByTestId("tree-modal");
+    await expect(treeModal).toBeVisible();
+    await expect(window.getByTestId("tree-modal-loading")).toHaveCount(0);
+    await expect(window.getByTestId("tree-modal-error")).toHaveCount(0);
+    await expect(treeModal).toContainText("Step 517 on branch 518");
+    await expect(treeModal).toContainText("Step 57 on branch 58");
+    await expect(treeModal.locator("[data-testid^='tree-row-']")).toHaveCount(fixture.entryCount);
+
+    await treeModal.locator(".tree-row__content", { hasText: "Step 517 on branch 518" }).click();
+    await treeModal.getByRole("button", { name: "Continue" }).click();
+    await treeModal.getByRole("button", { name: "No summary" }).click();
+    await treeModal.getByRole("button", { name: "Switch branch" }).click();
+    await expect(treeModal).toHaveCount(0);
+    await expect(window.getByTestId("transcript")).toContainText("Step 517 on branch 518");
   } finally {
     await harness.close();
   }

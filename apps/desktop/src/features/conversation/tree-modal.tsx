@@ -29,8 +29,13 @@ interface GutterInfo {
   readonly show: boolean;
 }
 
+/** The modal's nested view of the flat snapshot; it never crosses the preload bridge. */
+interface TreeNode extends SessionTreeNodeSnapshot {
+  readonly children: readonly TreeNode[];
+}
+
 interface TreeRow {
-  readonly node: SessionTreeNodeSnapshot;
+  readonly node: TreeNode;
   readonly hasChildren: boolean;
   readonly expanded: boolean;
   readonly displayIndent: number;
@@ -79,8 +84,8 @@ export function TreeModal({
     }
     setStep("select");
     setSearch("");
-    setExpandedIds(createInitialExpandedState(tree.roots));
-    setSelectedId(tree.leafId ?? findFirstSelectableNodeId(tree.roots) ?? "");
+    setExpandedIds(createInitialExpandedState(tree.nodes));
+    setSelectedId(tree.leafId ?? tree.nodes[0]?.id ?? "");
     setSummaryMode("none");
     setCustomInstructions("");
     setAutoScrollRequest((value) => value + 1);
@@ -133,7 +138,7 @@ export function TreeModal({
   }, [loading, step, summaryMode, tree]);
 
   const displayRows = useMemo(
-    () => (tree ? buildVisibleRows(tree.roots, expandedIds, search, tree.leafId) : []),
+    () => (tree ? buildVisibleRows(tree.nodes, expandedIds, search, tree.leafId) : []),
     [expandedIds, search, tree],
   );
   const selectedRow = displayRows.find((row) => row.node.id === selectedId);
@@ -540,30 +545,12 @@ function createInitialExpandedState(
   nodes: readonly SessionTreeNodeSnapshot[],
 ): Record<string, boolean> {
   const expanded: Record<string, boolean> = {};
-  const stack = [...nodes];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    if (node.children.length > 0) {
-      expanded[node.id] = true;
-      stack.push(...node.children);
+  for (const node of nodes) {
+    if (node.parentId !== null) {
+      expanded[node.parentId] = true;
     }
   }
   return expanded;
-}
-
-function findFirstSelectableNodeId(nodes: readonly SessionTreeNodeSnapshot[]): string | undefined {
-  const stack = [...nodes];
-  while (stack.length > 0) {
-    const node = stack.shift();
-    if (!node) {
-      continue;
-    }
-    return node.id;
-  }
-  return undefined;
 }
 
 function buildVisibleRows(
@@ -573,45 +560,60 @@ function buildVisibleRows(
   currentLeafId: string | null,
 ): readonly TreeRow[] {
   const tokens = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const filteredTree = buildFilteredTree(nodes, currentLeafId, tokens);
-  const activePathIds = collectActivePathIds(filteredTree, currentLeafId);
-  return flattenTreeRows(
-    filteredTree,
-    currentLeafId,
-    activePathIds,
-    expandedIds,
-    tokens.length > 0,
-  );
+  const { roots, activePathIds } = buildDisplayTree(nodes, currentLeafId, tokens);
+  return flattenTreeRows(roots, currentLeafId, activePathIds, expandedIds, tokens.length > 0);
 }
 
-function buildFilteredTree(
+/**
+ * Builds the nested tree the modal shows: hidden and non-matching nodes are dropped (their
+ * shown descendants move up to the nearest shown ancestor), and siblings leading to the
+ * current leaf sort first. Loops rather than recursion, since one path can be thousands of
+ * entries deep.
+ */
+function buildDisplayTree(
   nodes: readonly SessionTreeNodeSnapshot[],
   currentLeafId: string | null,
   searchTokens: readonly string[],
-): readonly SessionTreeNodeSnapshot[] {
-  const filtered: SessionTreeNodeSnapshot[] = [];
-  for (const node of nodes) {
-    const nextChildren = buildFilteredTree(node.children, currentLeafId, searchTokens);
-    const visible = shouldShowNodeInView(node, currentLeafId);
-    const searchMatches = searchTokens.length === 0 || matchesTreeSearch(node, searchTokens);
-    if (visible && (searchMatches || nextChildren.length > 0)) {
-      filtered.push({
-        ...node,
-        children: nextChildren,
-      });
-      continue;
+): { readonly roots: readonly TreeNode[]; readonly activePathIds: ReadonlySet<string> } {
+  const ids = new Set(nodes.map((node) => node.id));
+  const shownChildren = new Map<string, TreeNode[]>();
+  const roots: TreeNode[] = [];
+  const activePathIds = new Set<string>();
+  const leadsToLeaf = (node: TreeNode) => activePathIds.has(node.id);
+
+  // Children follow their parent in the snapshot, so walking it backwards finishes every
+  // child before its parent. Lists fill in reverse and flip once their owner is reached.
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]!;
+    const children = (shownChildren.get(node.id) ?? []).reverse();
+    children.sort((left, right) => Number(leadsToLeaf(right)) - Number(leadsToLeaf(left)));
+
+    let shown: readonly TreeNode[] = children;
+    const matches = searchTokens.length === 0 || matchesTreeSearch(node, searchTokens);
+    if (shouldShowNodeInView(node) && (matches || children.length > 0)) {
+      if (node.id === currentLeafId || children.some(leadsToLeaf)) {
+        activePathIds.add(node.id);
+      }
+      shown = [{ ...node, children }];
     }
-    if (nextChildren.length > 0) {
-      filtered.push(...nextChildren);
+
+    const parentId = node.parentId;
+    let siblings = roots;
+    if (parentId !== null && parentId !== node.id && ids.has(parentId)) {
+      siblings = shownChildren.get(parentId) ?? [];
+      shownChildren.set(parentId, siblings);
+    }
+    for (let shownIndex = shown.length - 1; shownIndex >= 0; shownIndex -= 1) {
+      siblings.push(shown[shownIndex]!);
     }
   }
-  return sortTreeForDisplay(filtered, currentLeafId);
+
+  roots.reverse();
+  roots.sort((left, right) => Number(leadsToLeaf(right)) - Number(leadsToLeaf(left)));
+  return { roots, activePathIds };
 }
 
-function shouldShowNodeInView(
-  node: SessionTreeNodeSnapshot,
-  _currentLeafId: string | null,
-): boolean {
+function shouldShowNodeInView(node: SessionTreeNodeSnapshot): boolean {
   if (DEFAULT_HIDDEN_KINDS.has(node.kind)) {
     return false;
   }
@@ -630,57 +632,8 @@ function matchesTreeSearch(node: SessionTreeNodeSnapshot, tokens: readonly strin
   return tokens.every((token) => text.includes(token));
 }
 
-function sortTreeForDisplay(
-  nodes: readonly SessionTreeNodeSnapshot[],
-  currentLeafId: string | null,
-): readonly SessionTreeNodeSnapshot[] {
-  const prepared = nodes.map((node) => prepareSortedNode(node, currentLeafId));
-  prepared.sort((left, right) => Number(right.containsActive) - Number(left.containsActive));
-  return prepared.map((entry) => entry.node);
-}
-
-function prepareSortedNode(
-  node: SessionTreeNodeSnapshot,
-  currentLeafId: string | null,
-): { readonly node: SessionTreeNodeSnapshot; readonly containsActive: boolean } {
-  const preparedChildren = node.children.map((child) => prepareSortedNode(child, currentLeafId));
-  preparedChildren.sort(
-    (left, right) => Number(right.containsActive) - Number(left.containsActive),
-  );
-  const containsActive =
-    node.id === currentLeafId || preparedChildren.some((child) => child.containsActive);
-  return {
-    node: {
-      ...node,
-      children: preparedChildren.map((child) => child.node),
-    },
-    containsActive,
-  };
-}
-
-function collectActivePathIds(
-  nodes: readonly SessionTreeNodeSnapshot[],
-  currentLeafId: string | null,
-): ReadonlySet<string> {
-  const activePathIds = new Set<string>();
-  const visit = (node: SessionTreeNodeSnapshot): boolean => {
-    const selfActive = node.id === currentLeafId;
-    const childActive = node.children.some((child) => visit(child));
-    if (selfActive || childActive) {
-      activePathIds.add(node.id);
-      return true;
-    }
-    return false;
-  };
-
-  nodes.forEach((node) => {
-    visit(node);
-  });
-  return activePathIds;
-}
-
 function flattenTreeRows(
-  roots: readonly SessionTreeNodeSnapshot[],
+  roots: readonly TreeNode[],
   currentLeafId: string | null,
   activePathIds: ReadonlySet<string>,
   expandedIds: Readonly<Record<string, boolean>>,
@@ -689,7 +642,7 @@ function flattenTreeRows(
   const rows: TreeRow[] = [];
   const multipleRoots = roots.length > 1;
   type StackItem = readonly [
-    node: SessionTreeNodeSnapshot,
+    node: TreeNode,
     indent: number,
     justBranched: boolean,
     showConnector: boolean,

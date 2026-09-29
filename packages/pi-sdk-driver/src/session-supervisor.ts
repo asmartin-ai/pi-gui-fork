@@ -1163,7 +1163,7 @@ export class SessionSupervisor {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
     return {
-      roots: session.sessionManager.getTree().map((node) => toSessionTreeNodeSnapshot(node)),
+      nodes: toSessionTreeNodeSnapshots(session.sessionManager.getTree()),
       leafId: session.sessionManager.getLeafId(),
     };
   }
@@ -2812,14 +2812,34 @@ interface TreeToolCallRecord {
   readonly arguments: Readonly<Record<string, unknown>>;
 }
 
+function toSessionTreeNodeSnapshots(
+  roots: readonly SessionTreeNodeRecord[],
+): SessionTreeNodeSnapshot[] {
+  // Iterative on purpose: one path can be thousands of entries deep.
+  type Pending = {
+    readonly node: SessionTreeNodeRecord;
+    readonly toolCalls: ReadonlyMap<string, TreeToolCallRecord>;
+  };
+  const snapshots: SessionTreeNodeSnapshot[] = [];
+  const stack: Pending[] = [...roots].reverse().map((node) => ({ node, toolCalls: new Map() }));
+  while (stack.length > 0) {
+    const { node, toolCalls } = stack.pop()!;
+    snapshots.push(toSessionTreeNodeSnapshot(node, toolCalls));
+    const childToolCalls = extendTreeToolCalls(toolCalls, node.entry);
+    for (const child of [...node.children].reverse()) {
+      stack.push({ node: child, toolCalls: childToolCalls });
+    }
+  }
+  return snapshots;
+}
+
 function toSessionTreeNodeSnapshot(
   node: SessionTreeNodeRecord,
-  toolCalls: ReadonlyMap<string, TreeToolCallRecord> = new Map(),
+  toolCalls: ReadonlyMap<string, TreeToolCallRecord>,
 ): SessionTreeNodeSnapshot {
   const role = treeNodeRole(node.entry);
   const customType = treeNodeCustomType(node.entry);
   const preview = treeNodePreview(node.entry, toolCalls);
-  const childToolCalls = extendTreeToolCalls(toolCalls, node.entry);
   return {
     id: node.entry.id,
     parentId: node.entry.parentId,
@@ -2830,7 +2850,6 @@ function toSessionTreeNodeSnapshot(
     ...(customType ? { customType } : {}),
     title: treeNodeTitle(node.entry),
     ...(preview ? { preview } : {}),
-    children: node.children.map((child) => toSessionTreeNodeSnapshot(child, childToolCalls)),
   };
 }
 
