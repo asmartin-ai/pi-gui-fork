@@ -92,6 +92,7 @@ import {
   displayMessagesFromSession,
   extractPreview,
   injectFileAttachmentPreamble,
+  isExtensionCardEntry,
   messageText,
   nowIso,
   previewFromSessionInfo,
@@ -101,6 +102,8 @@ import {
   titleFromSessionInfo,
   toSessionErrorInfo,
   transcriptFromMessages,
+  transcriptFromSession,
+  transcriptItemFromCardEntry,
   customMessageTranscriptItem,
   isHiddenCustomMessage,
   truncate,
@@ -593,10 +596,7 @@ export class SessionSupervisor {
         record.transcriptDiskMtimeMs = diskMtimeMs;
         return this.readTranscriptFromDisk(sessionRef);
       }
-      return transcriptFromMessages(
-        displayMessagesFromSession(record.session.sessionManager),
-        record.updatedAt,
-      );
+      return transcriptFromSession(record.session.sessionManager, record.updatedAt);
     }
     return this.readTranscriptFromDisk(sessionRef);
   }
@@ -614,10 +614,7 @@ export class SessionSupervisor {
     }
 
     const sessionManager = SessionManager.open(sessionFile);
-    return transcriptFromMessages(
-      displayMessagesFromSession(sessionManager),
-      sessionEntry?.updatedAt,
-    );
+    return transcriptFromSession(sessionManager, sessionEntry?.updatedAt);
   }
 
   private async resolveSessionFilePath(
@@ -2377,6 +2374,17 @@ export class SessionSupervisor {
         this.refreshUsage(record);
         return [sessionUpdatedEvent(record)];
       case "entry_appended":
+        if (isExtensionCardEntry(event.entry)) {
+          return [
+            {
+              type: "transcriptItemAppended" as const,
+              sessionRef: record.ref,
+              timestamp,
+              item: transcriptItemFromCardEntry(event.entry),
+              ...(record.runningRunId ? { runId: record.runningRunId } : {}),
+            },
+          ];
+        }
         // Custom messages an extension returns from a turn or settle boundary.
         if (event.entry.type === "custom_message") {
           const item = customMessageTranscriptItem(
