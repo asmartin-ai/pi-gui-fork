@@ -333,6 +333,47 @@ function openExternalWebUrl(url: string): boolean {
   return true;
 }
 
+/** MCP sign-in pages: any https URL, or http only on this machine (a local OAuth server). */
+function openMcpSignInUrl(url: string): void {
+  const parsed = parseExternalWebUrl(url);
+  const loopback =
+    parsed?.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase());
+  if (!parsed || (parsed.protocol !== "https:" && !loopback)) {
+    // Sign-in URLs carry state and codes in their query, so logs name the origin at most.
+    console.error(
+      `Refusing to open an MCP sign-in URL${parsed ? ` on ${parsed.origin}` : " that is not http or https"}`,
+    );
+    showMcpSignInUrl(url, "pi-gui opens only https links, or http links on this computer.");
+    return;
+  }
+  shell.openExternal(parsed.toString()).catch((error: unknown) => {
+    console.error(`Failed to open an MCP sign-in URL on ${parsed.origin}`, error);
+    showMcpSignInUrl(parsed.toString(), "pi-gui could not open your browser.");
+  });
+}
+
+/** When the browser cannot be opened, the link is shown so the person can copy it. */
+function showMcpSignInUrl(url: string, reason: string): void {
+  const window = mainWindow && canPublishToWindow(mainWindow) ? mainWindow : undefined;
+  const options: MessageBoxOptions = {
+    type: "warning",
+    title: "pi-gui",
+    message: "Open this MCP sign-in link yourself",
+    detail: `${reason} Check the link before you open it:\n\n${url}`,
+    buttons: ["Copy link", "Close"],
+    defaultId: 0,
+    cancelId: 1,
+  };
+  (window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options))
+    .then(({ response }) => {
+      if (response === 0) clipboard.writeText(url);
+    })
+    .catch((error: unknown) => {
+      console.error("Failed to show the MCP sign-in link", error);
+    });
+}
+
 async function openExternalLink(url: string): Promise<void> {
   const parsed = parseExternalWebUrl(url);
   if (!parsed) {
@@ -935,6 +976,7 @@ app
         onInvalidated: ({ target, generation }) =>
           extensionViews.invalidateRuntime(target, generation),
       },
+      openUrl: openMcpSignInUrl,
       builtinExtensions: [
         {
           name: "pi-gui-thread-orchestration",

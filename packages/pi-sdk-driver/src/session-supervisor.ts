@@ -59,6 +59,7 @@ import {
   type BuiltinExtension,
   type BuiltinExtensionEnabled,
 } from "./builtin-extensions.js";
+import { piAddonExtensions } from "./pi-addon-extensions.js";
 import {
   acquireLeaseFile,
   currentLeaseIdentity,
@@ -168,6 +169,8 @@ export interface PiSdkDriverOptions {
   ) => Promise<AgentSessionRuntime>;
   readonly agentDir?: string;
   readonly builtinExtensions?: readonly BuiltinExtension[];
+  /** Opens MCP sign-in pages; pi opens the platform browser when omitted. */
+  readonly openUrl?: (url: string) => void;
   /** Read each time a session loads or reloads its extensions; defaults to enabled. */
   readonly isBuiltinExtensionEnabled?: BuiltinExtensionEnabled;
   /**
@@ -235,6 +238,12 @@ interface ManagedSessionRecord {
   transcriptDiskMtimeMs: number | undefined;
   /** Custom message entries already sent as live transcript items. */
   appendedCustomEntryIds: Set<string>;
+  /** A reload asked for while a turn or compaction ran; it runs once the session is idle. */
+  reloadPending: boolean;
+  /** The reload running now, and any queued behind it; reloads of one session never overlap. */
+  reloadInFlight: Promise<void> | undefined;
+  /** Extension commands (such as `/mcp login`) still running; a reload would end them. */
+  extensionCommandsRunning: number;
 }
 
 type NotifyHostUiRequest = Extract<
@@ -274,6 +283,7 @@ export class SessionSupervisor {
   ) => Promise<AgentSessionRuntime>;
   private readonly agentDir: string | undefined;
   private readonly builtinExtensions: readonly InlineExtension[];
+  private readonly piAddons: readonly InlineExtension[];
   private readonly desktopExtensions: PiDesktopExtensionObserver | undefined;
   private readonly extensionFlagValuesForSession: PiSdkDriverOptions["extensionFlagValuesForSession"];
   private readonly onTurnCaptureBoundary: PiSdkDriverOptions["onTurnCaptureBoundary"];
@@ -301,6 +311,7 @@ export class SessionSupervisor {
       options.builtinExtensions ?? [],
       options.isBuiltinExtensionEnabled ?? (() => true),
     );
+    this.piAddons = piAddonExtensions(options.openUrl ? { openUrl: options.openUrl } : {});
     this.desktopExtensions = options.desktopExtensions;
     this.extensionFlagValuesForSession = options.extensionFlagValuesForSession;
     this.onTurnCaptureBoundary = options.onTurnCaptureBoundary;
@@ -329,6 +340,7 @@ export class SessionSupervisor {
         : {}),
       resourceLoaderOptions: {
         extensionFactories: [
+          ...this.piAddons,
           ...this.builtinExtensions,
           {
             name: "pi-gui-plan-limits",
@@ -932,6 +944,7 @@ export class SessionSupervisor {
 
   async sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
+    await this.settleReloadsBeforeSend(record);
     const session = this.requireSession(record);
     const isExtensionCommand = this.isExtensionCommand(session, input.text);
     if (input.extensionCommandOnly && !isExtensionCommand) {
@@ -943,6 +956,25 @@ export class SessionSupervisor {
       );
     }
 
+    // A command can wait on the person (a sign-in dialog), so a reload waits for it. Counted
+    // from here so a pending reload cannot start during the awaits before pi runs it.
+    if (isExtensionCommand) record.extensionCommandsRunning += 1;
+    try {
+      await this.sendCheckedMessage(record, session, input, isExtensionCommand);
+    } finally {
+      if (isExtensionCommand) {
+        record.extensionCommandsRunning -= 1;
+        this.runPendingReload(record);
+      }
+    }
+  }
+
+  private async sendCheckedMessage(
+    record: ManagedSessionRecord,
+    session: AgentSession,
+    input: SessionMessageInput,
+    isExtensionCommand: boolean,
+  ): Promise<void> {
     const isQueuedMessage = session.isStreaming && !isExtensionCommand && Boolean(input.deliverAs);
     const runId = isQueuedMessage || isExtensionCommand ? undefined : crypto.randomUUID();
     if (!isQueuedMessage && !isExtensionCommand) {
@@ -1021,6 +1053,8 @@ export class SessionSupervisor {
             record.abortOnRunStart = false;
             record.cancellationRequested = false;
           }
+          // pi's agent_settled arrives inside prompt(), while the send still counted as busy.
+          this.runPendingReload(record);
         }
       }
 
@@ -1039,6 +1073,8 @@ export class SessionSupervisor {
       }
       if (!isQueuedMessage && !isExtensionCommand) {
         record.promptStarting = false;
+        // A prompt that failed before a run started has no turn end to run the reload.
+        this.runPendingReload(record);
       }
       record.status = isQueuedMessage ? "running" : isExtensionCommand ? "idle" : "failed";
       record.updatedAt = nowIso();
@@ -1053,6 +1089,29 @@ export class SessionSupervisor {
       });
       await this.emit(record, sessionUpdatedEvent(record));
       throw error;
+    }
+  }
+
+  /**
+   * A reload swaps the session's extensions and tools, so a message goes to the reloaded ones.
+   * It waits for reloads in flight (looping, as one can queue behind another) and, when a turn
+   * just ended with a reload pending that has not started yet (its run waits for the event
+   * queue), starts that reload now rather than letting a new turn slip in with the old tools.
+   */
+  private async settleReloadsBeforeSend(record: ManagedSessionRecord): Promise<void> {
+    for (;;) {
+      if (record.reloadInFlight) {
+        await record.reloadInFlight.catch(() => undefined);
+      } else if (record.reloadPending && !record.closed && !isRecordBusy(record)) {
+        await this.runReload(record).catch((error: unknown) => {
+          console.warn(
+            `[pi-sdk-driver] pending reload failed for ${sessionKey(record.ref)}:`,
+            error,
+          );
+        });
+      } else {
+        return;
+      }
     }
   }
 
@@ -1115,6 +1174,7 @@ export class SessionSupervisor {
     record.status = "idle";
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
+    this.runPendingReload(record);
   }
 
   async setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void> {
@@ -1193,15 +1253,65 @@ export class SessionSupervisor {
     this.refreshUsage(record);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
+    this.runPendingReload(record);
+  }
+
+  /**
+   * Reloads now when the session is idle. A reload tears down extensions (and their MCP
+   * connections and tools), so, like pi's own /reload, it never interrupts a running turn or a
+   * compaction: the reload waits and runs when that ends.
+   */
+  async reloadSessionWhenIdle(sessionRef: SessionRef): Promise<"reloaded" | "deferred"> {
+    const record = await this.ensureRecord(sessionRef);
+    if (isRecordBusy(record)) {
+      record.reloadPending = true;
+      return "deferred";
+    }
+    await this.runReload(record);
+    return "reloaded";
+  }
+
+  /** Runs a deferred reload once the events of the turn that held it are delivered. */
+  private runPendingReload(record: ManagedSessionRecord): void {
+    if (!record.reloadPending) return;
+    record.eventQueue
+      .then(async () => {
+        if (!record.reloadPending || record.closed || isRecordBusy(record)) return;
+        await this.runReload(record);
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          `[pi-sdk-driver] deferred reload failed for ${sessionKey(record.ref)}:`,
+          error,
+        );
+      });
   }
 
   async reloadSession(sessionRef: SessionRef): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
-    const session = this.requireSession(record);
+    this.requireSession(record);
+    await this.runReload(record);
+  }
 
-    this.resetExtensionUi(record);
-    await session.reload();
-    await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+  /**
+   * Every reload of a session goes through here, so they run one at a time. The pending flag is
+   * cleared before anything awaits, so a deferred reload asked for twice runs once.
+   */
+  private runReload(record: ManagedSessionRecord): Promise<void> {
+    record.reloadPending = false;
+    const previous = record.reloadInFlight ?? Promise.resolve();
+    const reload = previous
+      .catch(() => undefined)
+      .then(async () => {
+        this.resetExtensionUi(record);
+        await this.requireSession(record).reload();
+        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
+      })
+      .finally(() => {
+        if (record.reloadInFlight === reload) record.reloadInFlight = undefined;
+      });
+    record.reloadInFlight = reload;
+    return reload;
   }
 
   async getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot> {
@@ -1421,6 +1531,9 @@ export class SessionSupervisor {
       leasePath: undefined,
       transcriptDiskMtimeMs: undefined,
       appendedCustomEntryIds: new Set(),
+      reloadPending: false,
+      reloadInFlight: undefined,
+      extensionCommandsRunning: 0,
     };
     return record;
   }
@@ -1747,11 +1860,7 @@ export class SessionSupervisor {
         await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
         return { cancelled };
       },
-      reload: async () => {
-        this.resetExtensionUi(record);
-        await this.requireSession(record).reload();
-        await this.syncRecordAfterSessionMutation(record, { emitUpdate: true });
-      },
+      reload: () => this.runReload(record),
     };
   }
 
@@ -1786,6 +1895,9 @@ export class SessionSupervisor {
         const onAbort = () => {
           cleanup();
           resolve(defaultValue);
+          // pi closed the dialog itself (MCP sign-in aborts its "paste the URL" input once the
+          // browser callback arrives), so the host has to take it down too.
+          this.emitHostUiRequest(record, { kind: "dismiss", requestId });
         };
 
         opts?.signal?.addEventListener("abort", onAbort, { once: true });
@@ -2267,12 +2379,18 @@ export class SessionSupervisor {
   private handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
     const mapped = this.mapAgentEvent(record, event);
     if (mapped.length === 0) {
+      if (event.type === "agent_settled" || event.type === "compaction_end") {
+        this.runPendingReload(record);
+      }
       return;
     }
 
     this.queueDriverEvents(record, mapped, {
       persistSnapshot: shouldPersistSnapshotForAgentEvent(event.type),
     });
+    if (event.type === "agent_settled" || event.type === "compaction_end") {
+      this.runPendingReload(record);
+    }
   }
 
   private mapAgentEvent(
@@ -3407,4 +3525,15 @@ function toDriverEvents(
   const id = runId ?? record.runningRunId;
   const event = id ? { ...base, runId: id } : base;
   return [event, sessionUpdatedEvent(record)];
+}
+
+/** A turn (or the steps before it), a compaction or an extension command is running. */
+function isRecordBusy(record: ManagedSessionRecord): boolean {
+  return (
+    record.runningRunId !== undefined ||
+    record.promptStarting ||
+    record.session?.isStreaming === true ||
+    record.session?.isCompacting === true ||
+    record.extensionCommandsRunning > 0
+  );
 }
