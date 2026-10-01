@@ -935,7 +935,10 @@ function appendLocalActivity(store: ComposerStore, sessionRef: SessionRef, label
   store.conversationState.transcriptCache.set(key, transcript);
 }
 
-/** A typed slash command ran: it consumed the composer, so clear it, then record the change. */
+/**
+ * A typed slash command ran: it consumed the command text, so clear the draft, then record the
+ * change. Attachments stay for the next message, since a command is not a message.
+ */
 function finishComposerCommand(
   store: ComposerStore,
   sessionRef: SessionRef,
@@ -943,7 +946,6 @@ function finishComposerCommand(
   label: string,
   options: { readonly sessionTitle?: string } = {},
 ): DesktopAppState {
-  store.conversationState.composerAttachmentsBySession.delete(key);
   store.setComposerDraftForSession(sessionRef, "", "command");
   return finishSessionChange(store, sessionRef, key, label, options);
 }
