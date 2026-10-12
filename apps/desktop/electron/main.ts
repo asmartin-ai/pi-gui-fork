@@ -1259,6 +1259,7 @@ app
         pickWorkspace: (window) => pickWorkspaceViaDialog(window),
         createLoginCallbacks: (window) => createRuntimeLoginCallbacks(window),
         probeCustomProviderModels,
+        m365Copilot: getM365CopilotConnector,
         notificationPermission: () => notificationPermissionService,
         terminal: getTerminalService,
         optionalTerminal: () => terminalService,
