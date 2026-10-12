@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createWindowsShellExtension } from "../../electron/assistant/windows-shell";
 
 /** Run the extension against a fake pi and return the `setActiveTools` calls it made. */
-function runSession(platform: NodeJS.Platform, tools: string[]): string[][] {
+async function runSession(platform: NodeJS.Platform, tools: string[]): Promise<string[][]> {
   const calls: string[][] = [];
   let start: (() => void) | undefined;
   const pi = {
@@ -14,22 +14,22 @@ function runSession(platform: NodeJS.Platform, tools: string[]): string[][] {
     getActiveTools: () => tools,
     setActiveTools: (next: string[]) => calls.push(next),
   };
-  createWindowsShellExtension(platform)(pi as unknown as ExtensionAPI);
+  await createWindowsShellExtension(platform)(pi as unknown as ExtensionAPI);
   start?.();
   return calls;
 }
 
-test("adds pi's powershell tool on Windows", () => {
-  expect(runSession("win32", ["read", "bash", "edit", "write"])).toEqual([
+test("adds pi's powershell tool on Windows", async () => {
+  expect(await runSession("win32", ["read", "bash", "edit", "write"])).toEqual([
     ["read", "bash", "edit", "write", "powershell"],
   ]);
 });
 
-test("does nothing on other platforms", () => {
-  expect(runSession("linux", ["read", "bash", "edit", "write"])).toEqual([]);
-  expect(runSession("darwin", ["read", "bash", "edit", "write"])).toEqual([]);
+test("does nothing on other platforms", async () => {
+  expect(await runSession("linux", ["read", "bash", "edit", "write"])).toEqual([]);
+  expect(await runSession("darwin", ["read", "bash", "edit", "write"])).toEqual([]);
 });
 
-test("is idempotent when powershell is already active", () => {
-  expect(runSession("win32", ["read", "bash", "edit", "write", "powershell"])).toEqual([]);
+test("is idempotent when powershell is already active", async () => {
+  expect(await runSession("win32", ["read", "bash", "edit", "write", "powershell"])).toEqual([]);
 });

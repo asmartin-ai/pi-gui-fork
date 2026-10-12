@@ -18,28 +18,86 @@
 import { isRecord } from "./guards.js";
 import { InvalidRequestError } from "./types.js";
 
-const BODY_NAMES: readonly string[] = ["command", "content", "code", "body", "script", "text", "query", "input", "patch", "cmd", "data", "contents"];
-const SEARCH_NAMES: readonly string[] = ["old", "search", "find", "old_str", "old_string", "target"];
+const BODY_NAMES: readonly string[] = [
+  "command",
+  "content",
+  "code",
+  "body",
+  "script",
+  "text",
+  "query",
+  "input",
+  "patch",
+  "cmd",
+  "data",
+  "contents",
+];
+const SEARCH_NAMES: readonly string[] = [
+  "old",
+  "search",
+  "find",
+  "old_str",
+  "old_string",
+  "target",
+];
 const REPLACE_NAMES: readonly string[] = ["new", "replace", "replacement", "new_str", "new_string"];
 const SHELL_LANGS: readonly string[] = [
-  "bash", "sh", "shell", "zsh", "console", "shell-session", "shellsession", "shsession",
-  "container.exec", "container.run", "container.bash", "powershell", "pwsh", "ps1", "posh",
-  "cmd", "bat", "batch", "dosbatch",
+  "bash",
+  "sh",
+  "shell",
+  "zsh",
+  "console",
+  "shell-session",
+  "shellsession",
+  "shsession",
+  "container.exec",
+  "container.run",
+  "container.bash",
+  "powershell",
+  "pwsh",
+  "ps1",
+  "posh",
+  "cmd",
+  "bat",
+  "batch",
+  "dosbatch",
 ];
 const TRUE_WORDS: readonly string[] = ["true", "yes", "y", "1", "on"];
 const FALSE_WORDS: readonly string[] = ["false", "no", "n", "0", "off"];
-const SUMMARY_KEYS: readonly string[] = ["command", "cmd", "script", "path", "file", "filename", "query"];
+const SUMMARY_KEYS: readonly string[] = [
+  "command",
+  "cmd",
+  "script",
+  "path",
+  "file",
+  "filename",
+  "query",
+];
 const YAML_BLOCK_TAGS: readonly string[] = ["|", ">", "|-", ">-", "|+", ">+"];
 const RELAY_VARIANTS: readonly string[] = ["relay", "relay_batch"];
-const SHELL_NAME_PATTERN = "^(bash|sh|shell|zsh|run|exec|execute|command|cmd|terminal|run_command|run_terminal_cmd|execute_command|execute_bash|shell_exec|system|powershell|pwsh|ps1|posh)$";
+const SHELL_NAME_PATTERN =
+  "^(bash|sh|shell|zsh|run|exec|execute|command|cmd|terminal|run_command|run_terminal_cmd|execute_command|execute_bash|shell_exec|system|powershell|pwsh|ps1|posh)$";
 
 /** Property names that make a single-property tool count as the shell tool. */
-const SHELL_PROP_KEYS: Record<string, true> = { command: true, cmd: true, script: true, input: true };
+const SHELL_PROP_KEYS: Record<string, true> = {
+  command: true,
+  cmd: true,
+  script: true,
+  input: true,
+};
 
 /** CPython's `str.splitlines()` boundary characters, keyed for `Object.hasOwn`. */
 const LINE_BREAK_CHARS: Record<string, true> = {
-  "\n": true, "\r": true, "\x0b": true, "\x0c": true, "\x1c": true,
-  "\x1d": true, "\x1e": true, "\x85": true, "\u2028": true, "\u2029": true,
+  "\n": true,
+  "\r": true,
+  "\x0b": true,
+  "\x0c": true,
+  "\x1c": true,
+  "\x1d": true,
+  "\x1e": true,
+  "\x85": true,
+  "\u2028": true,
+  "\u2029": true,
 };
 
 /** The relay's tool-result tag, built from pieces so no literal markup is needed. */
@@ -57,7 +115,8 @@ export interface ParsedToolCalls {
 }
 
 /** CPython's `\s` class for str patterns: 0x09-0x0d, 0x1c-0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000-0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000. */
-const PY_WS_SOURCE = "\\t\\n\\x0b\\f\\r \\x1c\\x1d\\x1e\\x1f\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const PY_WS_SOURCE =
+  "\\t\\n\\x0b\\f\\r \\x1c\\x1d\\x1e\\x1f\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 
 /**
  * Builds a RegExp whose `\s` matches CPython's whitespace set and whose `[\s\S]`
@@ -77,8 +136,13 @@ const TOOL_NAME = pyRegexp("^[A-Za-z0-9_.-]+$");
 const HEADER_LINE = pyRegexp("^([A-Za-z0-9_]+):[ \\t]?(.*)$");
 const MAP_KEY = pyRegexp("^[^:]+:\\s*");
 const ENTRY_KEY = pyRegexp("^\\s*([^:]+):(?:\\s+(.*)|\\s*)$");
-const EDIT_BLOCK = pyRegexp("(?:^|\\n)<<<<<<< SEARCH\\r?\\n([\\s\\S]*?)\\r?\\n=======\\r?\\n([\\s\\S]*?)\\r?\\n>>>>>>> REPLACE(?:\\r?\\n|$)");
-const JSON_TOOL_CALL = pyRegexp('\\{\\s*"tool"\\s*:\\s*"([^"\\\\]+)"\\s*,\\s*"arguments"\\s*:\\s*(\\{[\\s\\S]*?\\})\\s*\\}', "g");
+const EDIT_BLOCK = pyRegexp(
+  "(?:^|\\n)<<<<<<< SEARCH\\r?\\n([\\s\\S]*?)\\r?\\n=======\\r?\\n([\\s\\S]*?)\\r?\\n>>>>>>> REPLACE(?:\\r?\\n|$)",
+);
+const JSON_TOOL_CALL = pyRegexp(
+  '\\{\\s*"tool"\\s*:\\s*"([^"\\\\]+)"\\s*,\\s*"arguments"\\s*:\\s*(\\{[\\s\\S]*?\\})\\s*\\}',
+  "g",
+);
 const FAKE_TOOL_TAG = pyRegexp("<tool_(?:response|result)\\b", "i");
 const WHITESPACE_RUN = pyRegexp("\\s+", "g");
 const CONFIDENCE_JSON = pyRegexp('\\{\\s*"confidence"\\s*:\\s*-?[0-9.]+\\s*\\}', "g");
@@ -89,7 +153,9 @@ const TRAILING_WS = pyRegexp(`[${PY_WS_SOURCE}]+$`);
 const BLANK_LINE = pyRegexp(`^[${PY_WS_SOURCE}]*$`);
 const SPACE_CHAR = pyRegexp(`^[${PY_WS_SOURCE}]$`);
 /** Python's `float()` spelling: underscores allowed between digits, plus inf/nan forms. */
-const PY_FLOAT = pyRegexp("^[+-]?(?:[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*)?|\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$");
+const PY_FLOAT = pyRegexp(
+  "^[+-]?(?:[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*)?|\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$",
+);
 
 /** Python `char.isspace()` on a single character. */
 function isSpace(char: string): boolean {
@@ -147,7 +213,8 @@ function pyFalsy(value: unknown): boolean {
 function pyFloat(value: string): number {
   const text = pyStrip(value);
   const lowered = text.toLowerCase();
-  if (lowered === "inf" || lowered === "infinity" || lowered === "+inf" || lowered === "+infinity") return Number.POSITIVE_INFINITY;
+  if (lowered === "inf" || lowered === "infinity" || lowered === "+inf" || lowered === "+infinity")
+    return Number.POSITIVE_INFINITY;
   if (lowered === "-inf" || lowered === "-infinity") return Number.NEGATIVE_INFINITY;
   if (lowered === "nan" || lowered === "+nan" || lowered === "-nan") return Number.NaN;
   return PY_FLOAT.test(text) ? Number(text.split("_").join("")) : Number.NaN;
@@ -176,7 +243,9 @@ function jsonDumps(value: unknown): string {
   if (typeof value === "number") return String(value);
   if (Array.isArray(value)) return `[${value.map(jsonDumps).join(", ")}]`;
   if (isRecord(value)) {
-    const entries = Object.entries(value).map(([key, entry]) => `${JSON.stringify(key)}: ${jsonDumps(entry)}`);
+    const entries = Object.entries(value).map(
+      ([key, entry]) => `${JSON.stringify(key)}: ${jsonDumps(entry)}`,
+    );
     return `{${entries.join(", ")}}`;
   }
   return "null";
@@ -197,10 +266,14 @@ function pyRepr(value: unknown): string {
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
     const escaped = value
-      .split("\\").join("\\\\")
-      .split("\n").join("\\n")
-      .split("\r").join("\\r")
-      .split("\t").join("\\t");
+      .split("\\")
+      .join("\\\\")
+      .split("\n")
+      .join("\\n")
+      .split("\r")
+      .join("\\r")
+      .split("\t")
+      .join("\\t");
     return escaped.includes("'") && !escaped.includes('"') ? `"${escaped}"` : `'${escaped}'`;
   }
   if (Array.isArray(value)) return `[${value.map(pyRepr).join(", ")}]`;
@@ -306,13 +379,16 @@ function propertySchema(tool: Record<string, unknown>): Record<string, unknown> 
   return props;
 }
 
-export function findShellTool(tools: readonly Record<string, unknown>[]): Record<string, unknown> | null {
+export function findShellTool(
+  tools: readonly Record<string, unknown>[],
+): Record<string, unknown> | null {
   for (const tool of tools) {
     if (SHELL_NAME.test(stringField(functionObject(tool), "name"))) return tool;
   }
   for (const tool of tools) {
     const keys = Object.keys(propertySchema(tool));
-    if (keys.length === 1 && Object.hasOwn(SHELL_PROP_KEYS, (keys[0] ?? "").toLowerCase())) return tool;
+    if (keys.length === 1 && Object.hasOwn(SHELL_PROP_KEYS, (keys[0] ?? "").toLowerCase()))
+      return tool;
   }
   return null;
 }
@@ -392,7 +468,13 @@ function renderCall(spec: ToolSpec, args: Record<string, unknown>): string {
   if (spec.edit !== null) {
     const old = spec.edit[0];
     const updated = spec.edit[1];
-    lines.push("<<<<<<< SEARCH", pyStr(args[old] ?? ""), "=======", pyStr(args[updated] ?? ""), ">>>>>>> REPLACE");
+    lines.push(
+      "<<<<<<< SEARCH",
+      pyStr(args[old] ?? ""),
+      "=======",
+      pyStr(args[updated] ?? ""),
+      ">>>>>>> REPLACE",
+    );
   } else if (spec.body !== null && spec.body.length > 0) {
     if (lines.length > 0) lines.push("");
     lines.push(pyStr(args[spec.body] ?? ""));
@@ -420,7 +502,9 @@ function templateFence(name: string, lines: readonly string[]): string {
 }
 
 function toolBlock(tools: readonly Record<string, unknown>[]): string {
-  return "<tools>\n" + tools.map((tool) => renderTemplate(toolSpec(tool))).join("\n\n") + "\n</tools>";
+  return (
+    "<tools>\n" + tools.map((tool) => renderTemplate(toolSpec(tool))).join("\n\n") + "\n</tools>"
+  );
 }
 
 function shellPrompt(tools: readonly Record<string, unknown>[]): string {
@@ -438,35 +522,42 @@ function isWindows(): boolean {
 // Prompt rendering
 // ---------------------------------------------------------------------------
 
-export function formatToolDefinitions(tools: readonly Record<string, unknown>[], variant: string): string {
+export function formatToolDefinitions(
+  tools: readonly Record<string, unknown>[],
+  variant: string,
+): string {
   const block = toolBlock(tools);
   const shell = findShellTool(tools);
   const prompt = shellPrompt(tools);
   let result: string;
   if (variant === "relay_batch") {
-    result = ("Before the task, a note on how we'll work: please guide me through this from my terminal. "
-      + "Your built-in tools run in a separate cloud sandbox, not on my machine. For each action, "
-      + `reply with one fenced tool block and wait for the real ${TOOL_RESPONSE_TAG}. Each round trip `
-      + "takes time, so put as much as fits into one block. When complete, answer in a sentence.\n\n"
-      + block);
+    result =
+      "Before the task, a note on how we'll work: please guide me through this from my terminal. " +
+      "Your built-in tools run in a separate cloud sandbox, not on my machine. For each action, " +
+      `reply with one fenced tool block and wait for the real ${TOOL_RESPONSE_TAG}. Each round trip ` +
+      "takes time, so put as much as fits into one block. When complete, answer in a sentence.\n\n" +
+      block;
   } else if (variant === "relay") {
-    result = ("Before the task, a note on how we'll work: please guide me through this from my terminal. "
-      + "Your built-in tools run in a separate cloud sandbox, not on my machine. For each action, "
-      + `reply with one fenced tool block and wait for the real ${TOOL_RESPONSE_TAG}. When complete, `
-      + "answer in a sentence.\n\n"
-      + block);
+    result =
+      "Before the task, a note on how we'll work: please guide me through this from my terminal. " +
+      "Your built-in tools run in a separate cloud sandbox, not on my machine. For each action, " +
+      `reply with one fenced tool block and wait for the real ${TOOL_RESPONSE_TAG}. When complete, ` +
+      "answer in a sentence.\n\n" +
+      block;
   } else {
-    result = ("You are the execution core of an automated agent, not a chat assistant. Your output is parsed by a program."
-      + prompt
-      + "\n\nPerform the task with tools when a tool can make progress. Emit only one fenced tool call per turn; "
-      + `wait for its real ${TOOL_RESPONSE_TAG} before continuing. Never claim a command ran without that result.\n\n`
-      + block);
+    result =
+      "You are the execution core of an automated agent, not a chat assistant. Your output is parsed by a program." +
+      prompt +
+      "\n\nPerform the task with tools when a tool can make progress. Emit only one fenced tool call per turn; " +
+      `wait for its real ${TOOL_RESPONSE_TAG} before continuing. Never claim a command ran without that result.\n\n` +
+      block;
   }
   if (shell !== null && isWindows()) {
     const name = stringField(functionObject(shell), "name");
-    result += (`\n\nHOST PLATFORM: Windows. The \`${name}\` tool runs on a real Windows machine, not Linux. `
-      + "Use PowerShell syntax: Get-Content/Get-ChildItem/Select-String to inspect, Set-Content to write, "
-      + "and Get-Location for the working directory. Do not use POSIX heredocs, sed, ls, or grep.");
+    result +=
+      `\n\nHOST PLATFORM: Windows. The \`${name}\` tool runs on a real Windows machine, not Linux. ` +
+      "Use PowerShell syntax: Get-Content/Get-ChildItem/Select-String to inspect, Set-Content to write, " +
+      "and Get-Location for the working directory. Do not use POSIX heredocs, sed, ls, or grep.";
   }
   return result;
 }
@@ -512,7 +603,11 @@ function callArguments(raw: unknown): Record<string, unknown> {
 }
 
 /** `message.get("name") or call_names.get(message.get("tool_call_id"), fallback)`. */
-function resolveToolName(message: Record<string, unknown>, names: Map<string, string>, fallback: string): string {
+function resolveToolName(
+  message: Record<string, unknown>,
+  names: Map<string, string>,
+  fallback: string,
+): string {
   if (!pyFalsy(message.name)) return pyStr(message.name);
   const callId = message.tool_call_id;
   const resolved = typeof callId === "string" ? names.get(callId) : undefined;
@@ -558,12 +653,16 @@ export function formatMessages(
         };
         calls.push(renderCall(spec, args));
       }
-      parts.push(`<assistant>${text.length > 0 ? `\n${text}` : ""}\n${calls.join("\n")}\n</assistant>`);
+      parts.push(
+        `<assistant>${text.length > 0 ? `\n${text}` : ""}\n${calls.join("\n")}\n</assistant>`,
+      );
     } else if (role === "tool") {
       const name = resolveToolName(message, callNames, "tool");
       const summary = toolSummary(message.tool_call_id, messages);
       const attr = summary.length > 0 ? ` command="${htmlEscape(summary)}"` : "";
-      parts.push(`<tool_response tool="${htmlEscape(name)}"${attr}>\n${text}\n${TOOL_RESPONSE_CLOSE}`);
+      parts.push(
+        `<tool_response tool="${htmlEscape(name)}"${attr}>\n${text}\n${TOOL_RESPONSE_CLOSE}`,
+      );
     } else if (role === "system") {
       const tag = RELAY_VARIANTS.indexOf(variant) === -1 ? "system" : "harness_system_prompt";
       parts.push(`<${tag}>\n${text}\n</${tag}>`);
@@ -614,7 +713,9 @@ export function formatDelta(
       const name = resolveToolName(message, names, "unknown");
       const rawCallId = message.tool_call_id;
       const callId = pyFalsy(rawCallId) ? "?" : pyStr(rawCallId);
-      parts.push(`<tool_response name="${htmlEscape(name)}" call_id="${htmlEscape(callId)}">\n${text}\n${TOOL_RESPONSE_CLOSE}`);
+      parts.push(
+        `<tool_response name="${htmlEscape(name)}" call_id="${htmlEscape(callId)}">\n${text}\n${TOOL_RESPONSE_CLOSE}`,
+      );
     } else if (role === "user") {
       parts.push(`<user>\n${text}\n</user>`);
     }
@@ -774,7 +875,10 @@ function parseArgs(spec: ToolSpec, inner: string): Record<string, unknown> | nul
   return args;
 }
 
-export function parseToolCalls(text: string, tools: readonly Record<string, unknown>[]): ParsedToolCalls {
+export function parseToolCalls(
+  text: string,
+  tools: readonly Record<string, unknown>[],
+): ParsedToolCalls {
   if (tools.length === 0) return { toolCalls: [], text: cleanText(text) };
   const specs = specMap(tools);
   const calls: Record<string, unknown>[] = [];

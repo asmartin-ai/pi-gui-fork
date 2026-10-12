@@ -421,7 +421,9 @@ export class ProxyApplication {
   }> {
     if (nonEmptyEnv("M365_TEST_ACCESS_TOKEN") !== null) {
       // An injected token has nothing on disk to refresh; it is valid but not refreshable.
-      return { token: { valid: true, refreshable: false, seconds_remaining: null, username: null } };
+      return {
+        token: { valid: true, refreshable: false, seconds_remaining: null, username: null },
+      };
     }
     const provider = this.tokenProvider ?? (this.tokenProvider = new FileTokenProvider());
     const status: TokenStatus = await provider.tokenStatus();
@@ -452,8 +454,7 @@ export class ProxyApplication {
       if (nonEmptyEnv("M365_TEST_ACCESS_TOKEN") !== null) {
         this.agentId = envValue("M365_AGENT_ID");
       } else {
-        const provider =
-          this.tokenProvider ?? (this.tokenProvider = new FileTokenProvider());
+        const provider = this.tokenProvider ?? (this.tokenProvider = new FileTokenProvider());
         this.agentId = await getOrCreateAgent(provider);
       }
     }
@@ -680,11 +681,7 @@ export class ProxyApplication {
       let annotations: readonly Record<string, unknown>[] | null = null;
       try {
         const images = await imagesFromMessages(newMessages);
-        annotations = await prepareImageAttachments(
-          token,
-          state.conversationId,
-          images,
-        );
+        annotations = await prepareImageAttachments(token, state.conversationId, images);
       } catch (error) {
         if (error instanceof InvalidRequestError) {
           throw new ApiError(400, error.message, "invalid_request_error");
@@ -812,13 +809,7 @@ export class ProxyApplication {
         if (variant === "baseline") {
           variant = "relay";
         }
-        prompt = formatMessages(
-          messages,
-          tools,
-          toolChoice,
-          state.conversationId,
-          variant,
-        );
+        prompt = formatMessages(messages, tools, toolChoice, state.conversationId, variant);
         result = await sendTurn(
           token,
           prompt,
@@ -1737,7 +1728,10 @@ async function handleRequest(
 
 export function createHttpServer(app: ProxyApplication): Server {
   const server = createServer((req, res) => {
-    void handleRequest(app, req, res);
+    void handleRequest(app, req, res).catch((error: unknown) => {
+      process.stderr.write(`Unhandled proxy error: ${messageOf(error)}\n`);
+      res.destroy();
+    });
   });
   return server;
 }

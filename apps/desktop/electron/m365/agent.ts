@@ -208,9 +208,9 @@ export async function getOrCreateAgent(provider: ScopedTokenProvider): Promise<s
     }
     const env_url = environmentUrl(env_name);
     const bots_url = `${env_url}/copilotstudio/minimalBots/api?api-version=${API_VERSION}`;
-    const bots = await (await request("GET", bots_url, pp_token)).json();
-    const existing = Array.isArray(bots)
-      ? bots.find((bot) => asRecord(bot)?.["shortBotName"] === AGENT_NAME)
+    const bots: unknown = await (await request("GET", bots_url, pp_token)).json();
+    const existing: unknown = Array.isArray(bots)
+      ? bots.find((bot: unknown) => asRecord(bot)?.["shortBotName"] === AGENT_NAME)
       : null;
     let bot_id: string | null = null;
     if (existing) {

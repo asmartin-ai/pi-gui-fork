@@ -1,7 +1,7 @@
 /**
  * Runs the vendored M365 proxy's end-to-end fixture.
  *
- * The proxy is TypeScript (`src/m365`), so this bundles `src/m365/e2e.ts` with
+ * The proxy is TypeScript (`electron/m365`), so this bundles `electron/m365/e2e.ts` with
  * esbuild — already a repo dependency, so a healthy check needs nothing beyond
  * Node — and runs the bundle. The Electron lane never starts the proxy itself
  * (it needs a Microsoft account), so this is the only automated exercise of the
@@ -21,15 +21,26 @@ import { createRequire } from "node:module";
 const run = promisify(execFile);
 const require = createRequire(import.meta.url);
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-const entry = join(desktopDir, "src", "m365", "e2e.ts");
+const entry = join(desktopDir, "electron", "m365", "e2e.ts");
 
 /** esbuild resolves the repo's `./x.js` sibling specifiers through the `.ts` sources. */
 async function bundle(output) {
   // `bin/esbuild` is a native binary, so it must be executed directly, not via node.
   const bin = require.resolve("esbuild").replace(/lib\/main\.js$/, "bin/esbuild");
-  await run(bin, [entry, "--bundle", "--platform=node", "--format=esm", `--outfile=${output}`, "--log-level=warning"], {
-    timeout: 120_000,
-  });
+  await run(
+    bin,
+    [
+      entry,
+      "--bundle",
+      "--platform=node",
+      "--format=esm",
+      `--outfile=${output}`,
+      "--log-level=warning",
+    ],
+    {
+      timeout: 120_000,
+    },
+  );
 }
 
 const temp = await mkdtemp(join(tmpdir(), "m365-e2e-"));
