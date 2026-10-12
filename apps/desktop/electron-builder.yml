@@ -26,6 +26,8 @@ files:
 extraResources:
   - from: resources/icon.png
     to: icon.png
+    filter:
+      - "**/*"
 
 asar: true
 asarUnpack:

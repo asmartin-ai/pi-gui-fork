@@ -69,6 +69,40 @@ export interface CustomProviderProbeInput {
   readonly apiKey?: string;
 }
 
+/** pi provider and model ids the Microsoft 365 Copilot connection registers. */
+export const M365_COPILOT_PROVIDER_ID = "m365-copilot";
+export const M365_COPILOT_MODEL_ID = "m365-copilot";
+/** M365 Copilot's effective context is small; this makes pi compact early. */
+export const M365_COPILOT_CONTEXT_WINDOW = 32_000;
+
+export type M365CopilotState =
+  | "stopped" // no proxy listening
+  | "starting" // binding the port
+  | "waiting-for-sign-in" // proxy up, no usable token, no sign-in in progress
+  | "signing-in" // an Edge window is open right now
+  | "ready" // usable token (valid OR refreshable)
+  | "error"; // something the user must act on
+
+export interface M365CopilotStatus {
+  readonly state: M365CopilotState;
+  /** Plain-language explanation of what is happening and what to do next. */
+  readonly detail?: string;
+  readonly baseUrl: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly contextWindow: number;
+  /** True when pi-gui started the proxy (and will stop it on quit). */
+  readonly managed: boolean;
+  /** Minutes left on the captured Copilot token; the proxy refreshes it automatically. */
+  readonly minutesLeft?: number;
+  /** True when a stored refresh token can mint a new access token without a new sign-in. */
+  readonly refreshable?: boolean;
+  /** The signed-in Microsoft account, when the proxy knows it. */
+  readonly account?: string;
+  /** Model ids the proxy advertises; Connect registers all of them. */
+  readonly models: readonly string[];
+}
+
 export type CustomProviderProbeResult =
   | { readonly ok: true; readonly models: readonly string[] }
   | { readonly ok: false; readonly error: string };
@@ -168,6 +202,12 @@ export const desktopIpc = {
   setCustomProvider: "pi-gui:set-custom-provider",
   deleteCustomProvider: "pi-gui:delete-custom-provider",
   probeCustomProviderModels: "pi-gui:probe-custom-provider-models",
+  getM365CopilotStatus: "pi-gui:get-m365-copilot-status",
+  startM365Copilot: "pi-gui:start-m365-copilot",
+  stopM365Copilot: "pi-gui:stop-m365-copilot",
+  cancelM365Copilot: "pi-gui:cancel-m365-copilot",
+  disconnectM365Copilot: "pi-gui:disconnect-m365-copilot",
+  signOutM365Copilot: "pi-gui:sign-out-m365-copilot",
   setEnableSkillCommands: "pi-gui:set-enable-skill-commands",
   setScopedModelPatterns: "pi-gui:set-scoped-model-patterns",
   setSkillEnabled: "pi-gui:set-skill-enabled",
@@ -181,6 +221,8 @@ export const desktopIpc = {
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
   setEnableTransparency: "pi-gui:set-enable-transparency",
+  setYoloMode: "pi-gui:set-yolo-mode",
+  setYoloDisableDestructiveGuard: "pi-gui:set-yolo-disable-destructive-guard",
   terminalEnsurePanel: "pi-gui:terminal-ensure-panel",
   terminalCreateSession: "pi-gui:terminal-create-session",
   terminalSetActiveSession: "pi-gui:terminal-set-active-session",
@@ -766,6 +808,12 @@ export interface PiDesktopApi {
   setCustomProvider(workspaceId: string, config: CustomProviderConfig): Promise<DesktopAppState>;
   deleteCustomProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
   probeCustomProviderModels(input: CustomProviderProbeInput): Promise<CustomProviderProbeResult>;
+  getM365CopilotStatus(): Promise<M365CopilotStatus>;
+  startM365Copilot(): Promise<M365CopilotStatus>;
+  stopM365Copilot(): Promise<M365CopilotStatus>;
+  cancelM365Copilot(): Promise<M365CopilotStatus>;
+  disconnectM365Copilot(): Promise<M365CopilotStatus>;
+  signOutM365Copilot(): Promise<M365CopilotStatus>;
   setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState>;
   setScopedModelPatterns(
     workspaceId: string,
@@ -804,6 +852,10 @@ export interface PiDesktopApi {
   ): Promise<DesktopAppState>;
   setIntegratedTerminalShell(shell: string): Promise<DesktopAppState>;
   setEnableTransparency(enabled: boolean): Promise<DesktopAppState>;
+  /** YOLO mode: stop asking before each change. */
+  setYoloMode(enabled: boolean): Promise<DesktopAppState>;
+  /** The separate opt-out that also disarms the destructive-command guard. */
+  setYoloDisableDestructiveGuard(enabled: boolean): Promise<DesktopAppState>;
   setThemePresetId(presetId: ThemePresetId): Promise<DesktopAppState>;
   ensureTerminalPanel(
     workspaceId: string,
