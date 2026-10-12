@@ -129,7 +129,7 @@ function finishConnecting(next: M365CopilotStatus | undefined): void {
   if (next?.state === "ready") {
     stopPolling();
     emit({ connecting: false, deadlineAt: undefined });
-    void adoptCopilot(next);
+    void adoptCopilot(next).catch(logFailure);
     return;
   }
   if (next?.state === "error") {
@@ -275,7 +275,7 @@ function statusDescription(
     return connecting
       ? `${WAITING_DETAIL}${countdown}`
       : (status?.detail ??
-        "Click “Sign in” to open the Edge window and sign in with your work account.");
+          "Click “Sign in” to open the Edge window and sign in with your work account.");
   }
   if (state === "starting") {
     return "Starting the local Copilot helper…";
@@ -300,7 +300,7 @@ export function SettingsM365CopilotSection({
   useEffect(() => subscribeM365Setup(setSetup), []);
 
   useEffect(() => {
-    void loadM365Status();
+    void loadM365Status().catch(logFailure);
   }, []);
 
   // Adoption must survive unmount, so the module target is set but never cleared:
@@ -373,7 +373,7 @@ export function SettingsM365CopilotSection({
                 disabled={busy}
                 type="button"
                 onClick={() => {
-                  void startM365Connect();
+                  void startM365Connect().catch(logFailure);
                 }}
               >
                 {connectLabel}
@@ -385,7 +385,7 @@ export function SettingsM365CopilotSection({
                 data-testid="m365-cancel"
                 type="button"
                 onClick={() => {
-                  void cancelM365Connect();
+                  void cancelM365Connect().catch(logFailure);
                 }}
               >
                 Cancel
@@ -397,7 +397,7 @@ export function SettingsM365CopilotSection({
                 data-testid="m365-use-default"
                 type="button"
                 onClick={() => {
-                  if (status) void adoptCopilot(status);
+                  if (status) void adoptCopilot(status).catch(logFailure);
                 }}
               >
                 Use for new threads
@@ -409,7 +409,7 @@ export function SettingsM365CopilotSection({
                 data-testid="m365-switch-account"
                 type="button"
                 onClick={() => {
-                  void signOutM365Copilot();
+                  void signOutM365Copilot().catch(logFailure);
                 }}
               >
                 Switch account
@@ -421,7 +421,7 @@ export function SettingsM365CopilotSection({
                 data-testid="m365-disconnect"
                 type="button"
                 onClick={() => {
-                  void disconnectM365Copilot();
+                  void disconnectM365Copilot().catch(logFailure);
                 }}
               >
                 Disconnect

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { M365CopilotStatus } from "../../contracts/ipc";
 import { M365CopilotConnector } from "../../electron/platform/m365-copilot";
-import { CHAT_SCOPES, scopeKey } from "../../src/m365/auth";
+import { CHAT_SCOPES, scopeKey } from "../../electron/m365/auth";
 
 /**
  * The connector's state mapping, driven against real loopback HTTP servers but
@@ -17,7 +17,7 @@ import { CHAT_SCOPES, scopeKey } from "../../src/m365/auth";
  *     for an hour after a successful sign-in; and
  *   - a proxy that was already listening refusing to restart, so "Click Connect
  *     to try again" did nothing.
- * The proxy's own fixture (`src/m365/e2e.ts`) covers the HTTP contract but not
+ * The proxy's own fixture (`electron/m365/e2e.ts`) covers the HTTP contract but not
  * the connector's state mapping.
  */
 

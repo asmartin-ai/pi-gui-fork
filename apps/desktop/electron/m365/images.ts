@@ -13,8 +13,11 @@ import { asRecord, isRecord, messageOf } from "./guards.js";
 import { tokenClaims, UPLOAD_OPTIONS_SETS } from "./m365.js";
 
 const maxImageBytesEnv = process.env.M365_IMAGE_MAX_BYTES;
-const maxImageBytesParsed = maxImageBytesEnv === undefined ? Number.NaN : Number.parseInt(maxImageBytesEnv, 10);
-export const MAX_IMAGE_BYTES = Number.isFinite(maxImageBytesParsed) ? maxImageBytesParsed : 20 * 1024 * 1024;
+const maxImageBytesParsed =
+  maxImageBytesEnv === undefined ? Number.NaN : Number.parseInt(maxImageBytesEnv, 10);
+export const MAX_IMAGE_BYTES = Number.isFinite(maxImageBytesParsed)
+  ? maxImageBytesParsed
+  : 20 * 1024 * 1024;
 
 export const DEFAULT_UPLOAD_URL = "https://substrate.office.com/m365Copilot/UploadFile";
 export const SUPPORTED_MEDIA_TYPES: Readonly<Record<string, true>> = {
@@ -67,7 +70,9 @@ export async function fetchUrl(url: string): Promise<readonly [string, Uint8Arra
   const buffer = await response.arrayBuffer();
   const data = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, MAX_IMAGE_BYTES + 1));
   if (!media_type.startsWith("image/")) {
-    throw new InvalidRequestError(`remote image has non-image content type: ${media_type || "unknown"}`);
+    throw new InvalidRequestError(
+      `remote image has non-image content type: ${media_type || "unknown"}`,
+    );
   }
   return [media_type, data];
 }
@@ -86,7 +91,9 @@ export async function imageFromUrl(url: string): Promise<ImageInput> {
     throw new InvalidRequestError(`unsupported image type: ${media_type}`);
   }
   if (data.length > MAX_IMAGE_BYTES) {
-    throw new InvalidRequestError(`image is larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB limit`);
+    throw new InvalidRequestError(
+      `image is larger than the ${Math.floor(MAX_IMAGE_BYTES / (1024 * 1024))} MB limit`,
+    );
   }
   if (data.length === 0) {
     throw new InvalidRequestError("image is empty");
@@ -94,7 +101,9 @@ export async function imageFromUrl(url: string): Promise<ImageInput> {
   return { mediaType: media_type, data };
 }
 
-export async function imagesFromMessages(messages: readonly Record<string, unknown>[]): Promise<ImageInput[]> {
+export async function imagesFromMessages(
+  messages: readonly Record<string, unknown>[],
+): Promise<ImageInput[]> {
   const images: ImageInput[] = [];
   for (const message of messages) {
     if (message["role"] !== "user") {
@@ -129,11 +138,15 @@ export function fileType(media_type: string): string {
   return media_type.split("/").slice(-1)[0] ?? "";
 }
 
-export function multipart(fields: readonly (readonly [string, string])[]): readonly [Uint8Array<ArrayBuffer>, string] {
+export function multipart(
+  fields: readonly (readonly [string, string])[],
+): readonly [Uint8Array<ArrayBuffer>, string] {
   const boundary = "----m365copilotproxy" + randomBytes(8).toString("hex");
   const chunks: string[] = [];
   for (const [name, value] of fields) {
-    chunks.push(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
+    chunks.push(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+    );
   }
   const body = chunks.join("") + `--${boundary}--\r\n`;
   return [textEncoder.encode(body), `multipart/form-data; boundary=${boundary}`];
@@ -171,13 +184,13 @@ export async function upload(
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": content_type,
           "Content-Length": String(body.byteLength),
-          "Accept": "application/json",
+          Accept: "application/json",
           "Accept-Encoding": "identity",
-          "Connection": "close",
-          "Origin": "https://m365.cloud.microsoft",
+          Connection: "close",
+          Origin: "https://m365.cloud.microsoft",
           "X-Variants": "feature.EnableImageSupportInUploadFile",
           "X-Scenario": "OfficeWebIncludedCopilot",
           "X-AnchorMailbox": `Oid:${oid}@${tid}`,
@@ -186,7 +199,9 @@ export async function upload(
       (response: IncomingMessage) => {
         const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
-        response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) }));
+        response.on("end", () =>
+          resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) }),
+        );
         response.on("error", reject);
       },
     );
@@ -197,7 +212,9 @@ export async function upload(
   });
   const raw = response.body.toString("utf-8");
   if (response.status < 200 || response.status >= 300) {
-    throw new UpstreamError(`M365 image upload failed: HTTP ${response.status} ${raw.slice(0, 300)}`);
+    throw new UpstreamError(
+      `M365 image upload failed: HTTP ${response.status} ${raw.slice(0, 300)}`,
+    );
   }
   let parsed: unknown;
   try {
@@ -233,28 +250,31 @@ export async function prepareImageAttachments(
     const name = image.name ? image.name : `image-${index + 1}.${file_type}`;
     const payload = await upload(token, oid, tid, conversation_id, image, name);
     const raw_file_type = payload["fileType"];
-    let uploaded_type = (typeof raw_file_type === "string" && raw_file_type !== "" ? raw_file_type : file_type)
+    let uploaded_type = (
+      typeof raw_file_type === "string" && raw_file_type !== "" ? raw_file_type : file_type
+    )
       .replace(/^\.+/, "")
       .toLowerCase();
     if (uploaded_type === "jpeg") {
       uploaded_type = "jpg";
     }
     const raw_file_name = payload["fileName"];
-    const file_name = typeof raw_file_name === "string" && raw_file_name !== "" ? raw_file_name : name;
+    const file_name =
+      typeof raw_file_name === "string" && raw_file_name !== "" ? raw_file_name : name;
     // upload() already verified that docId is a non-empty string.
     const doc_id = payload["docId"];
     if (typeof doc_id !== "string" || doc_id === "") {
       throw new UpstreamError(`M365 image upload failed: ${JSON.stringify(payload).slice(0, 300)}`);
     }
     attachments.push({
-      "id": doc_id,
-      "messageAnnotationMetadata": {
+      id: doc_id,
+      messageAnnotationMetadata: {
         "@type": "File",
-        "annotationType": "File",
-        "fileType": uploaded_type,
-        "fileName": file_name,
+        annotationType: "File",
+        fileType: uploaded_type,
+        fileName: file_name,
       },
-      "messageAnnotationType": "ImageFile",
+      messageAnnotationType: "ImageFile",
     });
   }
   return attachments;

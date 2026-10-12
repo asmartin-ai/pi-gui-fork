@@ -40,4 +40,3 @@ These user-facing surfaces have no feature file and no `prove.sh` checkpoint yet
 - Extension notify toast above the composer and extension messages in the transcript, `apps/desktop/src/features/extensions/extension-notices.tsx` and `apps/desktop/src/features/conversation/timeline-item.tsx`; core `extension-notices.spec.ts`, `extension-custom-messages.spec.ts`.
 - Theme presets built from seed colours, Settings > Appearance; core `settings-appearance.spec.ts`.
 - Browse branches (session tree), `apps/desktop/src/features/conversation/tree-modal.tsx`; core `tree-command.spec.ts`.
-

@@ -49,13 +49,17 @@ export class AuthenticationError extends Error {
 
 /** Plain-language text for the OAuth error codes Microsoft's sign-in returns. */
 const OAUTH_ERROR_TEXT: Readonly<Record<string, string>> = {
-  access_denied: "You cancelled the Microsoft 365 sign-in. Click Connect when you are ready to try again.",
-  consent_required: "Microsoft 365 needs your permission before pi can use it. Click Connect and accept the prompt.",
-  interaction_required: "Microsoft 365 needs you to sign in again. Click Connect and follow the prompts.",
+  access_denied:
+    "You cancelled the Microsoft 365 sign-in. Click Connect when you are ready to try again.",
+  consent_required:
+    "Microsoft 365 needs your permission before pi can use it. Click Connect and accept the prompt.",
+  interaction_required:
+    "Microsoft 365 needs you to sign in again. Click Connect and follow the prompts.",
   invalid_client: "This PC is not set up for Microsoft 365 sign-in. Ask your IT team for help.",
   invalid_grant: "Your Microsoft 365 sign-in has expired. Click Connect to sign in again.",
   login_required: "Microsoft 365 needs you to sign in again. Click Connect and follow the prompts.",
-  unauthorized_client: "Your organization does not allow pi to sign in to Microsoft 365. Ask your IT team to approve it.",
+  unauthorized_client:
+    "Your organization does not allow pi to sign in to Microsoft 365. Ask your IT team to approve it.",
 };
 
 /** A cancelled sign-in: `login()`'s callers recognise the `AbortError` name. */
@@ -74,8 +78,7 @@ const BROWSER_CLOSED =
 const SIGN_IN_TIMED_OUT =
   "Microsoft 365 sign-in was not completed in time. Click Connect to try again.";
 /** Fallback when Microsoft reports a failure we cannot map to a specific fix. */
-const SIGN_IN_FAILED =
-  "Microsoft 365 did not finish signing you in. Click Connect to try again.";
+const SIGN_IN_FAILED = "Microsoft 365 did not finish signing you in. Click Connect to try again.";
 
 /** Rejects as soon as `signal` aborts, without waiting for `promise` itself. */
 function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -105,8 +108,7 @@ function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 
 /** A redirect captured from the sign-in browser: either an error or a code. */
 export type AuthorizationResponse =
-  | { readonly error: string }
-  | { readonly code: string; readonly state: string };
+  { readonly error: string } | { readonly code: string; readonly state: string };
 
 interface CdpMessage {
   readonly id?: number;
@@ -301,7 +303,6 @@ function browserExecutable(): string {
   );
 }
 
-
 async function cdpCall(
   socket: CdpSocket,
   counter: CdpCounter,
@@ -336,7 +337,6 @@ async function cdpCall(
     }
   }
 }
-
 
 function authorizationResponse(message: CdpMessage): AuthorizationResponse | null {
   if (message.method !== "Network.requestWillBeSent") {
@@ -377,7 +377,6 @@ function authorizationResponse(message: CdpMessage): AuthorizationResponse | nul
   }
   return null;
 }
-
 
 async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   if (child.exitCode !== null || child.signalCode !== null) {
@@ -460,8 +459,7 @@ async function captureAuthorizationResponse(
   child.on("exit", () => {
     gone = true;
   });
-  const exited = (): boolean =>
-    gone || child.exitCode !== null || child.signalCode !== null;
+  const exited = (): boolean => gone || child.exitCode !== null || child.signalCode !== null;
   const terminate = async (): Promise<void> => {
     if (exited()) {
       return;
@@ -475,7 +473,11 @@ async function captureAuthorizationResponse(
   };
   // An aborted sign-in closes Edge at once, so Connect can be clicked again.
   const onAbort = (): void => {
-    void terminate();
+    void terminate().catch((error: unknown) => {
+      process.stderr.write(
+        `Microsoft sign-in cleanup failed: ${error instanceof Error ? error.message : "unknown error"}\n`,
+      );
+    });
   };
   signal?.addEventListener("abort", onAbort, { once: true });
   try {
@@ -606,20 +608,17 @@ async function captureAuthorizationResponse(
   }
 }
 
-
 // --- OAuth 2.0 authorization-code flow --------------------------------------
 
 export function scopeKey(scopes: readonly string[]): string {
   return [...scopes].sort().join(" ");
 }
 
-
 export function pkce(): [string, string] {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
   return [verifier, challenge];
 }
-
 
 export function authorizeUrl(
   scopes: readonly string[],
@@ -643,10 +642,7 @@ export function authorizeUrl(
   return `${AUTHORIZE_ENDPOINT}?${params.toString()}`;
 }
 
-
-export async function tokenRequest(
-  data: Record<string, string>,
-): Promise<Record<string, unknown>> {
+export async function tokenRequest(data: Record<string, string>): Promise<Record<string, unknown>> {
   const body = new URLSearchParams(data).toString();
   const response = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
@@ -676,7 +672,6 @@ export async function tokenRequest(
   return record;
 }
 
-
 function errorText(result: Record<string, unknown>): string {
   const description = result["error_description"];
   if (typeof description === "string" && description) {
@@ -698,7 +693,6 @@ function tokenResultError(result: Record<string, unknown>): AuthenticationError 
   const mapped = typeof code === "string" ? OAUTH_ERROR_TEXT[code] : undefined;
   return new AuthenticationError(mapped ?? SIGN_IN_FAILED, errorText(result));
 }
-
 
 export function preferredUsername(result: Record<string, unknown>): string | null {
   const token = result["id_token"];
@@ -728,7 +722,6 @@ export function preferredUsername(result: Record<string, unknown>): string | nul
   }
   return null;
 }
-
 
 /** The access token cached under `key` with its absolute expiry, or null. */
 function accessEntry(

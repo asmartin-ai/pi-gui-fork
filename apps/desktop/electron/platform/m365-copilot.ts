@@ -7,17 +7,17 @@ import {
   M365_COPILOT_MODEL_ID,
   M365_COPILOT_PROVIDER_ID,
 } from "../../contracts/ipc";
-import { AuthenticationError, login, signOut as clearTokenCache } from "../../src/m365/auth.js";
-import { MODEL_IDS } from "../../src/m365/catalog.js";
-import { asRecord, isRecord, messageOf } from "../../src/m365/guards.js";
-import { ProxyApplication, createHttpServer } from "../../src/m365/server.js";
+import { AuthenticationError, login, signOut as clearTokenCache } from "../m365/auth.js";
+import { MODEL_IDS } from "../m365/catalog.js";
+import { asRecord, isRecord, messageOf } from "../m365/guards.js";
+import { ProxyApplication, createHttpServer } from "../m365/server.js";
 
 /**
  * Hosts the Microsoft 365 Copilot proxy in-process.
  *
  * The proxy used to be a vendored Python package (`resources/m365-copilot-proxy`)
  * launched as a child process next to a bundled CPython 3.14. It is now a
- * TypeScript module in `src/m365`, so the app starts an `node:http` server bound
+ * TypeScript module in `electron/m365`, so the app starts an `node:http` server bound
  * to 127.0.0.1 in this process: no interpreter, no subprocess supervision, no
  * "runtime missing" state, and a smaller installer.
  *

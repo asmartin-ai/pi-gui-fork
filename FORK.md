@@ -29,13 +29,13 @@ people who are not technical.
 If something goes wrong, the status line under **Settings → Microsoft 365 Copilot** says what to
 do. The common ones:
 
-| What you see | What to do |
-| --- | --- |
-| "Click Connect, then sign in …" | Click **Connect**; the Edge window opens again. |
-| "Port 8000 is already in use" | Another program (or a second copy of pi) holds the port. Close it and click **Connect** again. |
-| "Your Microsoft 365 sign-in expired" | Settings → Microsoft 365 Copilot → **Connect**. |
-| "Copilot is busy" or a throttle message | Wait about a minute and send the message again. |
-| Copilot stops answering in new threads | Microsoft limits how many conversations you may start. Keep working in the same thread instead of starting a new one. |
+| What you see                            | What to do                                                                                                            |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| "Click Connect, then sign in …"         | Click **Connect**; the Edge window opens again.                                                                       |
+| "Port 8000 is already in use"           | Another program (or a second copy of pi) holds the port. Close it and click **Connect** again.                        |
+| "Your Microsoft 365 sign-in expired"    | Settings → Microsoft 365 Copilot → **Connect**.                                                                       |
+| "Copilot is busy" or a throttle message | Wait about a minute and send the message again.                                                                       |
+| Copilot stops answering in new threads  | Microsoft limits how many conversations you may start. Keep working in the same thread instead of starting a new one. |
 
 pi asks before it edits a file or runs a command (**Ask before changes**). Turn that off in
 Settings → Skills and extensions if you prefer, or use **YOLO mode** in Settings → General.
@@ -46,10 +46,10 @@ disarming that is a second, separate switch you have to turn on deliberately.
 
 ### Microsoft 365 Copilot, built in
 
-- The proxy is TypeScript in `src/m365` — it used to be a vendored Python package plus a
+- The proxy is TypeScript in `electron/m365` — it used to be a vendored Python package plus a
   bundled CPython 3.14, and shipping an interpreter to run a plugin was never a good idea.
   It is now part of the app: no subprocess, no `pip`, no third-party packages, and it is
-  covered by the repo's own fixture (`src/m365/e2e.ts`) instead of a Python one.
+  covered by the repo's own fixture (`electron/m365/e2e.ts`) instead of a Python one.
   It needs no Azure app registration or admin consent: it signs in through a dedicated
   Edge profile, the same way the Copilot web app does.
 - `electron/platform/m365-copilot.ts` starts the proxy as an `node:http` server bound to
@@ -107,7 +107,7 @@ that can be switched off in Settings → Skills and extensions:
   [open-codex](https://github.com/ymichael/open-codex). Every non-read-only tool call (write, edit,
   bash, PowerShell, MCP tools…) asks first. Declining blocks the call and tells the model the user
   said no. Background runs with no UI are allowed through so they don't hang.
-- **YOLO mode** (Settings → General): stops asking before each change. It is *not* "approve
+- **YOLO mode** (Settings → General): stops asking before each change. It is _not_ "approve
   everything": **Block destructive commands** stays on, so `rm -rf`, `format`, `del /f /s /q`,
   `Stop-Computer` and friends are still refused. A second switch, "Also block nothing", is the
   only thing that disarms the guard — it is worded that way because it is the dangerous one.

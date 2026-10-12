@@ -603,7 +603,10 @@ export function registerDesktopIpc({
   });
   ipcMain.handle(desktopIpc.signOutM365Copilot, (event) => {
     windows.windowForSender(event.sender);
-    return capabilities.m365Copilot().signOut().then(() => capabilities.m365Copilot().status());
+    return capabilities
+      .m365Copilot()
+      .signOut()
+      .then(() => capabilities.m365Copilot().status());
   });
   ipcMain.handle(desktopIpc.probeCustomProviderModels, (event, rawInput: unknown) => {
     windows.windowForSender(event.sender);
@@ -709,9 +712,7 @@ export function registerDesktopIpc({
   ipcMain.handle(desktopIpc.setYoloMode, async (event, rawEnabled: unknown) => {
     const window = senderWindow(windows, event);
     const enabled = expectBoolean(rawEnabled, "enabled");
-    return windows.runUnscopedStateAction(window, async () =>
-      owners.settings.setYoloMode(enabled),
-    );
+    return windows.runUnscopedStateAction(window, async () => owners.settings.setYoloMode(enabled));
   });
 
   ipcMain.handle(desktopIpc.setYoloDisableDestructiveGuard, async (event, rawEnabled: unknown) => {
