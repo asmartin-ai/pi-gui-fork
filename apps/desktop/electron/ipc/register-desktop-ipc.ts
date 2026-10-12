@@ -18,6 +18,7 @@ import {
   type CustomProviderProbeResult,
 } from "../../contracts/ipc";
 import type { DesktopAppStore } from "../application/app-store";
+import type { M365CopilotConnector } from "../platform/m365-copilot";
 import type { NotificationPermissionService } from "../platform/notification-permission";
 import type { TerminalService } from "../platform/terminal-service";
 import type { ThemeManager } from "../platform/theme-manager";
@@ -185,6 +186,7 @@ export interface DesktopIpcOwners {
 
 export interface DesktopIpcCapabilities {
   readonly ping: () => string;
+  readonly m365Copilot: () => M365CopilotConnector;
   readonly theme: ThemeManager;
   readonly openExternal: (url: string) => Promise<void>;
   readonly pickWorkspace: (window: BrowserWindow) => Promise<DesktopAppState>;

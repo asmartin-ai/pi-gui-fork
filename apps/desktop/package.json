@@ -100,6 +100,7 @@
     "@google/genai": "2.21.0",
     "@mistralai/mistralai": "2.2.6",
     "@opentelemetry/api": "1.9.0",
+    "@openuidev/lang-core": "0.3.2",
     "@pi-gui/catalogs": "workspace:*",
     "@pi-gui/extension-ui": "workspace:*",
     "@pi-gui/pi-sdk-driver": "workspace:*",
@@ -160,7 +161,8 @@
     "undici": "8.5.0",
     "which": "^2.0.1",
     "yaml": "2.9.0",
-    "yargs": "^16.2.0"
+    "yargs": "^16.2.0",
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@dnd-kit/core": "^6.3.1",
