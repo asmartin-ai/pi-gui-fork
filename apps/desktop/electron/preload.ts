@@ -354,6 +354,18 @@ contextBridge.exposeInMainWorld("piApp", {
       workspaceId,
       providerId,
     ) as Promise<DesktopAppState>,
+  getM365CopilotStatus: () =>
+    ipcRenderer.invoke(desktopIpc.getM365CopilotStatus) as Promise<M365CopilotStatus>,
+  startM365Copilot: () =>
+    ipcRenderer.invoke(desktopIpc.startM365Copilot) as Promise<M365CopilotStatus>,
+  stopM365Copilot: () =>
+    ipcRenderer.invoke(desktopIpc.stopM365Copilot) as Promise<M365CopilotStatus>,
+  cancelM365Copilot: () =>
+    ipcRenderer.invoke(desktopIpc.cancelM365Copilot) as Promise<M365CopilotStatus>,
+  disconnectM365Copilot: () =>
+    ipcRenderer.invoke(desktopIpc.disconnectM365Copilot) as Promise<M365CopilotStatus>,
+  signOutM365Copilot: () =>
+    ipcRenderer.invoke(desktopIpc.signOutM365Copilot) as Promise<M365CopilotStatus>,
   probeCustomProviderModels: (input: CustomProviderProbeInput) =>
     ipcRenderer.invoke(
       desktopIpc.probeCustomProviderModels,
@@ -429,6 +441,13 @@ contextBridge.exposeInMainWorld("piApp", {
     ) as Promise<DesktopAppState>,
   setEnableTransparency: (enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setEnableTransparency, enabled) as Promise<DesktopAppState>,
+  setYoloMode: (enabled: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setYoloMode, enabled) as Promise<DesktopAppState>,
+  setYoloDisableDestructiveGuard: (enabled: boolean) =>
+    ipcRenderer.invoke(
+      desktopIpc.setYoloDisableDestructiveGuard,
+      enabled,
+    ) as Promise<DesktopAppState>,
   setThemePresetId: (presetId: ThemePresetId) =>
     ipcRenderer.invoke(desktopIpc.setThemePresetId, presetId) as Promise<DesktopAppState>,
   ensureTerminalPanel: (

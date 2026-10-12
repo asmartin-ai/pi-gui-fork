@@ -7,3 +7,4 @@ dist-electron
 test-results
 tmp-chat-selftest.mjs
 tmp-parallel-selftest.mjs
+

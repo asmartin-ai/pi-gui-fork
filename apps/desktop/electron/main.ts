@@ -12,6 +12,16 @@ import {
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
 } from "electron";
+import {
+  createAskBeforeChangesExtension,
+  createContextTrimExtension,
+  createDestructiveCommandGuardExtension,
+  createGenerativeUiExtension,
+} from "./assistant/coworker-extensions";
+import { createHandoffExtension } from "./assistant/handoff";
+import { createWebSearchExtension } from "./assistant/web-search";
+import { createWindowsShellExtension } from "./assistant/windows-shell";
+import { M365CopilotConnector } from "./platform/m365-copilot";
 import { isValidHttpBaseUrl } from "@pi-gui/pi-sdk-driver";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
@@ -60,6 +70,7 @@ import type { DesktopAppState, DesktopAppViewState } from "../contracts/desktop-
 import {
   desktopCommands,
   desktopIpc,
+  M365_COPILOT_PROVIDER_ID,
   getDesktopCommandFromShortcut,
   isSinglePressCommand,
   isCloseFocusedSurfaceShortcut,
@@ -97,6 +108,33 @@ const windowTestMode = appTestMode ?? "foreground";
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 const TURN_CAPTURE_BACKSTOP_MS = 10_000;
 let store: DesktopAppStore;
+
+/** YOLO mode, read live so a change reaches the next session reload. */
+const yoloModeActive = (): boolean => store?.isYoloMode() === true;
+
+/** Whether YOLO's separate opt-out has disarmed the destructive guard. */
+const yoloDisablesGuard = (): boolean => store?.yoloDisablesDestructiveGuard() === true;
+
+/** The one escape from the guard: show the command, ask once, allow this one only. */
+async function confirmDestructiveCommand(command: string): Promise<boolean> {
+  const window = mainWindow && canPublishToWindow(mainWindow) ? mainWindow : undefined;
+  const options = {
+    type: "warning" as const,
+    message: "Run this destructive command?",
+    detail:
+      `${command}\n\nThis can delete files or data irrecoverably. ` +
+      "It will run once. Anything else is still blocked.",
+    buttons: ["Run it once", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+  };
+
+  const { response } = window
+    ? await dialog.showMessageBox(window, options)
+    : await dialog.showMessageBox(options);
+
+  return response === 0;
+}
 let extensionViewOwner: DesktopExtensionViewOwner | undefined;
 let windowOwner: WindowOwner;
 const themeManager = new ThemeManager();
@@ -1014,6 +1052,55 @@ app
       openUrl: openMcpSignInUrl,
       builtinExtensions: [
         {
+          name: "pi-gui-generative-ui",
+          displayName: "Rich answer cards",
+          description: "Lets pi answer with small cards, charts, checklists and follow-up buttons",
+          factory: createGenerativeUiExtension(),
+        },
+        {
+          name: "pi-gui-destructive-command-guard",
+          displayName: "Block destructive commands",
+          description: "Refuses commands that can destroy data or the machine",
+          // YOLO mode does NOT turn this off; only its own opt-out does, so
+          // "stop asking me" never silently disarms the safety net.
+          factory: createDestructiveCommandGuardExtension(() => !yoloDisablesGuard()),
+        },
+        {
+          name: "pi-gui-ask-before-changes",
+          displayName: "Ask before changes",
+          description: "pi asks before it edits files or runs commands",
+          // E2E runs drive scripted tools unattended; a test opts in with PI_GUI_ASK_BEFORE_CHANGES=1.
+          factory: createAskBeforeChangesExtension(
+            () =>
+              !yoloModeActive() &&
+              (!process.env.PI_APP_TEST_MODE || process.env.PI_GUI_ASK_BEFORE_CHANGES === "1"),
+          ),
+        },
+        {
+          name: "pi-gui-web-search",
+          displayName: "Web search",
+          description: "Lets pi search the web and use the results",
+          factory: createWebSearchExtension(),
+        },
+        {
+          name: "pi-gui-handoff",
+          displayName: "Handoff",
+          description: "Continue this thread in a new thread with /handoff",
+          factory: createHandoffExtension(orchestrationRuntimeBridge),
+        },
+        {
+          name: "pi-gui-windows-shell",
+          displayName: "Windows shell (PowerShell)",
+          description: "Adds pi's PowerShell tool so commands run on Windows",
+          factory: createWindowsShellExtension(),
+        },
+        {
+          name: "pi-gui-context-trim",
+          displayName: "Trim old tool output",
+          description: "Shortens old file reads and command output so small models keep up",
+          factory: createContextTrimExtension(),
+        },
+        {
           name: "pi-gui-thread-orchestration",
           displayName: "Thread orchestration",
           description: "Lets pi start, read and message other pi-gui threads",
@@ -1232,6 +1319,7 @@ app
     });
 
     createAppWindow();
+    startM365CopilotAtLaunch(store);
     void notificationPermissionService.getCurrentStatus().catch((error: unknown) => {
       console.error("[main] getCurrentStatus failed", error);
     });
@@ -1599,6 +1687,48 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+let m365CopilotConnector: M365CopilotConnector | undefined;
+
+function getM365CopilotConnector(): M365CopilotConnector {
+  m365CopilotConnector ??= new M365CopilotConnector({
+    dataDir: path.join(configuredUserDataDir, "m365-copilot"),
+    ...(process.env.PI_GUI_M365_PROXY_URL?.trim()
+      ? { baseUrl: process.env.PI_GUI_M365_PROXY_URL.trim() }
+      : {}),
+  });
+  return m365CopilotConnector;
+}
+
+/**
+ * The `m365-copilot` provider points at a proxy this process hosts, so a saved
+ * default of Microsoft 365 Copilot comes back after every restart pointing at a
+ * closed port: the onboarding notice stays hidden and the first message fails with
+ * a raw connection error. Bind the port when that provider is registered or saved
+ * as the default. Listen only — Edge opens when the person clicks Connect.
+ */
+function startM365CopilotAtLaunch(appStore: DesktopAppStore): void {
+  const registered = Object.values(appStore.snapshot().runtimeByWorkspace).some(
+    (runtime) =>
+      runtime.settings.defaultProvider === M365_COPILOT_PROVIDER_ID ||
+      runtime.providers.some((provider) => provider.id === M365_COPILOT_PROVIDER_ID),
+  );
+  if (!registered) {
+    return;
+  }
+  void getM365CopilotConnector()
+    .start({ signIn: false })
+    .then((status) => {
+      if (status.state === "error") {
+        console.error(
+          `[main] Microsoft 365 Copilot proxy did not start: ${status.detail ?? "unknown error"}`,
+        );
+      }
+    })
+    .catch((error: unknown) => {
+      console.error("[main] Microsoft 365 Copilot proxy failed to start", error);
+    });
 }
 
 async function probeCustomProviderModels(

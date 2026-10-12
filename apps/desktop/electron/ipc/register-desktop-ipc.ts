@@ -12,6 +12,7 @@ import {
 } from "../../contracts/composer-attachments";
 import {
   desktopIpc,
+  M365_COPILOT_PROVIDER_ID,
   type ChangedFilesResult,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
@@ -163,6 +164,8 @@ type SettingsOwner = Pick<
   | "setNotificationPreferences"
   | "setIntegratedTerminalShell"
   | "setEnableTransparency"
+  | "setYoloMode"
+  | "setYoloDisableDestructiveGuard"
   | "getSkillFilePath"
   | "getExtensionFilePath"
 >;
@@ -229,6 +232,30 @@ export interface RegisterDesktopIpcOptions {
 
 function senderWindow(windows: WindowOwner, event: IpcMainInvokeEvent): BrowserWindow {
   return windows.windowForSender(event.sender);
+}
+
+/**
+ * Disconnect must not leave the saved `m365-copilot` provider registered: it points
+ * at a port only this process opens, so it would keep the onboarding notice hidden
+ * and fail the next message with a raw connection error. Unregistering it sends the
+ * person back to Settings, where Connect registers it again.
+ */
+async function forgetM365CopilotProvider(owners: DesktopIpcOwners): Promise<void> {
+  const workspaceId = owners.workspace.getWorkspaceRecords()[0]?.id;
+  if (!workspaceId) {
+    return;
+  }
+  try {
+    const providers = await owners.settings.listCustomProviders();
+    if (!providers.some((provider) => provider.providerId === M365_COPILOT_PROVIDER_ID)) {
+      return;
+    }
+    // Custom providers are stored once for the whole app; refreshing all workspaces
+    // drops the provider's models from every runtime snapshot.
+    await owners.settings.deleteCustomProvider(workspaceId, M365_COPILOT_PROVIDER_ID);
+  } catch (error: unknown) {
+    console.error("[m365] failed to unregister the Microsoft 365 Copilot provider", error);
+  }
 }
 
 export function registerDesktopIpc({
@@ -547,6 +574,35 @@ export function registerDesktopIpc({
         ),
       ),
   );
+  ipcMain.handle(desktopIpc.getM365CopilotStatus, (event) => {
+    windows.windowForSender(event.sender);
+    return capabilities.m365Copilot().status();
+  });
+  ipcMain.handle(desktopIpc.startM365Copilot, (event) => {
+    windows.windowForSender(event.sender);
+    return capabilities.m365Copilot().start();
+  });
+  ipcMain.handle(desktopIpc.stopM365Copilot, (event) => {
+    windows.windowForSender(event.sender);
+    capabilities.m365Copilot().stop();
+    return capabilities.m365Copilot().status();
+  });
+  // Cancel aborts a sign-in in progress without closing the port that a
+  // registered provider points at; Disconnect also forgets the provider.
+  ipcMain.handle(desktopIpc.cancelM365Copilot, (event) => {
+    windows.windowForSender(event.sender);
+    return capabilities.m365Copilot().cancelSignIn();
+  });
+  ipcMain.handle(desktopIpc.disconnectM365Copilot, async (event) => {
+    windows.windowForSender(event.sender);
+    capabilities.m365Copilot().stop();
+    await forgetM365CopilotProvider(owners);
+    return capabilities.m365Copilot().status();
+  });
+  ipcMain.handle(desktopIpc.signOutM365Copilot, (event) => {
+    windows.windowForSender(event.sender);
+    return capabilities.m365Copilot().signOut().then(() => capabilities.m365Copilot().status());
+  });
   ipcMain.handle(desktopIpc.probeCustomProviderModels, (event, rawInput: unknown) => {
     windows.windowForSender(event.sender);
     return capabilities.probeCustomProviderModels(expectCustomProviderProbeInput(rawInput));
@@ -648,6 +704,22 @@ export function registerDesktopIpc({
       owners.settings.setIntegratedTerminalShell(expectString(rawShellPath, "shellPath")),
     ),
   );
+  ipcMain.handle(desktopIpc.setYoloMode, async (event, rawEnabled: unknown) => {
+    const window = senderWindow(windows, event);
+    const enabled = expectBoolean(rawEnabled, "enabled");
+    return windows.runUnscopedStateAction(window, async () =>
+      owners.settings.setYoloMode(enabled),
+    );
+  });
+
+  ipcMain.handle(desktopIpc.setYoloDisableDestructiveGuard, async (event, rawEnabled: unknown) => {
+    const window = senderWindow(windows, event);
+    const enabled = expectBoolean(rawEnabled, "enabled");
+    return windows.runUnscopedStateAction(window, async () =>
+      owners.settings.setYoloDisableDestructiveGuard(enabled),
+    );
+  });
+
   ipcMain.handle(desktopIpc.setEnableTransparency, async (event, rawEnabled: unknown) => {
     const window = senderWindow(windows, event);
     const enabled = expectBoolean(rawEnabled, "enabled");
