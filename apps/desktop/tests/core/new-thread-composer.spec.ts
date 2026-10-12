@@ -231,7 +231,7 @@ test("refreshing after a provider becomes available auto-enables that provider's
     const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
     await composer.fill("connect provider");
     await expect(modelBadge).toHaveText("No models available");
-    await expect(notice).toContainText("Open Settings > Providers");
+    await expect(notice).toContainText("Connect Microsoft 365 Copilot");
 
     await writeFile(
       join(agentDir, "auth.json"),
@@ -287,7 +287,7 @@ test("settings do not show stale enabled-model pills when no providers are conne
 
     await window.getByTestId("new-thread-composer").fill("check no provider settings");
     await expect(window.getByTestId("model-onboarding-notice")).toContainText(
-      "Open Settings > Providers",
+      "Connect Microsoft 365 Copilot",
     );
 
     await window.keyboard.press(desktopShortcut(","));

@@ -15,6 +15,7 @@ import type {
 } from "../../../contracts/ipc";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
+import { SettingsM365CopilotSection } from "./settings-m365-copilot-section";
 import { type McpSettingsActions, SettingsMcpSection } from "./settings-mcp-section";
 import { SettingsModelsSection } from "./settings-models-section";
 import { SettingsNotificationsSection } from "./settings-notifications-section";
@@ -168,6 +169,14 @@ export function SettingsView({
               yoloDisableDestructiveGuard={yoloDisableDestructiveGuard}
               onSetYoloMode={onSetYoloMode}
               onSetYoloDisableDestructiveGuard={onSetYoloDisableDestructiveGuard}
+            />
+          ) : null}
+
+          {section === "copilot" ? (
+            <SettingsM365CopilotSection
+              runtime={runtime}
+              onSaveCustomProvider={onSaveCustomProvider}
+              onSetDefaultModel={onSetDefaultModel}
             />
           ) : null}
 

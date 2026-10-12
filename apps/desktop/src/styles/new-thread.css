@@ -125,3 +125,30 @@
 .new-thread__hint-separator {
   color: var(--muted-soft);
 }
+
+.starter-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.starter-prompts__chip {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted-strong);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out);
+}
+
+.starter-prompts__chip:hover {
+  background: var(--overlay-hover);
+  color: var(--text-strong);
+}

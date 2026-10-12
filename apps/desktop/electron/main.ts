@@ -1362,6 +1362,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  m365CopilotConnector?.stop();
   stopNotifications?.();
   stopNotifications = undefined;
   notificationManager = undefined;

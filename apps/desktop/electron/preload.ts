@@ -15,6 +15,7 @@ import {
   type CustomProviderConfig,
   type CustomProviderProbeInput,
   type CustomProviderProbeResult,
+  type M365CopilotStatus,
   type McpServerScope,
   type McpServersSnapshot,
   type NewMcpServerInput,
@@ -27,7 +28,6 @@ import {
   type TerminalExitEvent,
   type TerminalPanelSnapshot,
   type TerminalSize,
-  type M365CopilotStatus,
 } from "../contracts/ipc";
 import type { ExtensionActionEffect, ExtensionActionRequest } from "../contracts/extension-actions";
 import type { ClipboardImageRead } from "../contracts/composer-attachments";

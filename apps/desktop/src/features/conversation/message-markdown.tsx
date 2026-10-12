@@ -1,6 +1,8 @@
 import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { GENERATIVE_UI_FENCE_LANGUAGE } from "../../../contracts/generative-ui";
+import { GenerativeUiBlock } from "./generative-ui-block";
 import {
   remarkWorkspaceFileLines,
   workspaceFileLineFromAnchorProps,
@@ -8,13 +10,32 @@ import {
 } from "./workspace-file-line";
 
 const REMARK_PLUGINS = [remarkGfm];
+const GENERATIVE_UI_CLASS = `language-${GENERATIVE_UI_FENCE_LANGUAGE}`;
+
+function isGenerativeUiClass(className: unknown): boolean {
+  return Array.isArray(className)
+    ? className.includes(GENERATIVE_UI_CLASS)
+    : typeof className === "string" && className.split(/\s+/).includes(GENERATIVE_UI_CLASS);
+}
 
 function markdownComponents(
   onOpenWorkspaceFileLine?: (target: WorkspaceFileLine) => void,
 ): Components {
   return {
+    // A ```openui-lang fence renders as a generative UI card instead of code.
+    pre: ({ node, children }) => {
+      const first = node?.children[0];
+      const isGenerativeUi =
+        first?.type === "element" &&
+        first.tagName === "code" &&
+        isGenerativeUiClass(first.properties.className);
+      return isGenerativeUi ? <>{children}</> : <pre>{children}</pre>;
+    },
     code: ({ className, children }) => {
       const code = String(children).replace(/\n$/, "");
+      if (isGenerativeUiClass(className)) {
+        return <GenerativeUiBlock source={code} />;
+      }
       return <code className={className}>{code}</code>;
     },
     a: ({ href, children, ...props }) => {
