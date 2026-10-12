@@ -18,7 +18,6 @@ import {
   type CustomProviderProbeResult,
 } from "../../contracts/ipc";
 import type { DesktopAppStore } from "../application/app-store";
-import type { M365CopilotConnector } from "../platform/m365-copilot";
 import type { NotificationPermissionService } from "../platform/notification-permission";
 import type { TerminalService } from "../platform/terminal-service";
 import type { ThemeManager } from "../platform/theme-manager";
@@ -69,6 +68,7 @@ import {
   expectExtensionActionRequest,
 } from "./request-validation";
 import { runExtensionAction, type AppOperationHost } from "../extensions/app-operations";
+import type { M365CopilotConnector } from "../platform/m365-copilot";
 
 type StateOwner = Pick<
   DesktopAppStore,
@@ -186,7 +186,6 @@ export interface DesktopIpcOwners {
 
 export interface DesktopIpcCapabilities {
   readonly ping: () => string;
-  readonly m365Copilot: () => M365CopilotConnector;
   readonly theme: ThemeManager;
   readonly openExternal: (url: string) => Promise<void>;
   readonly pickWorkspace: (window: BrowserWindow) => Promise<DesktopAppState>;
@@ -196,6 +195,7 @@ export interface DesktopIpcCapabilities {
   readonly probeCustomProviderModels: (
     input: CustomProviderProbeInput,
   ) => Promise<CustomProviderProbeResult>;
+  readonly m365Copilot: () => M365CopilotConnector;
   readonly notificationPermission: () => NotificationPermissionService | undefined;
   readonly terminal: () => TerminalService;
   readonly optionalTerminal: () => TerminalService | undefined;

@@ -1,7 +1,7 @@
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { buildModelOptions } from "../conversation/composer-commands";
 
-export type ModelOnboardingSettingsSection = "models" | "providers";
+export type ModelOnboardingSettingsSection = "copilot" | "models" | "providers";
 
 export interface ModelOnboardingNotice {
   readonly title: string;
@@ -64,11 +64,11 @@ export function deriveModelOnboardingState(
               actionSection: "models",
             }
           : {
-              title: "No models available",
+              title: "Connect a model to get started",
               description:
-                "Connect a provider in Settings > Providers before choosing a model or setting a default.",
-              actionLabel: "Open Settings > Providers",
-              actionSection: "providers",
+                "Sign in with your work Microsoft 365 Copilot in one click, or connect another provider in Settings > Providers.",
+              actionLabel: "Connect Microsoft 365 Copilot",
+              actionSection: "copilot",
             },
     };
   }

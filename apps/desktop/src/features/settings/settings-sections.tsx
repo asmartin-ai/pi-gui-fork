@@ -25,6 +25,15 @@ export interface SettingsSectionDefinition {
 /** Nav order: grouped the way Codex groups its settings, one entry per page. */
 export const SETTINGS_SECTIONS = [
   {
+    id: "copilot",
+    title: "Microsoft 365 Copilot",
+    group: "Get started",
+    icon: <PlugIcon />,
+    keywords: ["m365", "office", "work account", "microsoft", "copilot", "proxy", "sign in"],
+    description: () => "Connect your work Copilot so pi can use it as its model.",
+    needsWorkspace: true,
+  },
+  {
     id: "general",
     title: "General",
     group: "App",

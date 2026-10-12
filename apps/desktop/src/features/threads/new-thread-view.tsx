@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
+import { StarterPrompts } from "./starter-prompts";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ExtensionFlagValues } from "@pi-gui/session-driver";
 import type {
@@ -246,6 +247,14 @@ export function NewThreadView({
               }
             />
           </div>
+          {prompt || attachments.length > 0 ? null : (
+            <StarterPrompts
+              onPick={(starter) => {
+                onChangePrompt(starter);
+                composerRef.current?.focus();
+              }}
+            />
+          )}
         </div>
       </div>
     </section>

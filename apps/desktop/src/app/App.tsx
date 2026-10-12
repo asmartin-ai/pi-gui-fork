@@ -64,6 +64,10 @@ import { SidebarToggleButton } from "../features/threads/sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "../features/workbench/terminal-panel";
 import { ConversationTimeline } from "../features/conversation/conversation-timeline";
+import {
+  GenerativeUiActionsContext,
+  useGenerativeUiActions,
+} from "../features/conversation/generative-ui-block";
 import { ScheduledTasksView } from "../features/scheduled-tasks/scheduled-tasks-view";
 import {
   ScheduledTaskEditor,
@@ -435,6 +439,7 @@ export default function App() {
     },
     [api],
   );
+  const generativeUiActions = useGenerativeUiActions(setComposerDraft, focusComposer);
   const runExtensionCardAction = useExtensionCardActions({
     api,
     target: workbenchTarget,
@@ -1167,27 +1172,29 @@ export default function App() {
                     </div>
                   ) : null}
 
-                  <ConversationTimeline
-                    key={selectedSessionKey}
-                    transcript={pins.timeline}
-                    isTranscriptLoading={isTranscriptLoading}
-                    transcriptFailed={transcriptFailed}
-                    onRetryTranscript={desktop.retry}
-                    viewport={viewport}
-                    threadSearch={threadSearch}
-                    onViewFileInDiff={handleViewFileInDiff}
-                    onOpenTurnChange={turnChanges.openTurnChange}
-                    onOpenWorkspaceFileLine={handleOpenWorkspaceFileLine}
-                    onExtensionAction={runExtensionCardAction}
-                    extensionToolLabels={extensionToolLabels}
-                    workspacePath={selectedWorkspace.path}
-                    onForkFromMessage={
-                      selectedSession.status === "running" ? undefined : openForkModal
-                    }
-                    scheduledOrigins={scheduledOrigins}
-                    annotations={transcriptAnnotations}
-                    platform={api?.platform ?? "linux"}
-                  />
+                  <GenerativeUiActionsContext.Provider value={generativeUiActions}>
+                    <ConversationTimeline
+                      key={selectedSessionKey}
+                      transcript={pins.timeline}
+                      isTranscriptLoading={isTranscriptLoading}
+                      transcriptFailed={transcriptFailed}
+                      onRetryTranscript={desktop.retry}
+                      viewport={viewport}
+                      threadSearch={threadSearch}
+                      onViewFileInDiff={handleViewFileInDiff}
+                      onOpenTurnChange={turnChanges.openTurnChange}
+                      onOpenWorkspaceFileLine={handleOpenWorkspaceFileLine}
+                      onExtensionAction={runExtensionCardAction}
+                      extensionToolLabels={extensionToolLabels}
+                      workspacePath={selectedWorkspace.path}
+                      onForkFromMessage={
+                        selectedSession.status === "running" ? undefined : openForkModal
+                      }
+                      scheduledOrigins={scheduledOrigins}
+                      annotations={transcriptAnnotations}
+                      platform={api?.platform ?? "linux"}
+                    />
+                  </GenerativeUiActionsContext.Provider>
                 </div>
               </section>
               {scheduledBinding ? (
